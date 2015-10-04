@@ -1,7 +1,7 @@
 {
   "version" : 1,
   "root" : {
-    "level" : "DEBUG",
+    "level" : "INFO",
     "handlers" : [ "console", "file" ]
   },
   "loggers" : {
@@ -21,7 +21,7 @@
   },
   "filters" : {
     "color" : {
-      "()" : "logger.ColorFilter.factory"
+      "()" : "config_log.ColorFilter.factory"
     }
   },
   "formatters" : { 

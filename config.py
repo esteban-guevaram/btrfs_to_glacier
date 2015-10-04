@@ -1,4 +1,4 @@
-import logging, logger as logger_conf, argparse, ConfigParser, os
+import logging, config_log, argparse, ConfigParser, os
 logger = logging.getLogger(__name__)
 
 ARG_OPTION_MAPPING = {
@@ -36,7 +36,7 @@ def transform_into_list (section, prop):
 
 def adjust_logger_config (final_conf):
   if final_conf.app.verbose:
-    logger_conf.set_global_level(logging.DEBUG)
+    config_log.set_global_level(logging.DEBUG)
     logger.debug('Set logger to verbose mode')
 
 def build_final_conf (config, namespace):
@@ -94,11 +94,11 @@ def parse_all_config ():
   return final_conf
 
 singleton_conf = None
-def getConfig ():
+def get_conf ():
   global singleton_conf
   if not singleton_conf:
     singleton_conf = parse_all_config()
   return singleton_conf  
 
-getConfig()
+get_conf()
 

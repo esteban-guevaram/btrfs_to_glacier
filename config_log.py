@@ -43,13 +43,14 @@ def set_global_level (level):
 
 def __init_logging__ ():
   try:
-    with open('logger.json', 'r') as conf_file:
+    with open('config_log.json', 'r') as conf_file:
       conf_dict = json.load(conf_file)
     logging.config.dictConfig(conf_dict)
     logger = logging.getLogger(__name__)
     logger.debug('Logging config OK')
   except Exception as err:
     logging.basicConfig(level=logging.NOTSET)
+    logger = logging.getLogger(__name__)
     logger.exception('Logging configuration failed. Using basicConfig')
 
 __init_logging__()
