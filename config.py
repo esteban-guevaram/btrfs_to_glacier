@@ -1,9 +1,15 @@
 import logging, config_log, argparse, ConfigParser, os
 logger = logging.getLogger(__name__)
 
+class MyStoreTrue(argparse.Action):
+  def __init__(self, option_strings, dest, nargs=None, **kwargs):
+    super(MyStoreTrue, self).__init__(option_strings, dest, 0, **kwargs)
+  def __call__(self, parser, namespace, values, option_string=None):
+    if option_string: setattr(namespace, self.dest, values)
+
 ARG_OPTION_MAPPING = {
-  ('app', 'verbose')  :   { 'flag' : '-v', 'args' : { 'action' : 'store_true' } },
-  ('app', 'dryrun')   :   { 'flag' : '-d', 'args' : { 'action' : 'store_true' } },
+  ('app', 'verbose')  :   { 'flag' : '-v', 'args' : { 'action' : MyStoreTrue } },
+  ('app', 'dryrun')   :   { 'flag' : '-d', 'args' : { 'action' : MyStoreTrue } },
 }
 
 class FinalConf (object): 
@@ -24,7 +30,20 @@ def sanity_checks (final_conf):
 
 def adjust_config_types (final_conf):
   transform_into_list(final_conf.rsync, 'exclude')
+  transform_into_bool(final_conf.app, 'verbose')
+  transform_into_bool(final_conf.app, 'dryrun')
+  transform_into_bool(final_conf.app, 'interactive')
 
+def transform_into_bool (section, prop):
+  if not hasattr(section, prop):
+    assert False, "Bad config for key %r - %s" % (section, prop)
+  
+  value = getattr(section, prop)
+  if value in [True, False]: pass
+  elif getattr(section, prop).lower() in ['1', 'true', 'yes', 'y']:
+    setattr(section, prop, True)
+  else:
+    setattr(section, prop, False)
 
 def transform_into_list (section, prop):
   if not hasattr(section, prop):
@@ -54,7 +73,8 @@ def build_final_conf (config, namespace):
       setattr(final_conf, key[0], FinalConf())
     if hasattr(namespace, key[0]+key[1]):
       value = getattr(namespace, key[0]+key[1])  
-      setattr( getattr(final_conf, key[0]), key[1], value)
+      if value is not None:
+        setattr( getattr(final_conf, key[0]), key[1], value)
 
   return final_conf    
 

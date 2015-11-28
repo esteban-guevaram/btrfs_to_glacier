@@ -6,13 +6,13 @@ logger = logging.getLogger(__name__)
 class BtrfsTreeBuilder (object):
   
   def build_root (self, device):
-    cmd_out = sudo('btrfs filesystem show ' + device)
+    cmd_out = sudo_call('btrfs filesystem show ' + device, get_conf().app.interactive)
     sc_label = re.search(r"label\s*:\s*'?(\w+)'?",    cmd_out, re.IGNORECASE)
     sc_uuid =  re.search(r"uuid\s*:\s*([0-9a-f\-]+)", cmd_out, re.IGNORECASE)
     assert sc_label and sc_uuid, "Bad btrfs command output"
 
     root = BtrfsRoot(label=sc_label.group(1), uuid=sc_uuid.group(1))
-    cmd_out = sudo('blkid -o device -t UUID=' + root.uuid)
+    cmd_out = sudo_call('blkid -o device -t UUID=' + root.uuid, get_conf().app.interactive)
     root.devices = [ d.strip() for d in cmd_out.split('\n') if d.strip() ]
     
     logger.debug('Found root : %r', root)
@@ -49,7 +49,7 @@ class BtrfsTreeBuilder (object):
       'otime'     : ( re.compile(r'^\s+creation time:\s+(\d+-\d+-\d+\s+\d+:\d+:\d+)', re.IGNORECASE), l4 ),
     }
 
-    cmd_out = sudo('btrfs subvolume show ' + mount)
+    cmd_out = sudo_call('btrfs subvolume show ' + mount, get_conf().app.interactive)
     node = self.build_from_extract_spec(cmd_out.split('\n'), extract_spec)
     node.mount = mount
     return node
@@ -92,7 +92,7 @@ class BtrfsTreeBuilder (object):
       'mount'     : ( re.compile(r'\bpath\s+(.+)',                  re.IGNORECASE), l4 ),
     }
 
-    cmd_out = sudo('btrfs subvolume list -%s %s' % (flags, mount))
+    cmd_out = sudo_call('btrfs subvolume list -%s %s' % (flags, mount), get_conf().app.interactive)
 
     for line in cmd_out.split('\n'):
       if not line.strip(): continue
@@ -187,7 +187,7 @@ class BtrfsTreeBuilder (object):
     return tree
 
   def remove_node (self, node):
-    sudo('btrfs subvolume delete -c ' + node.mount, interactive=True)
+    #sudo_call('btrfs subvolume delete -c ' + node.mount, interactive=True)
     node.get_parent().childs.remove(node)
     node.get_parent = None
     return node
@@ -204,13 +204,12 @@ class BtrfsTreeBuilder (object):
       cmd = 'btrfs send -p %s %s' % (n_parent.mount, n_source.mount)
     else:  
       cmd = 'btrfs send ' + n_source.mount
-      
 
   def create_snapshot (self, tree, n_source, n_dest):
     full_dest = '%s/%s_%s' % (n_dest.mount, n_source.label, timestamp.str)
     assert not os.path.exists(full_dest)
 
-    sudo('btrfs subvolume snapshot -r %s %s' % (n_source.mount, full_dest), interactive=True)
+    sudo_call('btrfs subvolume snapshot -r %s %s' % (n_source.mount, full_dest), interactive=True)
     return self.add_node(tree, full_dest, BtrfsNode.SNAP)
 
 ### BtrfsTreeBuilder

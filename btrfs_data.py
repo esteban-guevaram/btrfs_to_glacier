@@ -6,7 +6,7 @@ class BtrfsNode (object):
 
   def __init__(self, **kwargs):
     self.childs = []
-    self.label = self.parent = self.otime = None
+    self.label = self.get_parent = self.otime = None
     assert kwargs.get('uuid')
     for k,v in kwargs.items():
       setattr(self, k, v)
@@ -16,9 +16,13 @@ class BtrfsNode (object):
     visitor(self)
 
   def __repr__ (self):
-    parent = None
-    if self.parent: parent = self.parent.uuid
-    return "(%s, %s, par=%s, childs=%d)" % (self.label, self.uuid, parent, len(self.childs))
+    label = 'label?'
+    if hasattr(self, 'label'): label = self.label
+    mount = 'mount?'
+    if hasattr(self, 'mount'): mount = self.mount
+    parent = '??'
+    if self.get_parent: parent = self.get_parent().label
+    return "(%s, %s, %s, par=%s, childs=%d)" % (self.uuid, label, mount, parent, len(self.childs))
 
 class BtrfsRoot (BtrfsNode):
   def __init__(self, **kwargs):
