@@ -59,6 +59,9 @@ struct btrfs_free_space_ctl;
 #define BTRFS_CSUM_TREE_OBJECTID 7ULL
 #define BTRFS_QUOTA_TREE_OBJECTID 8ULL
 
+#define BTRFS_UUID_SIZE 16
+#define BTRFS_FSID_SIZE 16
+
 /* for storing items that use the BTRFS_UUID_KEY* */
 #define BTRFS_UUID_TREE_OBJECTID 9ULL
 
@@ -182,9 +185,6 @@ struct btrfs_key {
 struct btrfs_mapping_tree {
 	struct cache_tree cache_tree;
 };
-
-#define BTRFS_UUID_SIZE 16
-#define BTRFS_FSID_SIZE 16
 
 struct btrfs_dev_item {
 	/* the internal btrfs device id */

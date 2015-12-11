@@ -1,5 +1,3 @@
-#include "kerncompat.h"
-
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -11,10 +9,10 @@
 #include <linux/magic.h>
 #include <btrfs/ioctl.h>
 
+#include "kerncompat.h"
 #include "btrfs_lib.h"
 #include "ctree.h"
 
-static int btrfs_list_get_path_rootid(int fd, u64 *treeid);
 static int open_file_or_dir(const char *fname, DIR **dirstream, int open_flags);
 static int add_root(struct root_lookup *root_lookup,
         u64 root_id, u64 ref_tree, u64 root_offset, u64 flags,
@@ -30,31 +28,10 @@ static int comp_entry_with_rootid(struct root_info *entry1,
 static int root_tree_insert(struct root_lookup *root_tree, struct root_info *ins);
 static void root_lookup_init(struct root_lookup *tree);
 static int lookup_ino_path(int fd, struct root_info *ri);
-static int resolve_root(struct root_lookup *rl, struct root_info *ri, u64 top_id);
 
 typedef void (*rb_free_node)(struct rb_node *node);
 static void rb_free_nodes(struct rb_root *root, rb_free_node free_node);
 static void __free_root_info(struct rb_node *node);
-
-int list_subvol_resolve_root(int fd, struct root_lookup *root_lookup) 
-{
-  int ret;
-  u64 root_id;
-  struct rb_node *n;
-  n = rb_first(&root_lookup->root);
-
-  btrfs_list_get_path_rootid(fd, &root_id);
-
-  while (n) {
-    struct root_info *entry;
-    entry = rb_entry(n, struct root_info, rb_node);
-    ret = resolve_root(root_lookup, entry, root_id);
-    if (ret) return ret;
-    n = rb_next(n);
-  }
-
-  return ret;
-}
 
 /*
  * Do the following checks before calling open_file_or_dir():
@@ -153,35 +130,19 @@ void close_file_or_dir(int fd, DIR *dirstream)
     close(fd);
 }
 
-int btrfs_list_subvols(int fd, struct root_lookup *root_lookup)
+int btrfs_list_subvols(const char* dirpath, int fd, struct root_lookup *root_lookup)
 {
-  int ret;
-
-  ret = list_subvol_search(fd, root_lookup);
-  if (ret) {
-    fprintf(stderr, "ERROR: can't perform the search - %s\n",
-        strerror(errno));
-    return ret;
-  }
+  TRY_OR_DIE( list_subvol_search(fd, root_lookup) );
 
   /*
    * now we have an rbtree full of root_info objects, but we need to fill
    * in their path names within the subvol that is referencing each one.
    */
-  ret = list_subvol_fill_paths(fd, root_lookup);
-  if (ret) {
-    fprintf(stderr, "ERROR: can't fill paths - %s\n",
-        strerror(errno));
-    return ret;
-  }
+  TRY_OR_DIE( list_subvol_fill_paths(fd, root_lookup) );
 
-  ret = list_subvol_resolve_root(fd, root_lookup);
-  if (ret) {
-    fprintf(stderr, "ERROR: can't resolve full paths - %s\n",
-        strerror(errno));
-    return ret;
-  }
-  return ret;
+  TRY_OR_DIE( list_subvol_resolve_root(fd, root_lookup) );
+  TRY_OR_DIE( list_subvol_complete_path(dirpath, root_lookup) );
+  return 0;
 }
 
 int list_subvol_fill_paths(int fd, struct root_lookup *root_lookup)
@@ -598,7 +559,7 @@ static int lookup_ino_path(int fd, struct root_info *ri)
  * This can't be called until all the root_info->path fields are filled
  * in by lookup_ino_path
  */
-static int resolve_root(struct root_lookup *rl, struct root_info *ri, u64 top_id)
+int resolve_root(struct root_lookup *rl, struct root_info *ri, u64 top_id)
 {
   char *full_path = NULL;
   int len = 0;
@@ -671,7 +632,7 @@ static int resolve_root(struct root_lookup *rl, struct root_info *ri, u64 top_id
   return 0;
 }
 
-static int btrfs_list_get_path_rootid(int fd, u64 *treeid)
+int btrfs_list_get_path_rootid(int fd, u64 *treeid)
 {
   int  ret;
   struct btrfs_ioctl_ino_lookup_args args;

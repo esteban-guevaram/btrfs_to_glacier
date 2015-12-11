@@ -20,7 +20,7 @@ struct root_info {
   /* this root's id */
   u64 root_id;
 
-  /* equal the offset of the root's key */
+  /* equal the offset of the root's key => non null means this is a snapshot*/
   u64 root_offset;
 
   /* flags of the root */
