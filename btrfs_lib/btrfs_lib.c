@@ -33,6 +33,18 @@ typedef void (*rb_free_node)(struct rb_node *node);
 static void rb_free_nodes(struct rb_root *root, rb_free_node free_node);
 static void __free_root_info(struct rb_node *node);
 
+int build_btrfs_subvols_from_path (const char* subvol, struct root_lookup* result) {
+  int fd = -1;
+  DIR *dirstream = NULL;
+
+  TRACE("Start building tree for %s", subvol);
+  fd = btrfs_open_dir(subvol, &dirstream, 1);
+  TRY_OR_DIE( btrfs_list_subvols(subvol, fd, result) );
+  close_file_or_dir(fd, dirstream);
+  
+  return 0;
+}
+
 /*
  * Do the following checks before calling open_file_or_dir():
  * 1: path is in a btrfs filesystem
@@ -651,14 +663,31 @@ int btrfs_list_get_path_rootid(int fd, u64 *treeid)
   return 0;
 }
 
+int clone_subvol(struct root_info *source, struct root_info* dest) 
+{
+  memcpy(dest, source, sizeof(struct root_info));
+  if (source->name)
+    dest->name = strndup(source->name, 256);
+  if (source->path)
+    dest->path = strndup(source->path, 256);
+  if (source->full_path)
+    dest->full_path = strndup(source->full_path, 256);
+  return 0;
+}
+
+void clear_data_subvol(struct root_info *subvol) 
+{
+  free(subvol->name);
+  free(subvol->path);
+  free(subvol->full_path);
+}
+
 static void __free_root_info(struct rb_node *node)
 {
   struct root_info *ri;
 
   ri = rb_entry(node, struct root_info, rb_node);
-  free(ri->name);
-  free(ri->path);
-  free(ri->full_path);
+  clear_data_subvol(ri);
   free(ri);
 }
 
@@ -675,5 +704,19 @@ void rb_free_nodes(struct rb_root *root, rb_free_node free_node)
     rb_erase(node, root);
     free_node(node);
   }
+}
+
+int visit_subvols_in_tree (struct root_lookup* tree, subvol_visitor visitor, void* state) {
+  struct rb_node *n;
+
+  n = rb_first(&tree->root);
+  while (n) {
+    struct root_info *entry;
+    entry = rb_entry(n, struct root_info, rb_node);
+    TRY_OR_DIE( visitor(entry, state) );
+    n = rb_next(n);
+  }
+
+  return 0;
 }
 

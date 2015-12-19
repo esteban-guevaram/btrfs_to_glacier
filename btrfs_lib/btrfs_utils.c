@@ -75,7 +75,7 @@ int complete_subvol_path(char* partial_path, const char* root_path, char* result
       strncpy(result, buffer, 256);
       close_file_or_dir(fd, dirstream);
     }  
-    //TRACE("Checking '%s' => %d", buffer, fd);
+    TRACE("Checking '%s' => %d", buffer, fd);
   }
 
   return result[0] == '\0';

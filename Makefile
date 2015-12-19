@@ -1,28 +1,34 @@
-.PHONY : clean native
+.PHONY : clean native test
 
 CC := gcc
 CPPFLAGS := -D_XOPEN_SOURCE=700
-CFLAGS := -Ibtrfs_lib -std=gnu99 -Wall -O0 -ggdb
-LDFLAGS :=# -rdynamic
+CFLAGS := -fPIC -Ibtrfs_lib -std=gnu99 -Wall -O0 -ggdb
+LDFLAGS :=
 LDLIBS := 
+SOFLAGS := -shared -Wl,--version-script=btrfs_lib/pybtrfs.export 
 
-bin/%.o :
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+native: bin/pybtrfs.so bin/btrfs_test btrfs_lib/tags
 
-native: bin/btrfs_test btrfs_lib/tags
+bin/btrfs_test : $(addprefix bin/, btrfs_test.o btrfs_lib.o btrfs_utils.o rbtree.o )
+bin/pybtrfs.so : $(addprefix bin/, pybtrfs.o pybtrfs_mod_function.o pybtrfs_mod_type.o btrfs_lib.o btrfs_utils.o rbtree.o ) btrfs_lib/pybtrfs.export
+	$(CC) $(SOFLAGS) $(LDFLAGS) $(LDLIBS) -o $@ $(filter %.o %.a, $^)
 
-bin/btrfs_test : bin/btrfs_test.o bin/btrfs_lib.o bin/btrfs_utils.o bin/rbtree.o 
-	$(CC) $(LDFLAGS) $(LDLIBS) -o $@ $^
-
-btrfs_lib/tags: $(wildcard btrfs_lib/*.h )
-	(cd btrfs_lib && ctags *.h *.c)
+bin/pybtrfs_mod_function.o :     $(addprefix btrfs_lib/,  pybtrfs_mod_function.c pybtrfs_mod_function.h )
+bin/pybtrfs_mod_type.o :     $(addprefix btrfs_lib/,  pybtrfs_mod_type.c pybtrfs_mod_type.h )
+bin/pybtrfs.o :     $(addprefix btrfs_lib/,  pybtrfs.c )
 
 bin/btrfs_test.o :  $(addprefix btrfs_lib/,  btrfs_test.c )
 bin/btrfs_utils.o : $(addprefix btrfs_lib/,  btrfs_utils.c btrfs_lib.h )
 bin/btrfs_lib.o :   $(addprefix btrfs_lib/,  btrfs_lib.c btrfs_lib.h btrfs_list.h ctree.h )
 bin/rbtree.o :      $(addprefix btrfs_lib/,  rbtree.c rbtree.h rbtree_augmented.h list.h extend_io.h kerncompat.h)
 
+btrfs_lib/tags: $(wildcard btrfs_lib/*.h )
+	(cd btrfs_lib && ctags *.h *.c)
+
+bin/%.o :
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+
 clean:
-	rm bin/*.o
+	rm bin/*
 	rm btrfs_lib/tags
 

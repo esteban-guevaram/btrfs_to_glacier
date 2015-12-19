@@ -7,22 +7,17 @@ static void print_subvols(struct root_lookup *root_lookup);
 static void test_subvols(struct root_lookup *root_lookup);
 
 int main (int argc, char** argv) {
-  int fd = -1;
-  DIR *dirstream = NULL;
   struct root_lookup root_lookup;
 
   char *subvol = "/media/Belenus";
   if (argc > 1)
     subvol = argv[1];
-  printf("Start building tree for %s\n", subvol);
 
-  fd = btrfs_open_dir(subvol, &dirstream, 1);
-  btrfs_list_subvols(subvol, fd, &root_lookup);
+  build_btrfs_subvols_from_path(subvol, &root_lookup);
 
   print_subvols(&root_lookup);
   test_subvols(&root_lookup);
 
-  close_file_or_dir(fd, dirstream);
   free_subvol_rb_tree(&root_lookup);
   printf("ALL OK\n");
 }
