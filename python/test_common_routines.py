@@ -1,6 +1,5 @@
 import unittest as ut
 from common import *
-from btrfs import *
 
 class TestCommon (ut.TestCase):
 
@@ -53,14 +52,6 @@ class TestCommon (ut.TestCase):
     except: pass  
 
 ### END TestCommon
-
-class TestBtrfsTree (ut.TestCase):
-
-  def test_build_tree(self):
-    builder = BtrfsTreeBuilder()
-    builder.build_fs_tree('/dev/sdb1')
-    
-### END TestBtrfsTree
 
 if __name__ == "__main__":
   ut.main()

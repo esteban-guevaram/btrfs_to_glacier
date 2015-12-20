@@ -2,5 +2,7 @@ bin
 **/tags
 **/*.log
 **/*.pyc
+**/*.tar.gz
+**/*.tar
 **/.password
 
