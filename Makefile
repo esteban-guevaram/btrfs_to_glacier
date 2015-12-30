@@ -1,6 +1,7 @@
 .PHONY : clean native python test config package
 
 CC := gcc
+#CPPFLAGS := -D_XOPEN_SOURCE=700 -DTRACING=1
 CPPFLAGS := -D_XOPEN_SOURCE=700
 CFLAGS := -fPIC -Ibtrfs_lib -std=gnu99 -Wall -O0 -ggdb
 LDFLAGS :=
@@ -17,7 +18,7 @@ config:	config.properties config_log.json
 	cp config.properties config_log.json bin
 
 test: python native config
-	sudo bin/btrfs_test $(C_TEST_ARG)
+	#sudo bin/btrfs_test $(C_TEST_ARG)
 	sudo python bin/test_pybtrfs.pyc
 	#sudo python bin/test_common_routines.pyc
 	echo -e "\n\n######################### ALL TESTS OK #########################################\n"
@@ -45,7 +46,7 @@ bin/btrfs_lib.o :   $(addprefix btrfs_lib/,  btrfs_lib.c btrfs_lib.h btrfs_list.
 bin/rbtree.o :      $(addprefix btrfs_lib/,  rbtree.c rbtree.h rbtree_augmented.h list.h extend_io.h kerncompat.h)
 
 btrfs_lib/tags: $(wildcard btrfs_lib/*.h )
-	(cd btrfs_lib && ctags *.h *.c)
+	(cd btrfs_lib && ctags *.h *.c /usr/include/python2.7/*.h)
 
 bin/%.o :
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<

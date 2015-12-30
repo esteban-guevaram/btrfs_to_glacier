@@ -26,10 +26,10 @@ def sanity_checks (final_conf):
   assert os.path.isdir( final_conf.rsync.source )
   assert os.path.isdir( final_conf.rsync.dest )
   assert os.path.isdir( final_conf.btrfs.backup_subvol )
-  assert os.path.exists( final_conf.btrfs.device )
 
 def adjust_config_types (final_conf):
   transform_into_list(final_conf.rsync, 'exclude')
+  transform_into_list(final_conf.btrfs, 'target_subvols')
   transform_into_bool(final_conf.app, 'verbose')
   transform_into_bool(final_conf.app, 'dryrun')
   transform_into_bool(final_conf.app, 'interactive')

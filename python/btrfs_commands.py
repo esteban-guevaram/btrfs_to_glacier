@@ -5,6 +5,21 @@ logger = logging.getLogger(__name__)
 
 class BtrfsCommands (object):
 
+  def incremental_backup_all(self):
+    targets = get_conf().btrfs.target_subvols
+    subvols = BtrfsSubvolList(subvol.path)
+    result_files = []
+    logger.info("These are the targets for backup : %r", targets)
+
+    for target in targets:
+      subvol = subvols.get_by_path(target)
+      assert subvol
+      fileout, subvols = self.incremental_backup(subvol)
+      result_files.append(fileout)
+
+    logger.info("Wrote backup files : %r", result_files)
+    return result_files  
+
   def incremental_backup(self, subvol):
     logger.info("Creating backup file for %r", subvol)
     par_snap = self.determine_parent_snap_for_delta(subvol)

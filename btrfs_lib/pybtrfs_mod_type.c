@@ -1,20 +1,15 @@
 #include "pybtrfs_mod_type.h"
+#include "pybtrfs_mod_function.h"
 
 #include <python2.7/structmember.h>
 #include <python2.7/datetime.h>
-
-struct BtrfsNode {
-  PyObject_HEAD;
-  PyObject* uuid, *puuid;
-  PyObject* creation_utc;
-
-  struct root_info node;
-};
 
 PYTHON_TYPE(BtrfsNodeType, "pybtrfs.BtrfsNode", struct BtrfsNode, "Represents a subvolume information (name, uuid, path, ...)");
 
 PyMethodDef BtrfsNodeMethods[] = {
   {"is_snapshot", (PyCFunction)is_snapshot, METH_NOARGS, "True is the subvolume is a snapshot"},
+  {"__reduce__", (PyCFunction)BtrfsNodeType__reduce__, METH_NOARGS, "Used to pickle instances of BtrfsNode"},
+  {"__setstate__", (PyCFunction)BtrfsNodeType__setstate__, METH_VARARGS, "Restores the subvol data from pickle"},
   {NULL}
 };
 
@@ -89,6 +84,7 @@ PyObject* build_from_root_info(struct root_info* subvol) {
   FAIL_AND_GOTO_IF (build_from_root_info_clean,
     (typedNode->creation_utc = build_datetime_from_ts(subvol->otime)) == NULL );
 
+  //assert(typedNode->puuid && typedNode->puuid != Py_None);
   goto build_from_root_info_ok;
 
   build_from_root_info_clean:
@@ -100,8 +96,15 @@ PyObject* build_from_root_info(struct root_info* subvol) {
   return node;
 }
 
+static u32 uuid_not_null(u8* uuid) {
+  u32 result = 0;
+  for (u32 i=0; i<BTRFS_UUID_SIZE; ++i)
+    result += uuid[i];
+  return result;  
+}
+
 PyObject* build_uuid_from_array(u8* uuid) {
-  if (!uuid) {
+  if (!uuid || !uuid_not_null(uuid)) {
     Py_INCREF(Py_None);
     return Py_None;
   }
@@ -141,5 +144,52 @@ PyObject* build_datetime_from_ts(u64 ts) {
     time_st->tm_hour, time_st->tm_min, time_st->tm_sec);
   return PyDateTime_FromDateAndTime(1900+time_st->tm_year, 1+time_st->tm_mon, time_st->tm_mday,
     time_st->tm_hour, time_st->tm_min, time_st->tm_sec, 0);
+}
+
+PyObject* BtrfsNodeType__reduce__(struct BtrfsNode* self) {
+  PyObject *result = NULL, *packed = NULL;
+
+  FAIL_AND_GOTO_IF(BtrfsNodeType__reduce__fail,
+    (packed = pack_subvol_c_struct((PyObject*)self)) == NULL);
+  FAIL_AND_GOTO_IF(BtrfsNodeType__reduce__fail,
+    (result = PyTuple_New(3)) == NULL);
+
+  Py_INCREF((PyObject*)&BtrfsNodeType);
+  FAIL_AND_GOTO_IF(BtrfsNodeType__reduce__fail,
+    PyTuple_SetItem(result, 0, (PyObject*)&BtrfsNodeType) != 0);
+
+  FAIL_AND_GOTO_IF(BtrfsNodeType__reduce__fail,
+    PyTuple_SetItem(result, 1, PyTuple_New(0)) != 0);
+  FAIL_AND_GOTO_IF(BtrfsNodeType__reduce__fail,
+    PyTuple_SetItem(result, 2, packed) != 0);
+
+  goto BtrfsNodeType__reduce__ok;
+  BtrfsNodeType__reduce__fail:
+  Py_XDECREF(result);
+  result = NULL;
+  BtrfsNodeType__reduce__ok:
+  return result;
+}
+
+PyObject* BtrfsNodeType__setstate__(struct BtrfsNode* self, PyObject* arg_tuple) {
+  PyObject *packed = NULL;
+
+  FAIL_AND_GOTO_IF(BtrfsNodeType__setstate__fail,
+    PyArg_ParseTuple(arg_tuple, "S", &packed) == 0);
+  FAIL_AND_GOTO_IF(BtrfsNodeType__setstate__fail,
+    unpack_subvol_c_struct((PyObject*)self, packed) == NULL);
+
+  FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
+    (self->uuid = build_uuid_from_array(self->node.uuid)) == NULL );
+  FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
+    (self->puuid = build_uuid_from_array(self->node.puuid)) == NULL );
+  FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
+    (self->creation_utc = build_datetime_from_ts(self->node.otime)) == NULL );
+
+  Py_INCREF(Py_None);
+  return Py_None;
+
+  BtrfsNodeType__setstate__fail:
+  return NULL;
 }
 

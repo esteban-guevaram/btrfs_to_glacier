@@ -6,7 +6,7 @@
 #include <dirent.h>
 
 #ifdef TRACING
-  #define TRACE(msg, ...) printf("[TRACE_%d]" msg "\n", __LINE__, ## __VA_ARGS__)
+  #define TRACE(msg, ...) printf("[TRACE_%d_%s]" msg "\n", __LINE__, __func__, ## __VA_ARGS__)
 #else
   #define TRACE(msg, ...) 
 #endif  

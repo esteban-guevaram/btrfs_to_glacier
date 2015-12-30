@@ -6,6 +6,9 @@
 #define stringy_helper(arg) #arg
 #define stringy(arg) stringy_helper(arg)
 
+#define pasty_helper(a,b) a ## b
+#define pasty(a,b) pasty_helper(a,b)
+
 #define FAIL_AND_GOTO_IF(label, exp)       \
   if (exp) goto label; 
 
@@ -41,7 +44,13 @@
   }                                                
 
 extern PyTypeObject BtrfsNodeType;
-struct BtrfsNode;
+struct BtrfsNode {
+  PyObject_HEAD;
+  PyObject* uuid, *puuid;
+  PyObject* creation_utc;
+
+  struct root_info node;
+};
 
 int PyType_BtrfsNodeType_Ready();
 
@@ -52,6 +61,9 @@ PyObject* build_datetime_from_ts(u64 ts);
 void BtrfsNodeType__del__(struct BtrfsNode* self);
 PyObject* BtrfsNodeType__repr__(struct BtrfsNode* self);
 PyObject* is_snapshot(struct BtrfsNode* self);
+
+PyObject* BtrfsNodeType__reduce__(struct BtrfsNode* self);
+PyObject* BtrfsNodeType__setstate__(struct BtrfsNode* self, PyObject* arg_tuple);
 
 #endif //__PYBTRFS_MOD_TYPE_H__
 
