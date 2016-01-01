@@ -54,5 +54,6 @@ class TestCommon (ut.TestCase):
 ### END TestCommon
 
 if __name__ == "__main__":
+  conf_for_test()
   ut.main()
 

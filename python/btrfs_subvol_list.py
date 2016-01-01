@@ -8,7 +8,10 @@ class BtrfsSubvolList (object):
     self.subvols = pybtrfs.build_subvol_list(btrfs_path)
     assert self.subvols
 
-  def get_by_uuid(self, path):
+  def get_by_ruuid(self, ruuid):
+    return next((n for n in self.subvols if n.ruuid == ruuid), None)
+
+  def get_by_uuid(self, uuid):
     return next((n for n in self.subvols if n.uuid == uuid), None)
 
   def get_by_path(self, path):
@@ -21,6 +24,12 @@ class BtrfsSubvolList (object):
 
   def __repr__ (self):
     return "\n".join( repr(n) for n in self.subvols )
+
+
+  @staticmethod
+  def get_by_ruuid(btrfs_path, ruuid):
+    subvols = BtrfsSubvolList(btrfs_path)
+    return next((n for n in subvols.subvols if n.ruuid == ruuid), None)
 
 ### END BtrfsSubvolList
 

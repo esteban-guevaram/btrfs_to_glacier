@@ -25,7 +25,6 @@ static int update_root(struct root_lookup *root_lookup,
 static struct root_info *root_tree_search(struct root_lookup *root_tree, u64 root_id);
 static int comp_entry_with_rootid(struct root_info *entry1,
           struct root_info *entry2, int is_descending);
-static int root_tree_insert(struct root_lookup *root_tree, struct root_info *ins);
 static void root_lookup_init(struct root_lookup *tree);
 static int lookup_ino_path(int fd, struct root_info *ri);
 
@@ -145,6 +144,7 @@ void close_file_or_dir(int fd, DIR *dirstream)
 int btrfs_list_subvols(const char* dirpath, int fd, struct root_lookup *root_lookup)
 {
   TRY_OR_DIE( list_subvol_search(fd, root_lookup) );
+  TRY_OR_DIE( clean_deleted_subvols(root_lookup) );
 
   /*
    * now we have an rbtree full of root_info objects, but we need to fill
@@ -326,6 +326,9 @@ static int add_root(struct root_lookup *root_lookup,
   struct root_info *ri;
   int ret;
 
+  //char buffer[256] = "N/A";
+  //ERR_TRACE("ref_tree : %llu, name : %s, uuid : %s", ref_tree, name, uuid?uuid_to_str(uuid,buffer):buffer);
+
   ret = update_root(root_lookup, root_id, ref_tree, root_offset, flags,
         dir_id, name, name_len, ogen, gen, ot,
         uuid, puuid, ruuid);
@@ -476,7 +479,7 @@ static int comp_entry_with_rootid(struct root_info *entry1,
  * if one is already there.  Both root_id and ref_tree are used
  * as the key
  */
-static int root_tree_insert(struct root_lookup *root_tree, struct root_info *ins)
+int root_tree_insert(struct root_lookup *root_tree, struct root_info *ins)
 {
   struct rb_node **p = &root_tree->root.rb_node;
   struct rb_node * parent = NULL;
@@ -593,6 +596,8 @@ int resolve_root(struct root_lookup *rl, struct root_info *ri, u64 top_id)
      */
     if (!found->ref_tree) {
       free(full_path);
+      char buffer[256];
+      ERR_TRACE("Subvolume was deleted %s:%s", found->name, uuid_to_str(found->uuid, buffer));
       return -ENOENT;
     }
 

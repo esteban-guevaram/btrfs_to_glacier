@@ -1,4 +1,4 @@
-import logging.config, json
+import logging.config, json, os
 
 class ColorFilter (logging.Filter):
   txtrst = '\x1b[0m' # Black
@@ -41,9 +41,16 @@ class ColorFilter (logging.Filter):
 def set_global_level (level):
   logging.getLogger('').setLevel(level)
 
+def find_conf_file ():
+  conf_file = 'config_log.json'
+  if not os.path.isfile(conf_file):
+    conf_file = os.path.dirname(os.path.realpath(__file__)) + '/' + conf_file
+  assert os.path.isfile(conf_file)
+  return conf_file
+
 def __init_logging__ ():
   try:
-    with open('config_log.json', 'r') as conf_file:
+    with open(find_conf_file(), 'r') as conf_file:
       conf_dict = json.load(conf_file)
     logging.config.dictConfig(conf_dict)
     logger = logging.getLogger(__name__)

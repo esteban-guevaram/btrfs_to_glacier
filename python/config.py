@@ -23,9 +23,10 @@ class FinalConf (object):
     return '\n'.join(lines)  
 
 def sanity_checks (final_conf):
-  assert os.path.isdir( final_conf.rsync.source )
-  assert os.path.isdir( final_conf.rsync.dest )
-  assert os.path.isdir( final_conf.btrfs.backup_subvol )
+  if not test_mode:
+    assert os.path.isdir( final_conf.rsync.source )
+    assert os.path.isdir( final_conf.rsync.dest )
+    assert os.path.isdir( final_conf.btrfs.backup_subvol )
 
 def adjust_config_types (final_conf):
   transform_into_list(final_conf.rsync, 'exclude')
@@ -33,6 +34,7 @@ def adjust_config_types (final_conf):
   transform_into_bool(final_conf.app, 'verbose')
   transform_into_bool(final_conf.app, 'dryrun')
   transform_into_bool(final_conf.app, 'interactive')
+  transform_into_bool(final_conf.app, 'encrypt')
 
 def transform_into_bool (section, prop):
   if not hasattr(section, prop):
@@ -78,6 +80,12 @@ def build_final_conf (config, namespace):
 
   return final_conf    
 
+def get_option_help (config, section, prop):
+  mes = ''
+  if not test_mode:
+    mes = config.get(key[0], key[1] + '_help')
+  return mes
+
 def parse_command_line (config):
   description = config.get('app', 'help')
   parser = argparse.ArgumentParser(description=description)
@@ -85,7 +93,7 @@ def parse_command_line (config):
   for key,info in ARG_OPTION_MAPPING.items():
     parser.add_argument(  info['flag'], '--' + key[1],
                           dest=key[0]+key[1],
-                          help=config.get(key[0], key[1] + '_help'),
+                          help=get_option_help(config, key[0], key[1]),
                           **info['args']
     )
 
@@ -99,10 +107,17 @@ def parse_config_file (filename):
   config.read(filename)
   return config
 
-def parse_all_config ():
+def find_conf_file ():
   conf_file = 'config.properties'
+  if test_mode:
+    conf_file = 'config.test.properties'
+  if not os.path.isfile(conf_file):
+    conf_file = os.path.dirname(os.path.realpath(__file__)) + '/' + conf_file
   assert os.path.isfile(conf_file)
+  return conf_file
 
+def parse_all_config ():
+  conf_file = find_conf_file()
   config = parse_config_file(conf_file)
   namespace = parse_command_line(config)
   final_conf = build_final_conf(config, namespace)
@@ -120,5 +135,8 @@ def get_conf ():
     singleton_conf = parse_all_config()
   return singleton_conf  
 
-get_conf()
+test_mode = False
+def conf_for_test ():
+  global test_mode
+  test_mode = True
 

@@ -1,38 +1,43 @@
-from config import get_conf
-import logging, config_log, random
+from config import get_conf, conf_for_test
+import logging, config_log, random, getpass
 import os, re, stat, datetime, tempfile
 import subprocess as sp
 logger = logging.getLogger(__name__)
 
 class timestamp (object):
   now = datetime.datetime.now()
-  str = now.strftime('%d%m%Y')
+  str = now.strftime('%Y%m%d%H%M')
 
 def annoying_confirm_prompt(cmd):
   for attempt in range(3):
     logger.warn('\nAre you sure you want to run : %r', cmd)
     ok_token = random.randint(100, 1000)
-    answer = raw_input('[%d]  Type %d to comfirm >> ' % (attempt, ok_token))
+    answer = raw_input('[%d]  Type %d to confirm >> ' % (attempt, ok_token))
     if int(answer) != ok_token:
       raise Exception('Aborted by user')
 
 def __call_helper__ (executor, cmd, password, interactive):
   if type(cmd) == str: cmd = cmd.split()
   dryrun = get_conf().app.dryrun
-  logger.info("Running (dryrun=%r):\n %r", dryrun, cmd)
+  logger.debug("Running (dryrun=%r):\n %r", dryrun, cmd)
   if dryrun: return ''
 
+  if interactive == None:
+    interactive = get_conf().app.interactive
   if interactive:
     annoying_confirm_prompt(cmd)
   return executor(cmd, password)
 
 def __call_helper_sudo__ (executor, cmd, interactive):
   pass_file = get_conf().app.pass_file
-  with open( pass_file, 'r') as pfile:
-    assert os.stat(pass_file).st_mode & (stat.S_IRWXO | stat.S_IRWXG) == 0
-    pwd = pfile.readline().strip()
-    assert pwd
+  if os.path.isfile(pass_file):
+    with open(pass_file, 'r') as pfile:
+      assert os.stat(pass_file).st_mode & (stat.S_IRWXO | stat.S_IRWXG) == 0
+      pwd = pfile.readline().strip()
+  else: 
+    pwd = getpass.getpass()
 
+  assert pwd
   if type(cmd) == str: cmd = cmd.split()
   real_cmd = ['sudo', '-kSp', ''] + cmd
   return __call_helper__(executor, real_cmd, pwd + '\n', interactive)
@@ -53,7 +58,7 @@ def async_piped_call (cmd, password):
   out_file = tempfile.TemporaryFile(mode='rw')
   proc = sp.Popen(cmd, stdin=sp.PIPE, stdout=out_file, stderr=err_file)
   assert proc.pid
-  logger.info('Spawned process %d', proc.pid)
+  logger.debug('Spawned process %d', proc.pid)
   if password: proc.stdin.write(password)
 
   class Guard:
@@ -69,17 +74,24 @@ def async_piped_call (cmd, password):
       self.out_file.close()
   return Guard(proc, out_file, err_file)  
 
-def sudo_call (cmd, interactive=True):
+def sudo_call (cmd, interactive=None):
   return __call_helper_sudo__(sync_simple_call, cmd, interactive)
 
-def sudo_async_call (cmd, interactive=True):
+def sudo_async_call (cmd, interactive=None):
   return __call_helper_sudo__(async_piped_call, cmd, interactive)
 
-def call (cmd, interactive=False):
+def call (cmd, interactive=None):
   return __call_helper__(sync_simple_call, cmd, None, interactive)
 
-def async_call (cmd, interactive=False):
+def async_call (cmd, interactive=None):
   return __call_helper__(async_piped_call, cmd, None, interactive)
+
+def sha256file(filename):
+  assert os.path.isfile(filename)
+  out = call(['sha256sum', filename])
+  hashstr = out.split()[0];
+  assert hashstr
+  return hashstr
 
 def rsync(source, dest):
   rsync_exc = get_conf().rsync.exclude

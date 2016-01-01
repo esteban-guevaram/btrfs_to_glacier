@@ -22,6 +22,32 @@ int list_subvol_resolve_root(int fd, struct root_lookup *root_lookup)
   return 0;
 }
 
+int clean_deleted_subvols(struct root_lookup *tree) {
+  struct root_lookup new_tree = {{0}};
+  TRY_OR_DIE( visit_subvols_in_tree (tree, visit_copy_only_valid_subvol, &new_tree) );
+  free_subvol_rb_tree(tree);
+  tree->root = new_tree.root;
+  return 0;
+}
+
+int visit_copy_only_valid_subvol (struct root_info* subvol, void* state) {
+  struct root_lookup* tree_root = (struct root_lookup*) state;
+  struct root_info* new_subvol = NULL;
+  TRACE("Visiting %s", subvol->name);
+
+  if (subvol->ref_tree) {
+    TRY_OR_DIE( !(new_subvol = calloc(1, sizeof(struct root_info))) );
+    TRY_OR_DIE( clone_subvol(subvol, new_subvol) );
+    TRY_OR_DIE( root_tree_insert(tree_root, new_subvol) );
+  }
+  else {
+    char buffer[256] = "N/A";
+    ERR_TRACE("Found a bad subvolume %s:%s", subvol->name,
+      subvol->uuid ? uuid_to_str(subvol->uuid, buffer) : buffer);
+  }
+  return 0;
+}
+
 char* uuid_to_str(u8* uuid, char *result) 
 {
   if (uuid == NULL || *uuid == 0) {

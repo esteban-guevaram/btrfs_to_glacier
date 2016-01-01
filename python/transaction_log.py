@@ -1,12 +1,14 @@
-import pickle
+import pickle, time
 from common import *
 from btrfs_subvol_list import *
 logger = logging.getLogger(__name__)
 
 class TransactionLog (object):
 
-  def __init__(self):
-    self.logfile = get_conf().app.transaction_log
+  def __init__(self, name=None):
+    self.logfile = name
+    if not name:
+      self.logfile = get_conf().app.transaction_log
     self.tx_list = self.load_log_from_file()
 
     if self.tx_list:
@@ -14,6 +16,28 @@ class TransactionLog (object):
     else:
       self.cur_uid = 0
 
+  def check_log_for_restore(self):
+    send_files = set()
+    upld_files = set()
+    file_snap = {}
+    chain_snap = {}
+
+    for record in self.tx_list:
+      if record.r_type == Record.BACK_FILE:
+        send_files.add(record.fileout)
+        file_snap[record.subvol.uuid] = 1
+      elif record.r_type == Record.UPD_FILE:
+        upld_files.add(record.fileout)
+      elif record.r_type == Record.NEW_SNAP:
+        file_snap[record.subvol.uuid] = 0
+        origin_uuid = record.subvol.parent.uuid
+        if record.parent:
+          assert chain_snap.get(origin_uuid) == record.parent.uuid  
+        chain_snap[origin_uuid] = record.subvol.uuid
+
+    assert all( v == 1 for v in file_snap.values() ) 
+    assert upld_files == send_files
+  
   def check_log_consistency(self, subvols):
     vol_dict = dict( (n.uuid, n) for n in subvols.subvols ) 
     snap_count = dict( (n.uuid, 0) for n in subvols.subvols if n.is_snapshot() ) 
@@ -29,6 +53,7 @@ class TransactionLog (object):
         snap_count[record.subvol.uuid] += 1
 
     assert all( v == 1 for v in snap_count.values() ) 
+    assert self.tx_list[-1].r_type == Record.BACK_LOG
 
   def load_log_from_file(self):
     if not os.path.exists(self.logfile):
@@ -70,23 +95,50 @@ class TransactionLog (object):
     record.subvol = subvol
     self.add_and_flush_record(record)
   
-  def record_backup_file(self, fileout, snap, parent=None):
+  def record_glacier_upload(self, fileout, job_id):
+    record = Record(Record.UPD_FILE, self.new_uid())
+    record.fileout = fileout
+    record.job_id = job_id
+    self.add_and_flush_record(record)
+
+  def record_backup_tx_log(self, fileout, hashstr):
+    record = Record(Record.BACK_LOG, self.new_uid())
+    record.fileout = fileout
+    record.hashstr = hashstr
+    self.add_and_flush_record(record)
+
+  def record_backup_file(self, fileout, hashstr, snap, parent=None):
     record = Record(Record.BACK_FILE, self.new_uid())
     record.parent = parent
     record.subvol = snap
     record.fileout = fileout
+    record.hashstr = hashstr
     self.add_and_flush_record(record)
+
+  def record_restore_snap(self, fileout, subvol):
+    record = Record(Record.REST_FILE, self.new_uid())
+    record.subvol = subvol
+    record.fileout = fileout
+    self.add_and_flush_record(record)
+
+  def iterate_through_records(self):
+    return self.tx_list
+
+  def __repr__(self):
+    return "\n".join(repr(r) for r in self.tx_list)
 
 ### END TransactionLog
 
 class Record (object):
-  DEL_SNAP, NEW_SNAP, BACK_FILE = 1,2,3
+  DEL_SNAP, NEW_SNAP, BACK_FILE, UPD_FILE, BACK_LOG, REST_FILE = 'DEL_SNAP', 'NEW_SNAP', 'BACK_FILE', 'UPD_FILE', 'BACK_LOG', 'REST_FILE'
 
   def __init__(self, r_type, uid):
     self.r_type = r_type
     self.uid = uid
     self.when = time.time()
 
+  def __repr__(self):
+    return "%s=%r" % (self.r_type, vars(self))
 ### END Record  
 
 singleton_transaction = None

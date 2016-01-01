@@ -46,7 +46,7 @@
 extern PyTypeObject BtrfsNodeType;
 struct BtrfsNode {
   PyObject_HEAD;
-  PyObject* uuid, *puuid;
+  PyObject* uuid, *puuid, *ruuid;
   PyObject* creation_utc;
 
   struct root_info node;
@@ -60,7 +60,9 @@ PyObject* build_datetime_from_ts(u64 ts);
 
 void BtrfsNodeType__del__(struct BtrfsNode* self);
 PyObject* BtrfsNodeType__repr__(struct BtrfsNode* self);
+
 PyObject* is_snapshot(struct BtrfsNode* self);
+PyObject* is_readonly(struct BtrfsNode* self);
 
 PyObject* BtrfsNodeType__reduce__(struct BtrfsNode* self);
 PyObject* BtrfsNodeType__setstate__(struct BtrfsNode* self, PyObject* arg_tuple);

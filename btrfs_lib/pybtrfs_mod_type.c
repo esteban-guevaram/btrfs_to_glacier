@@ -8,6 +8,7 @@ PYTHON_TYPE(BtrfsNodeType, "pybtrfs.BtrfsNode", struct BtrfsNode, "Represents a 
 
 PyMethodDef BtrfsNodeMethods[] = {
   {"is_snapshot", (PyCFunction)is_snapshot, METH_NOARGS, "True is the subvolume is a snapshot"},
+  {"is_readonly", (PyCFunction)is_readonly, METH_NOARGS, "True is the subvolume is readonly"},
   {"__reduce__", (PyCFunction)BtrfsNodeType__reduce__, METH_NOARGS, "Used to pickle instances of BtrfsNode"},
   {"__setstate__", (PyCFunction)BtrfsNodeType__setstate__, METH_VARARGS, "Restores the subvol data from pickle"},
   {NULL}
@@ -18,6 +19,7 @@ PyMemberDef BtrfsNodeMembers[] = {
   {"path",         T_STRING, offsetof(struct BtrfsNode, node.full_path), READONLY, "full path were subvolume is mounted"},
   {"uuid",         T_OBJECT, offsetof(struct BtrfsNode, uuid), READONLY, "the subvolume id"},
   {"puuid",        T_OBJECT, offsetof(struct BtrfsNode, puuid), READONLY, "the parent subvolume id"},
+  {"ruuid",        T_OBJECT, offsetof(struct BtrfsNode, ruuid), READONLY, "the received subvolume id"},
   {"creation_utc", T_OBJECT, offsetof(struct BtrfsNode, creation_utc), READONLY, "the datetime in utc when the subvolume was created"},
   {NULL}
 };
@@ -66,6 +68,12 @@ PyObject* is_snapshot (struct BtrfsNode* self) {
   Py_RETURN_FALSE;  
 }
 
+PyObject* is_readonly (struct BtrfsNode* self) {
+  if( self->node.flags & BTRFS_ROOT_SUBVOL_RDONLY )
+    Py_RETURN_TRUE;
+  Py_RETURN_FALSE;  
+}
+
 PyObject* build_from_root_info(struct root_info* subvol) {
   PyObject* node = NULL;
   struct BtrfsNode* typedNode = NULL;
@@ -81,6 +89,8 @@ PyObject* build_from_root_info(struct root_info* subvol) {
     (typedNode->uuid = build_uuid_from_array(subvol->uuid)) == NULL );
   FAIL_AND_GOTO_IF (build_from_root_info_clean,
     (typedNode->puuid = build_uuid_from_array(subvol->puuid)) == NULL );
+  FAIL_AND_GOTO_IF (build_from_root_info_clean,
+    (typedNode->ruuid = build_uuid_from_array(subvol->ruuid)) == NULL );
   FAIL_AND_GOTO_IF (build_from_root_info_clean,
     (typedNode->creation_utc = build_datetime_from_ts(subvol->otime)) == NULL );
 
@@ -183,6 +193,8 @@ PyObject* BtrfsNodeType__setstate__(struct BtrfsNode* self, PyObject* arg_tuple)
     (self->uuid = build_uuid_from_array(self->node.uuid)) == NULL );
   FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
     (self->puuid = build_uuid_from_array(self->node.puuid)) == NULL );
+  FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
+    (self->ruuid = build_uuid_from_array(self->node.ruuid)) == NULL );
   FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
     (self->creation_utc = build_datetime_from_ts(self->node.otime)) == NULL );
 

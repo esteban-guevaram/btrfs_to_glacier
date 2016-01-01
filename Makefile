@@ -14,13 +14,14 @@ python: $(wildcard python/*.py )
 	python -m compileall -l python
 	mv python/*.pyc bin
 
-config:	config.properties config_log.json
-	cp config.properties config_log.json bin
+config:	$(wildcard etc/*)
+	cp etc/* bin
 
 test: python native config
 	#sudo bin/btrfs_test $(C_TEST_ARG)
-	sudo python bin/test_pybtrfs.pyc
-	#sudo python bin/test_common_routines.pyc
+	#python bin/test_common_routines.pyc
+	#sudo python bin/test_pybtrfs.pyc
+	sudo python bin/test_btrfs_backup_restore.pyc
 	echo -e "\n\n######################### ALL TESTS OK #########################################\n"
 
 package: python native config
