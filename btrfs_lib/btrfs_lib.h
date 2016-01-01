@@ -12,7 +12,7 @@
 #endif  
 
 #define ERR_TRACE(msg, ...) \
-  fprintf(stderr, "[ERROR] %s:%d " msg "\n", __func__, __LINE__, ## __VA_ARGS__)
+  fprintf(stderr, "[WARN] %s:%d " msg "\n", __func__, __LINE__, ## __VA_ARGS__)
 
 #define TRY_OR_DIE(fn_call) TRY_OR_DIE_HELPER1(fn_call, __COUNTER__ )
 #define TRY_OR_DIE_HELPER1(fn_call, num) TRY_OR_DIE_HELPER2(fn_call, num)

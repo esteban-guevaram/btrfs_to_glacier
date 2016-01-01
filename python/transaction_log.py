@@ -17,6 +17,7 @@ class TransactionLog (object):
       self.cur_uid = 0
 
   def check_log_for_restore(self):
+    assert self.tx_list
     send_files = set()
     upld_files = set()
     file_snap = {}
@@ -26,19 +27,22 @@ class TransactionLog (object):
       if record.r_type == Record.BACK_FILE:
         send_files.add(record.fileout)
         file_snap[record.subvol.uuid] = 1
+        origin_uuid = record.subvol.puuid
+        if record.parent:
+          assert chain_snap.get(origin_uuid) == record.parent.uuid, \
+            "Chain failed %r - %r - %r" % (origin_uuid, chain_snap.get(origin_uuid), record.parent.uuid)
+        chain_snap[origin_uuid] = record.subvol.uuid
       elif record.r_type == Record.UPD_FILE:
         upld_files.add(record.fileout)
       elif record.r_type == Record.NEW_SNAP:
         file_snap[record.subvol.uuid] = 0
-        origin_uuid = record.subvol.parent.uuid
-        if record.parent:
-          assert chain_snap.get(origin_uuid) == record.parent.uuid  
-        chain_snap[origin_uuid] = record.subvol.uuid
 
     assert all( v == 1 for v in file_snap.values() ) 
-    assert upld_files == send_files
+    assert not upld_files or upld_files == send_files, \
+      "Expecting all send files created were uploaded %r / %r" % (send_files, upld_files)
   
   def check_log_consistency(self, subvols):
+    if not self.tx_list: return
     vol_dict = dict( (n.uuid, n) for n in subvols.subvols ) 
     snap_count = dict( (n.uuid, 0) for n in subvols.subvols if n.is_snapshot() ) 
     file_count = {}
@@ -53,7 +57,8 @@ class TransactionLog (object):
         snap_count[record.subvol.uuid] += 1
 
     assert all( v == 1 for v in snap_count.values() ) 
-    assert self.tx_list[-1].r_type == Record.BACK_LOG
+    if self.tx_list[-1].r_type != Record.BACK_LOG:
+      logger.warn("We expect the last record in the log is a backup of the transaction log : %r", self.tx_list[-1])
 
   def load_log_from_file(self):
     if not os.path.exists(self.logfile):
@@ -80,7 +85,7 @@ class TransactionLog (object):
 
   def find_last_recorded_snap_uuid(self, subvol):
     for record in reversed(self.tx_list):
-      if record.r_type == Record.NEW_SNAP:
+      if record.r_type == Record.NEW_SNAP and record.subvol.puuid == subvol.uuid:
         return record.subvol.uuid
     return None    
 
@@ -102,12 +107,14 @@ class TransactionLog (object):
     self.add_and_flush_record(record)
 
   def record_backup_tx_log(self, fileout, hashstr):
+    assert fileout and hashstr
     record = Record(Record.BACK_LOG, self.new_uid())
     record.fileout = fileout
     record.hashstr = hashstr
     self.add_and_flush_record(record)
 
   def record_backup_file(self, fileout, hashstr, snap, parent=None):
+    assert fileout and hashstr
     record = Record(Record.BACK_FILE, self.new_uid())
     record.parent = parent
     record.subvol = snap
@@ -147,4 +154,8 @@ def get_txlog():
   if not singleton_transaction:
     singleton_transaction = TransactionLog()
   return singleton_transaction  
+
+def reset_txlog():
+  global singleton_transaction
+  singleton_transaction = None
 

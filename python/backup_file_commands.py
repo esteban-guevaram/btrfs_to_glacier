@@ -1,6 +1,6 @@
 import hashlib
 from common import *
-from transaction_log import get_txlog, Record
+from transaction_log import TransactionLog, get_txlog, Record
 logger = logging.getLogger(__name__)
 
 class BackupFileCommands (object):
