@@ -125,6 +125,7 @@ modify_subvol_and_snap() {
   if [[ $CREATE_SNAP_FLAG == 1 ]]; then
     run_cmd sudo btrfs subvolume snapshot -r "$subvol_name" "$snap_name"
     run_cmd sudo btrfs send -f "$restore_name" "$snap_name"
+    run_cmd sudo btrfs receive -f "$restore_name" "${RESTORE_POINT}"
   fi  
   popd
 }

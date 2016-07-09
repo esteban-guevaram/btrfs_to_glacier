@@ -9,6 +9,9 @@
 #define pasty_helper(a,b) a ## b
 #define pasty(a,b) pasty_helper(a,b)
 
+#define GOTO_IF_NULL(label, exp)       \
+  if ((exp) == NULL) goto label; 
+
 #define FAIL_AND_GOTO_IF(label, exp)       \
   if (exp) goto label; 
 

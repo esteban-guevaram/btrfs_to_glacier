@@ -40,15 +40,6 @@ class TestPyBtrfs (ut.TestCase):
     clone = pickle.loads(ser)
     self.check_empty_subvol(clone)
 
-  def test_subvol_packer(self):
-    subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
-    self.assertTrue(len(subvols) > 0)
-    for subvol in subvols:
-      ser = pybtrfs.pack_subvol_c_struct(subvol)
-      tup = struct.unpack(pybtrfs.PICKLE_FORMAT, ser)
-      self.assertTrue(len(tup) > 0)
-      #print "\n%r => %r => %r\n" % (subvol, ser, tup)
-
   def test_create_subvol_tree(self):
     subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
     logger.debug( "subvolume list = %r", subvols )

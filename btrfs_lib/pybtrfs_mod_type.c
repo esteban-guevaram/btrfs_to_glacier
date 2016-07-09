@@ -46,15 +46,15 @@ void BtrfsNodeType__del__(struct BtrfsNode* self) {
 PyObject* BtrfsNodeType__repr__(struct BtrfsNode* self) {
   PyObject *path = NULL, *uuid = NULL, *creation_utc = NULL, *tuple = NULL;
 
-  FAIL_AND_GOTO_IF(BtrfsNodeType__repr__clean,
-    (path = PyObject_GetAttrString((PyObject*)self, "path")) == NULL);
-  FAIL_AND_GOTO_IF(BtrfsNodeType__repr__clean,
-    (uuid = PyObject_GetAttrString((PyObject*)self, "uuid")) == NULL);
-  FAIL_AND_GOTO_IF(BtrfsNodeType__repr__clean,
-    (creation_utc = PyObject_GetAttrString((PyObject*)self, "creation_utc")) == NULL);
+  GOTO_IF_NULL(BtrfsNodeType__repr__clean,
+    path = PyObject_GetAttrString((PyObject*)self, "path") );
+  GOTO_IF_NULL(BtrfsNodeType__repr__clean,
+    uuid = PyObject_GetAttrString((PyObject*)self, "uuid") );
+  GOTO_IF_NULL(BtrfsNodeType__repr__clean,
+    creation_utc = PyObject_GetAttrString((PyObject*)self, "creation_utc") );
 
-  FAIL_AND_GOTO_IF(BtrfsNodeType__repr__clean,
-    (tuple = PyTuple_Pack(3, path, uuid, creation_utc)) == NULL);
+  GOTO_IF_NULL(BtrfsNodeType__repr__clean,
+    tuple = PyTuple_Pack(3, path, uuid, creation_utc) );
   PyObject* repr = PyString_Format(PyString_FromString("[%s, %r, %r]"), tuple);
 
   BtrfsNodeType__repr__clean:
@@ -78,21 +78,21 @@ PyObject* build_from_root_info(struct root_info* subvol) {
   PyObject* node = NULL;
   struct BtrfsNode* typedNode = NULL;
 
-  FAIL_AND_GOTO_IF (build_from_root_info_clean,
-    (node = PyObject_CallObject((PyObject*)&BtrfsNodeType, NULL)) == NULL );
+  GOTO_IF_NULL (build_from_root_info_clean,
+    node = PyObject_CallObject((PyObject*)&BtrfsNodeType, NULL) );
 
   typedNode = (struct BtrfsNode*)node;
 
   FAIL_AND_GOTO_IF (build_from_root_info_clean,
     clone_subvol(subvol, &typedNode->node) != 0);
-  FAIL_AND_GOTO_IF (build_from_root_info_clean,
-    (typedNode->uuid = build_uuid_from_array(subvol->uuid)) == NULL );
-  FAIL_AND_GOTO_IF (build_from_root_info_clean,
-    (typedNode->puuid = build_uuid_from_array(subvol->puuid)) == NULL );
-  FAIL_AND_GOTO_IF (build_from_root_info_clean,
-    (typedNode->ruuid = build_uuid_from_array(subvol->ruuid)) == NULL );
-  FAIL_AND_GOTO_IF (build_from_root_info_clean,
-    (typedNode->creation_utc = build_datetime_from_ts(subvol->otime)) == NULL );
+  GOTO_IF_NULL (build_from_root_info_clean,
+    typedNode->uuid = build_uuid_from_array(subvol->uuid) );
+  GOTO_IF_NULL (build_from_root_info_clean,
+    typedNode->puuid = build_uuid_from_array(subvol->puuid) );
+  GOTO_IF_NULL (build_from_root_info_clean,
+    typedNode->ruuid = build_uuid_from_array(subvol->ruuid) );
+  GOTO_IF_NULL (build_from_root_info_clean,
+    typedNode->creation_utc = build_datetime_from_ts(subvol->otime) );
 
   //assert(typedNode->puuid && typedNode->puuid != Py_None);
   goto build_from_root_info_ok;
@@ -121,8 +121,8 @@ PyObject* build_uuid_from_array(u8* uuid) {
   return PyString_FromStringAndSize((char*)uuid, BTRFS_UUID_SIZE);
 
   /*PyObject* tuple = NULL;
-  FAIL_AND_GOTO_IF(build_uuid_from_array_clean,
-    (tuple = PyTuple_New(BTRFS_UUID_SIZE)) ==  NULL);
+  GOTO_IF_NULL(build_uuid_from_array_clean,
+    tuple = PyTuple_New(BTRFS_UUID_SIZE) );
 
   for(int i=0; i<BTRFS_UUID_SIZE; ++i) {
     PyObject* item = Py_BuildValue("i", uuid[i]);
@@ -159,10 +159,10 @@ PyObject* build_datetime_from_ts(u64 ts) {
 PyObject* BtrfsNodeType__reduce__(struct BtrfsNode* self) {
   PyObject *result = NULL, *packed = NULL;
 
-  FAIL_AND_GOTO_IF(BtrfsNodeType__reduce__fail,
-    (packed = pack_subvol_c_struct((PyObject*)self)) == NULL);
-  FAIL_AND_GOTO_IF(BtrfsNodeType__reduce__fail,
-    (result = PyTuple_New(3)) == NULL);
+  GOTO_IF_NULL(BtrfsNodeType__reduce__fail,
+    packed = pack_subvol_c_struct((PyObject*)self) );
+  GOTO_IF_NULL(BtrfsNodeType__reduce__fail,
+    result = PyTuple_New(3) );
 
   Py_INCREF((PyObject*)&BtrfsNodeType);
   FAIL_AND_GOTO_IF(BtrfsNodeType__reduce__fail,
@@ -186,17 +186,17 @@ PyObject* BtrfsNodeType__setstate__(struct BtrfsNode* self, PyObject* arg_tuple)
 
   FAIL_AND_GOTO_IF(BtrfsNodeType__setstate__fail,
     PyArg_ParseTuple(arg_tuple, "S", &packed) == 0);
-  FAIL_AND_GOTO_IF(BtrfsNodeType__setstate__fail,
-    unpack_subvol_c_struct((PyObject*)self, packed) == NULL);
+  GOTO_IF_NULL(BtrfsNodeType__setstate__fail,
+    unpack_subvol_c_struct((PyObject*)self, packed) );
 
-  FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
-    (self->uuid = build_uuid_from_array(self->node.uuid)) == NULL );
-  FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
-    (self->puuid = build_uuid_from_array(self->node.puuid)) == NULL );
-  FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
-    (self->ruuid = build_uuid_from_array(self->node.ruuid)) == NULL );
-  FAIL_AND_GOTO_IF (BtrfsNodeType__setstate__fail,
-    (self->creation_utc = build_datetime_from_ts(self->node.otime)) == NULL );
+  GOTO_IF_NULL (BtrfsNodeType__setstate__fail,
+    self->uuid = build_uuid_from_array(self->node.uuid) );
+  GOTO_IF_NULL (BtrfsNodeType__setstate__fail,
+    self->puuid = build_uuid_from_array(self->node.puuid) );
+  GOTO_IF_NULL (BtrfsNodeType__setstate__fail,
+    self->ruuid = build_uuid_from_array(self->node.ruuid) );
+  GOTO_IF_NULL (BtrfsNodeType__setstate__fail,
+    self->creation_utc = build_datetime_from_ts(self->node.otime) );
 
   Py_INCREF(Py_None);
   return Py_None;
