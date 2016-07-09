@@ -1,4 +1,4 @@
-import pickle, time
+import cPickle as pickle, time
 from common import *
 from btrfs_subvol_list import *
 logger = logging.getLogger(__name__)
@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 class TransactionLog (object):
 
   def __init__(self, name=None):
+    self.pickle_proto = get_conf().app.pickle_proto
     self.logfile = name
     if not name:
       self.logfile = get_conf().app.transaction_log
@@ -57,16 +58,16 @@ class TransactionLog (object):
         snap_count[record.subvol.uuid] += 1
 
     assert all( v == 1 for v in snap_count.values() ) 
-    if self.tx_list[-1].r_type != Record.BACK_LOG:
-      logger.warn("We expect the last record in the log is a backup of the transaction log : %r", self.tx_list[-1])
+    if not self.tx_list[-1].r_type == Record.BACK_LOG:
+      logger.warn( "We expect the last record in the log is a backup of the transaction log : %r" % self.tx_list[-1] )
 
   def load_log_from_file(self):
     if not os.path.exists(self.logfile):
-      with open(self.logfile, 'w'): pass
+      with open(self.logfile, 'wb'): pass
       return []
 
     tx_list = []
-    with open(self.logfile, 'r') as logfile:
+    with open(self.logfile, 'rb') as logfile:
       try:
         while 1:
           tx_list.append( pickle.load(logfile) )
@@ -75,9 +76,9 @@ class TransactionLog (object):
     return tx_list    
 
   def add_and_flush_record(self, record):
-    with open(self.logfile, 'a') as logfile:
+    with open(self.logfile, 'ab') as logfile:
       self.tx_list.append( record )
-      pickle.dump(record, logfile)
+      pickle.dump(record, logfile, self.pickle_proto)
 
   def new_uid(self):
     self.cur_uid += 1

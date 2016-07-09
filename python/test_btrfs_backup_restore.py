@@ -128,6 +128,10 @@ class TestBtrfsBackupRestore (ut.TestCase):
     self.assertEqual(2, record_type_count[Record.NEW_SNAP])
     self.assertEqual(1, record_type_count[Record.DEL_SNAP])
 
+  #@ut.skip("For quick validation")
+  def test_clean_window (self):
+    pass
+
 ### END TestBtrfsBackupRestore
 
 if __name__ == "__main__":

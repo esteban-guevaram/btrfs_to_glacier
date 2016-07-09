@@ -18,6 +18,7 @@ config:	$(wildcard etc/*)
 	cp etc/* bin
 
 test: python native config
+	sudo rm *.log || true
 	#sudo bin/btrfs_test $(C_TEST_ARG)
 	#python bin/test_common_routines.pyc
 	#sudo python bin/test_pybtrfs.pyc

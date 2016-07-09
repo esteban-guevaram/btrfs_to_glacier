@@ -16,6 +16,27 @@ def change_timestamp():
   timestamp.str = "%s_%d" % (str_now, ts_state)
   ts_state += 1
 
+def avoid_shoot_in_the_foot ():
+  device = os.path.basename( get_conf().test.btrfs_device )
+  root_fs = get_conf().test.root_fs
+  targets = get_conf().btrfs.target_subvols
+  snap_path = get_conf().btrfs.backup_subvol
+  restore_path = get_conf().btrfs.restore_path
+
+  assert device and root_fs and targets and snap_path and restore_path
+  assert root_fs.lower().find('test') >= 0
+  assert snap_path.lower().find('test') >= 0
+  assert restore_path.lower().find('test') >= 0
+  assert all( p.lower().find('test') >= 0 for p in targets )
+
+  with open('/sys/block/' + device + '/removable', 'r') as fileobj:
+    dev_removable = int( fileobj.read().strip() ) 
+  with open('/sys/block/' + device + '/size', 'r') as fileobj:
+    dev_size = int( fileobj.read().strip() ) 
+
+  assert dev_size * 512 < 8 * 1024**3 and 7 * 1024**3 < dev_size * 512
+  assert dev_removable == 1
+
 def add_rand_file_to_all_targets(targets):
   for target in targets:
     add_rand_file_to_dir(target.path)
@@ -28,6 +49,7 @@ def add_rand_file_to_dir(path):
       fileobj.write("%d\n" % random.randint(0,1024*1024*1024))
 
 def setup_filesystem(extra_options, subvol_paths):
+  avoid_shoot_in_the_foot()
   script_path = os.path.dirname(os.path.realpath(__file__)) + '/' + get_conf().test.btrfs_setup_script
   subvol_names = [ os.path.basename(n) for n in subvol_paths ]
 

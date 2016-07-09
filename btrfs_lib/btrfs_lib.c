@@ -7,9 +7,9 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <linux/magic.h>
-#include <btrfs/ioctl.h>
 
 #include "kerncompat.h"
+#include "ioctl.h"
 #include "btrfs_lib.h"
 #include "ctree.h"
 

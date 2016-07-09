@@ -71,7 +71,7 @@ class BackupFileCommands (object):
   def write_tx_log():
     hasher = hashlib.sha256()
     logfile = get_txlog().logfile
-    back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.backup_subvol, os.path.basename(logfile), timestamp.str)
+    back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.send_file_staging, os.path.basename(logfile), timestamp.str)
     dump_cmd = BackupFileCommands.encrypt_compress_cmd()
 
     with open(logfile, 'r') as logfile_obj:
@@ -93,7 +93,7 @@ class BackupFileCommands (object):
   @staticmethod
   def fetch_tx_log(txlog_name):
     if txlog_name:
-      result_name = '%s/backup_%s.restore' % (get_conf().btrfs.backup_subvol, os.path.basename(txlog_name))
+      result_name = '%s/backup_%s.restore' % (get_conf().btrfs.send_file_staging, os.path.basename(txlog_name))
       read_cmd = BackupFileCommands.decrypt_decompress_cmd()
 
       with open(txlog_name, 'r') as logfile_obj:

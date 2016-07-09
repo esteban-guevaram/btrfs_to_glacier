@@ -31,21 +31,25 @@ class BtrfsCommands (object):
     par_snap = self.determine_parent_snap_for_delta(subvol)
     cur_snap = self.create_snapshot(subvol)
     fileout = self.send_volume(cur_snap, par_snap)
-    self.clean_old_snaps(subvol)
+    self.clean_old_backup_snaps(subvol)
 
     subvols = BtrfsSubvolList(subvol.path)
     assert not par_snap or not subvols.get_by_uuid(par_snap.uuid)
     return fileout, cur_snap
 
-  def clean_old_snaps(self, subvol):
+  def clean_old_backup_snaps(self, subvol):
     subvols = BtrfsSubvolList(subvol.path)
     childs = subvols.get_snap_childs(subvol)
-    logger.info("These volumes are old and will be discarted : %r", childs[:-1])
+    window = get_conf().btrfs.backup_clean_window
+    assert window > 0
+    subvols_to_del = childs[:-window]
+    logger.info("These volumes are old and will be discarted : %r", subvols_to_del)
 
-    for child in childs[:-1]:
+    for child in subvols_to_del:
       # We expect the list to be sorted !!
       assert cmp(child.creation_utc, childs[-1].creation_utc) <= 0
-      self.delete_subvol(child, subvol)
+      self.delete_snapshot(child, subvol)
+    return subvols_to_del  
 
   def determine_parent_snap_for_delta(self, subvol):
     subvols = BtrfsSubvolList(subvol.path)
@@ -58,7 +62,14 @@ class BtrfsCommands (object):
       assert last_snap
       return last_snap
 
-  def delete_subvol (self, subvol, parent):
+  def delete_received_subvol (self, subvol, parent):
+    assert not subvol.puuid or parent.uuid == subvol.puuid
+    assert subvol.ruuid and subvol.is_readonly()
+    call('btrfs subvolume delete -C ' + subvol.path)
+    get_txlog().record_subvol_delete(subvol)
+    assert not os.path.exists(subvol.path)
+
+  def delete_snapshot (self, subvol, parent):
     assert parent.uuid == subvol.puuid
     assert subvol.is_snapshot() and subvol.is_readonly()
     call('btrfs subvolume delete -C ' + subvol.path)
@@ -67,7 +78,7 @@ class BtrfsCommands (object):
 
   def send_volume (self, current, parent=None):
     assert current.is_snapshot()
-    fileout = '%s/backup_%s.btrfs' % (get_conf().btrfs.backup_subvol, current.name)
+    fileout = '%s/backup_%s.btrfs' % (get_conf().btrfs.send_file_staging, current.name)
     assert not os.path.exists(fileout)
 
     if parent:
@@ -129,8 +140,23 @@ class BtrfsCommands (object):
     logger.info("Restored %r from %s", subvol, fileout)
     return subvol
 
-  def clean_old_restored_snaps(self, restore_chain):
-    pass
+  def clean_old_restored_snaps(self, restore_result):
+    all_deleted = []
+    for puuid,childs in restore_result.child_subvols.items():
+      previous_vol = None
+      window = get_conf().btrfs.restore_clean_window
+      assert window > 0
+      subvols_to_del = childs[:-window]
+      logger.info("These volumes are old and will be discarted : %r", subvols_to_del)
+      
+      for subvol in subvols_to_del:
+        # We expect the list to be sorted !!
+        assert cmp(subvol.creation_utc, restore_result.last_childs[puuid].creation_utc) <= 0
+        self.delete_received_subvol(subvol, previous_vol)
+        previous_vol = subvol
+
+      all_deleted.extend(subvols_to_del)
+    return all_deleted      
 
 ### BtrfsCommands
 
