@@ -1,6 +1,6 @@
 import hashlib
 from common import *
-from transaction_log import TransactionLog, get_txlog, Record
+from transaction_log import TransactionLog, get_txlog, Record, reset_txlog
 logger = logging.getLogger(__name__)
 
 class BackupFileCommands (object):
@@ -8,14 +8,16 @@ class BackupFileCommands (object):
   @staticmethod
   def decrypt_decompress_cmd():
     if get_conf().app.encrypt:
-      return 'gpg --decrypt'
+      passphrase = " --passphrase-file " + get_conf().app.passfile
+      return 'gpg --decrypt' + passphrase
     else:
       return 'gzip -dc'
 
   @staticmethod
   def encrypt_compress_cmd():
     if get_conf().app.encrypt:
-      return 'gpg --compress-algo zlib --cipher-algo CAMELLIA256 --symmetric'
+      passphrase = " --passphrase-file " + get_conf().app.passfile
+      return 'gpg --compress-algo zlib --cipher-algo CAMELLIA256 --symmetric' + passphrase
     else:
       return 'gzip -c'
 
@@ -25,7 +27,7 @@ class BackupFileCommands (object):
     dump_cmd = BackupFileCommands.encrypt_compress_cmd()
 
     with ProcessGuard(btrfs_cmd, None, sp.PIPE, None) as btrfs_proc:
-      with open(fileout, 'w') as result_file:
+      with open(fileout, 'wb') as result_file:
         with ProcessGuard(dump_cmd, sp.PIPE, result_file, None) as dump_proc:
           while True:
             data = btrfs_proc.stdout.read()
@@ -49,7 +51,7 @@ class BackupFileCommands (object):
     hasher = hashlib.sha256()
     read_cmd = BackupFileCommands.decrypt_decompress_cmd()
 
-    with open(fileout, 'r') as send_file:
+    with open(fileout, 'rb') as send_file:
       with ProcessGuard(read_cmd, send_file, sp.PIPE, None) as read_proc:
         with ProcessGuard(btrfs_cmd, sp.PIPE, None, None) as btrfs_proc:
           while True:
@@ -69,45 +71,33 @@ class BackupFileCommands (object):
 
   @staticmethod
   def write_tx_log():
-    hasher = hashlib.sha256()
     logfile = get_txlog().logfile
     back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.send_file_staging, os.path.basename(logfile), timestamp.str)
     dump_cmd = BackupFileCommands.encrypt_compress_cmd()
+    hashstr = get_txlog().calculate_and_store_txlog_main_hash()
+    get_txlog().record_backup_tx_log(hashstr)
 
-    with open(logfile, 'r') as logfile_obj:
-      with open(back_logfile, 'w') as result_file:
-        with ProcessGuard(dump_cmd, sp.PIPE, result_file, None) as dump_proc:
-          while True:
-            data = logfile_obj.read(1024*1024)
-            if not data: break
-            hasher.update(data)
-            dump_proc.stdin.write(data)
-          dump_proc.stdin.close()
+    with open(logfile, 'rb') as logfile_obj:
+      with open(back_logfile, 'wb') as result_file:
+        with ProcessGuard(dump_cmd, logfile_obj, result_file, None) as dump_proc:
           dump_proc.wait()
 
-    hashstr = hasher.digest()  
-    get_txlog().record_backup_tx_log(back_logfile, hashstr)
     logger.info("Wrote tx log at %s", back_logfile)
     return back_logfile    
 
   @staticmethod
-  def fetch_tx_log(txlog_name):
-    if txlog_name:
-      result_name = '%s/backup_%s.restore' % (get_conf().btrfs.send_file_staging, os.path.basename(txlog_name))
-      read_cmd = BackupFileCommands.decrypt_decompress_cmd()
+  def fetch_tx_log(archive_txlog):
+    assert not len(get_txlog()), "Will not overwrite tx log"
+    dest_path = get_txlog().logfile
+    read_cmd = BackupFileCommands.decrypt_decompress_cmd()
 
-      with open(txlog_name, 'r') as logfile_obj:
-        with open(result_name, 'w') as result_file:
-          with ProcessGuard(read_cmd, logfile_obj, result_file, None) as read_proc:
-            read_proc.wait()
+    with open(archive_txlog, 'rb') as logfile_obj:
+      with open(dest_path, 'wb') as result_file:
+        with ProcessGuard(read_cmd, logfile_obj, result_file, None) as read_proc:
+          read_proc.wait()
 
-      logger.info("Restored %s from %s", result_name, txlog_name)
-      txlog = TransactionLog(result_name)
-    else:
-      txlog = get_txlog()
-
-    txlog.check_log_for_restore()
-    return txlog
+    logger.info("Restored %s from %s", dest_path, archive_txlog)
+    reset_txlog() 
 
 ### END BackupFileCommands
 

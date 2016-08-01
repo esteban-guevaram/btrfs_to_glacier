@@ -20,7 +20,7 @@ config:	$(wildcard etc/*)
 test: python native config
 	sudo rm *.log || true
 	#sudo bin/btrfs_test $(C_TEST_ARG)
-	#python bin/test_common_routines.pyc
+	#sudo python bin/test_common_routines.pyc
 	#sudo python bin/test_pybtrfs.pyc
 	sudo python bin/test_btrfs_backup_restore.pyc
 	echo -e "\n\n######################### ALL TESTS OK #########################################\n"
@@ -31,7 +31,7 @@ package: python native config
 	tar -zcf btrfs_glacier_`date +%y%m%d%H%M`.tar.gz bin/*
 
 clean:
-	rm bin/*
+	rm -f bin/*
 	rm btrfs_lib/tags
 
 bin/btrfs_test : $(addprefix bin/, btrfs_test.o btrfs_lib.o btrfs_utils.o rbtree.o )

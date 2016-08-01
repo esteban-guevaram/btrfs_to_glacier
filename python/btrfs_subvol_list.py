@@ -17,6 +17,12 @@ class BtrfsSubvolList (object):
   def get_by_path(self, path):
     return next((n for n in self.subvols if n.path == path), None)
 
+  def get_main_subvols(self):
+    return [ n for n in self.subvols if not n.is_snapshot() and not n.ruuid ]
+
+  def get_readonly_subvols(self):
+    return [ n for n in self.subvols if n.is_readonly() ]
+
   def get_snap_childs(self, subvol):
     snaps = [ n for n in self.subvols if n.is_snapshot() and n.puuid == subvol.uuid ]
     snaps = sorted(snaps, key=(lambda x: x.creation_utc))
@@ -39,6 +45,9 @@ class FsRestoreResult (object):
     self.child_subvols = {}
     self.restored_files = {}
     self.last_childs = {}
+
+  def get_restores_for_subvol (self, puuid):
+    return self.child_subvols[puuid]
 
   def add_restored_snap(self, record, subvol):
     key = record.subvol.puuid

@@ -1,7 +1,7 @@
 import unittest as ut
 import sys, os, pybtrfs, pickle, struct
 from common import *
-from test_common import *
+from routines_for_test import *
 from btrfs_subvol_list import *
 logger = logging.getLogger(__name__)
 

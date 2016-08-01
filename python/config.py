@@ -94,7 +94,7 @@ def build_final_conf (config, namespace):
 def get_option_help (config, section, prop):
   mes = ''
   if not test_mode:
-    mes = config.get(key[0], key[1] + '_help')
+    mes = config.get(section, prop + '_help')
   return mes
 
 def parse_command_line (config):
@@ -140,6 +140,10 @@ def parse_all_config ():
   return final_conf
 
 singleton_conf = None
+def reset_conf ():
+  global singleton_conf
+  singleton_conf = None
+
 def get_conf ():
   global singleton_conf
   if not singleton_conf:

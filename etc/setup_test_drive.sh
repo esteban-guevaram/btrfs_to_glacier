@@ -4,6 +4,7 @@
 MOUNT_POINT='/media/PybtrfsTestDrive'
 RESTORE_POINT="$MOUNT_POINT/restore"
 SNAP_POINT="$MOUNT_POINT/snapshots"
+STAGE_DIR="$MOUNT_POINT/staging"
 
 DEVICE=""
 PARTITION=""
@@ -101,6 +102,7 @@ prepare_filesystem() {
 
   [[ -d "$RESTORE_POINT" ]] || run_cmd mkdir -p "$RESTORE_POINT"
   [[ -d "$SNAP_POINT" ]] || run_cmd mkdir -p "$SNAP_POINT"
+  [[ -d "$STAGE_DIR" ]] || run_cmd mkdir -p "$STAGE_DIR"
 }
 
 create_dummy_subvol_and_snap() {

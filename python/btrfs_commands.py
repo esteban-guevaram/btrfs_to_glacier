@@ -13,7 +13,7 @@ class BtrfsCommands (object):
 
     logger.info("These are the targets for backup : %r", targets)
     subvols = BtrfsSubvolList(targets[0])
-    get_txlog().check_log_consistency(subvols)
+    get_txlog().check_log_for_backup(subvols)
 
     for target in targets:
       subvol = subvols.get_by_path(target)
@@ -28,18 +28,19 @@ class BtrfsCommands (object):
 
   def incremental_backup(self, subvol):
     logger.info("Creating backup file for %r", subvol)
-    par_snap = self.determine_parent_snap_for_delta(subvol)
+    predecessor = self.determine_predecessor_snap_for_delta(subvol)
     cur_snap = self.create_snapshot(subvol)
-    fileout = self.send_volume(cur_snap, par_snap)
+    fileout = self.send_volume(cur_snap, predecessor)
     self.clean_old_backup_snaps(subvol)
 
     subvols = BtrfsSubvolList(subvol.path)
-    assert not par_snap or not subvols.get_by_uuid(par_snap.uuid)
+    assert cur_snap.uuid in get_txlog().recorded_snaps
     return fileout, cur_snap
 
   def clean_old_backup_snaps(self, subvol):
     subvols = BtrfsSubvolList(subvol.path)
-    childs = subvols.get_snap_childs(subvol)
+    childs = [ s for s in subvols.get_snap_childs(subvol)
+                 if s.uuid in get_txlog().recorded_snaps ]
     window = get_conf().btrfs.backup_clean_window
     assert window > 0
     subvols_to_del = childs[:-window]
@@ -51,11 +52,14 @@ class BtrfsCommands (object):
       self.delete_snapshot(child, subvol)
     return subvols_to_del  
 
-  def determine_parent_snap_for_delta(self, subvol):
+  def determine_predecessor_snap_for_delta(self, subvol):
     subvols = BtrfsSubvolList(subvol.path)
     last_snap_uuid = get_txlog().find_last_recorded_snap_uuid(subvol)
     if not last_snap_uuid:
-      assert not subvols.get_snap_childs(subvol)
+      snap_child_not_recorded = subvols.get_snap_childs(subvol)
+      if snap_child_not_recorded:
+        logger.warn("No snap predecessor in txlog, however some snaps exists for the subvol %r => %r",
+          subvol, snap_child_not_recorded)
       return None
     else:
       last_snap = subvols.get_by_uuid(last_snap_uuid)
@@ -65,6 +69,7 @@ class BtrfsCommands (object):
   def delete_received_subvol (self, subvol, parent):
     assert not subvol.puuid or parent.uuid == subvol.puuid
     assert subvol.ruuid and subvol.is_readonly()
+    assert subvol.uuid in get_txlog().recorded_restores
     call('btrfs subvolume delete -C ' + subvol.path)
     get_txlog().record_subvol_delete(subvol)
     assert not os.path.exists(subvol.path)
@@ -72,24 +77,25 @@ class BtrfsCommands (object):
   def delete_snapshot (self, subvol, parent):
     assert parent.uuid == subvol.puuid
     assert subvol.is_snapshot() and subvol.is_readonly()
+    assert subvol.uuid in get_txlog().recorded_snaps
     call('btrfs subvolume delete -C ' + subvol.path)
     get_txlog().record_subvol_delete(subvol)
     assert not os.path.exists(subvol.path)
 
-  def send_volume (self, current, parent=None):
+  def send_volume (self, current, predecessor=None):
     assert current.is_snapshot()
     fileout = '%s/backup_%s.btrfs' % (get_conf().btrfs.send_file_staging, current.name)
     assert not os.path.exists(fileout)
 
-    if parent:
-      assert parent.is_snapshot()
-      assert parent.uuid != current.uuid and parent.puuid == current.puuid
-      cmd = 'btrfs send -p %s %s' % (parent.path, current.path)
+    if predecessor:
+      assert predecessor.is_snapshot()
+      assert predecessor.uuid != current.uuid and predecessor.puuid == current.puuid
+      cmd = 'btrfs send -p %s %s' % (predecessor.path, current.path)
     else:  
       cmd = 'btrfs send %s' % current.path
 
     hashstr = BackupFileCommands.write_send_file(cmd, fileout)
-    get_txlog().record_backup_file(fileout, hashstr, current, parent)
+    get_txlog().record_backup_file(fileout, hashstr, current, predecessor)
     logger.info("Wrote backup for %r at %s", current, fileout)
     return fileout
 
@@ -108,14 +114,17 @@ class BtrfsCommands (object):
     return new_vol
 
 
-  def restore_all_subvols (self, txlog_name=None):
+  def restore_all_subvols (self, archived_txlog=None):
+    if archived_txlog:
+      BackupFileCommands.fetch_tx_log(archived_txlog)
+    get_txlog().check_log_for_restore()
+
     restore_path = get_conf().btrfs.restore_path
-    txlog = BackupFileCommands.fetch_tx_log(txlog_name)
+    assert os.path.isdir(restore_path)
     subvols = BtrfsSubvolList(restore_path)
     restore_result = FsRestoreResult()
-    assert os.path.isdir(restore_path)
 
-    for record in txlog.iterate_through_records():
+    for record in get_txlog().iterate_through_records():
       if record.r_type == Record.BACK_FILE:
         subvol = self.receive_volume(subvols, restore_path, record)
         restore_result.add_restored_snap(record, subvol)

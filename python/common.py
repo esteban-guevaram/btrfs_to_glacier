@@ -1,4 +1,4 @@
-from config import get_conf, conf_for_test
+from config import get_conf, conf_for_test, reset_conf
 import logging, config_log, random, getpass
 import os, re, stat, datetime, tempfile
 import subprocess as sp
