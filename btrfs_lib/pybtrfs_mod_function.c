@@ -81,7 +81,7 @@ const char* extract_struct_header(PyObject* packed) {
   const char* inner_str = NULL;
 
   GOTO_IF_NULL(extract_struct_header_fail,
-    inner_str = PyString_AsString(packed));
+    inner_str = PyBytes_AsString(packed));
   memcpy(buffer, inner_str, PREAMBLE_LEN);
   buffer[PREAMBLE_LEN] = '\0';
 
@@ -97,13 +97,13 @@ const char* extract_preamble_and_build_pickle_format(PyObject* packed) {
   PyObject *unpacked = NULL;
 
   #define UNPACK_TO_U8(field, tuple, index)  \
-    field = PyInt_AsLong( PyTuple_GetItem(tuple, index) ); \
+    field = PyLong_AsLong( PyTuple_GetItem(tuple, index) ); \
     FAIL_AND_GOTO_IF(extract_preamble_and_build_pickle_format_fail, PyErr_Occurred());
 
   GOTO_IF_NULL(extract_preamble_and_build_pickle_format_fail,
     packed_header = extract_struct_header(packed) );
   GOTO_IF_NULL(extract_preamble_and_build_pickle_format_fail,
-    unpacked = PyObject_CallMethod(StructMod, "unpack", "ss#", PICKLE_PREAMBLE, packed_header, PREAMBLE_LEN) );
+    unpacked = PyObject_CallMethod(StructMod, "unpack", "sy#", PICKLE_PREAMBLE, packed_header, PREAMBLE_LEN) );
 
   UNPACK_TO_U8(name_len, unpacked, 0);
   UNPACK_TO_U8(path_len, unpacked, 1);
@@ -127,7 +127,7 @@ PyObject* pack_subvol_c_struct(PyObject* self) {
   u8 path_len = strnlen(subvol->node.path ? subvol->node.path : "", NAME_MAX_LEN); 
   u8 fpath_len = strnlen(subvol->node.full_path ? subvol->node.full_path : "", NAME_MAX_LEN); 
 
-  PyObject* packed = PyObject_CallMethod(StructMod, "pack", "sBBBKKKKKKKKKis#s#s#s#s#s#", 
+  PyObject* packed = PyObject_CallMethod(StructMod, "pack", "sBBBKKKKKKKKKiy#y#y#y#y#y#", 
     forge_pickle_format(name_len, path_len, fpath_len),
     name_len,
     path_len,
@@ -163,16 +163,16 @@ PyObject* unpack_subvol_c_struct(PyObject* self, PyObject* packed) {
     unpacked = PyObject_CallMethod(StructMod, "unpack", "sS", pickle_format, packed) );
 
   #define UNPACK_TO_U64(subvol, field, tuple, index)  \
-    subvol->node.field = PyInt_AsUnsignedLongLongMask( PyTuple_GetItem(tuple, index) ); \
+    subvol->node.field = PyLong_AsUnsignedLongLongMask( PyTuple_GetItem(tuple, index) ); \
     FAIL_AND_GOTO_IF(unpack_subvol_c_struct_fail, PyErr_Occurred());
 
   #define UNPACK_TO_STR(subvol, field, tuple, index)  \
-    const char* pasty(__,field) = PyString_AsString( PyTuple_GetItem(tuple, index) ); \
+    const char* pasty(__,field) = PyBytes_AsString( PyTuple_GetItem(tuple, index) ); \
     if( strlen(pasty(__,field)) ) subvol->node.field = strdup( pasty(__,field) ); \
     FAIL_AND_GOTO_IF(unpack_subvol_c_struct_fail, PyErr_Occurred());
 
   #define UNPACK_TO_UUID(subvol, field, tuple, index)  \
-    const char* pasty(__,field) = PyString_AsString( PyTuple_GetItem(tuple, index) ); \
+    const char* pasty(__,field) = PyBytes_AsString( PyTuple_GetItem(tuple, index) ); \
     memcpy( subvol->node.field, pasty(__,field), BTRFS_UUID_SIZE); \
     FAIL_AND_GOTO_IF(unpack_subvol_c_struct_fail, PyErr_Occurred());
   

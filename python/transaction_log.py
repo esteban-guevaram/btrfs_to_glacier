@@ -1,4 +1,4 @@
-import cPickle as pickle, time, struct, hashlib
+import pickle as pickle, time, struct, hashlib
 from common import *
 from btrfs_subvol_list import *
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class TransactionLog (object):
   def load_from_file_and_check_hash(self):
     logger.info("Loading tx log from %s", self.logfile)
     if not os.path.exists(self.logfile):
-      self.save_txlog_header(0, "\0"*32)
+      self.save_txlog_header(0, b"\0"*32)
       return []
 
     tx_list = []

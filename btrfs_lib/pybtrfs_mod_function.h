@@ -1,6 +1,6 @@
 #ifndef __PYBTRFS_MOD_FUNCTION_H__
 #define __PYBTRFS_MOD_FUNCTION_H__
-#include <python2.7/Python.h>
+#include <Python.h>
 #include "btrfs_lib.h"
 
 // First byte is left for future usage

@@ -1,4 +1,4 @@
-import logging, config_log, argparse, ConfigParser, os
+import logging, config_log, argparse, configparser, os
 logger = logging.getLogger(__name__)
 
 class MyStoreTrue(argparse.Action):
@@ -114,7 +114,7 @@ def parse_command_line (config):
 
 def parse_config_file (filename):
   assert os.path.isfile(filename)
-  config = ConfigParser.ConfigParser()
+  config = configparser.ConfigParser()
   config.read(filename)
   return config
 

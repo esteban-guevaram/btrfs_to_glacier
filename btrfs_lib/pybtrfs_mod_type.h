@@ -1,6 +1,6 @@
 #ifndef __PYBTRFS_MOD_TYPE_H__
 #define __PYBTRFS_MOD_TYPE_H__
-#include <python2.7/Python.h>
+#include <Python.h>
 #include "btrfs_lib.h"
 
 #define stringy_helper(arg) #arg
@@ -22,8 +22,7 @@
 
 #define PYTHON_TYPE(cname, pyname, cstruct, doc)   \
   PyTypeObject cname = {                           \
-      PyObject_HEAD_INIT(NULL)                     \
-      0,                         /*ob_size*/       \
+      PyVarObject_HEAD_INIT(NULL,0)                \
       pyname,                    /*tp_name*/       \
       sizeof(cstruct),           /*tp_basicsize*/  \
       0,                         /*tp_itemsize*/   \
@@ -31,7 +30,7 @@
       0,                         /*tp_print*/      \
       0,                         /*tp_getattr*/    \
       0,                         /*tp_setattr*/    \
-      0,                         /*tp_compare*/    \
+      0,                         /*tp_compare|reserved in py3*/    \
       0,                         /*tp_repr*/       \
       0,                         /*tp_as_number*/  \
       0,                         /*tp_as_sequence*/\

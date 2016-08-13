@@ -1,8 +1,8 @@
 #include "pybtrfs_mod_type.h"
 #include "pybtrfs_mod_function.h"
 
-#include <python2.7/structmember.h>
-#include <python2.7/datetime.h>
+#include <structmember.h>
+#include <datetime.h>
 
 PYTHON_TYPE(BtrfsNodeType, "pybtrfs.BtrfsNode", struct BtrfsNode, "Represents a subvolume information (name, uuid, path, ...)");
 
@@ -15,6 +15,7 @@ PyMethodDef BtrfsNodeMethods[] = {
 };
 
 PyMemberDef BtrfsNodeMembers[] = {
+  // name and path must be utf-8 encoded (i think)
   {"name",         T_STRING, offsetof(struct BtrfsNode, node.name), READONLY, "subvolume name"},
   {"path",         T_STRING, offsetof(struct BtrfsNode, node.full_path), READONLY, "full path were subvolume is mounted"},
   {"uuid",         T_OBJECT, offsetof(struct BtrfsNode, uuid), READONLY, "the subvolume id"},
@@ -44,7 +45,7 @@ void BtrfsNodeType__del__(struct BtrfsNode* self) {
 }
 
 PyObject* BtrfsNodeType__repr__(struct BtrfsNode* self) {
-  PyObject *path = NULL, *uuid = NULL, *creation_utc = NULL, *tuple = NULL;
+  PyObject *path = NULL, *uuid = NULL, *creation_utc = NULL, *tuple = NULL, *repr = NULL;
 
   GOTO_IF_NULL(BtrfsNodeType__repr__clean,
     path = PyObject_GetAttrString((PyObject*)self, "path") );
@@ -55,7 +56,7 @@ PyObject* BtrfsNodeType__repr__(struct BtrfsNode* self) {
 
   GOTO_IF_NULL(BtrfsNodeType__repr__clean,
     tuple = PyTuple_Pack(3, path, uuid, creation_utc) );
-  PyObject* repr = PyString_Format(PyString_FromString("[%s, %r, %r]"), tuple);
+  repr = PyUnicode_Format(PyUnicode_FromString("[%s, %r, %r]"), tuple);
 
   BtrfsNodeType__repr__clean:
   Py_XDECREF(tuple);
@@ -118,7 +119,7 @@ PyObject* build_uuid_from_array(u8* uuid) {
     Py_INCREF(Py_None);
     return Py_None;
   }
-  return PyString_FromStringAndSize((char*)uuid, BTRFS_UUID_SIZE);
+  return PyBytes_FromStringAndSize((char*)uuid, BTRFS_UUID_SIZE);
 
   /*PyObject* tuple = NULL;
   GOTO_IF_NULL(build_uuid_from_array_clean,

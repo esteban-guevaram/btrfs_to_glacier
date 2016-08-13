@@ -48,7 +48,7 @@ class BtrfsCommands (object):
 
     for child in subvols_to_del:
       # We expect the list to be sorted !!
-      assert cmp(child.creation_utc, childs[-1].creation_utc) <= 0
+      assert child.creation_utc <= childs[-1].creation_utc
       self.delete_snapshot(child, subvol)
     return subvols_to_del  
 
@@ -58,7 +58,7 @@ class BtrfsCommands (object):
     if not last_snap_uuid:
       snap_child_not_recorded = subvols.get_snap_childs(subvol)
       if snap_child_not_recorded:
-        logger.warn("No snap predecessor in txlog, however some snaps exists for the subvol %r => %r",
+        logger.warning("No snap predecessor in txlog, however some snaps exists for the subvol %r => %r",
           subvol, snap_child_not_recorded)
       return None
     else:
@@ -136,7 +136,7 @@ class BtrfsCommands (object):
   def receive_volume(self, subvols, restore_path, record):
     already_restored = subvols.get_by_ruuid(record.subvol.uuid)
     if already_restored:  
-      logger.warn("Will not restore because there is already a matching subvolume : %r / %r", record, already_restored)
+      logger.warning("Will not restore because there is already a matching subvolume : %r / %r", record, already_restored)
       return already_restored
 
     logger.debug("Restoring from %r", record)
@@ -160,7 +160,7 @@ class BtrfsCommands (object):
       
       for subvol in subvols_to_del:
         # We expect the list to be sorted !!
-        assert cmp(subvol.creation_utc, restore_result.last_childs[puuid].creation_utc) <= 0
+        assert subvol.creation_utc <= restore_result.last_childs[puuid].creation_utc
         self.delete_received_subvol(subvol, previous_vol)
         previous_vol = subvol
 

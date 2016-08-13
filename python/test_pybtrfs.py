@@ -29,6 +29,10 @@ class TestPyBtrfs (ut.TestCase):
     self.assertEqual(right.is_snapshot(),  left.is_snapshot())
     self.assertEqual(right.is_readonly(),  left.is_readonly())
 
+  def test_raw_c_btrfs_code(self):
+    root_fs = get_conf().test.root_fs
+    call(['bin/btrfs_test', root_fs])
+
   def test_create_empty_node(self):
     node = pybtrfs.BtrfsNode()
     logger.debug( "empty node = '%r'", node )

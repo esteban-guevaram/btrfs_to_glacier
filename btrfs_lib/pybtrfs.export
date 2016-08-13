@@ -1,4 +1,4 @@
 {
-  global: initpybtrfs;
+  global: PyInit_pybtrfs;
   local: *;
 };

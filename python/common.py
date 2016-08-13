@@ -10,19 +10,19 @@ class timestamp (object):
 
 def annoying_confirm_prompt(cmd):
   for attempt in range(3):
-    logger.warn('\nAre you sure you want to run : %r', cmd)
+    logger.warning('\nAre you sure you want to run : %r', cmd)
     ok_token = random.randint(100, 1000)
     answer = raw_input('[%d]  Type %d to confirm >> ' % (attempt, ok_token))
     if int(answer) != ok_token:
       raise Exception('Aborted by user')
 
 def sync_simple_call (cmd):
-  proc = sp.Popen(cmd, stdin=None, stdout=sp.PIPE, stderr=sp.PIPE)
+  proc = sp.Popen(cmd, stdin=None, stdout=sp.PIPE, stderr=sp.PIPE, universal_newlines=True)
   (out, err) = proc.communicate()
 
   logger.debug('Output :\n%s', out)  
   if len(err):
-    logger.warn('Error :\n%s', err)
+    logger.warning('Error :\n%s', err)
   if proc.returncode:
     raise Exception('%r failed with error %d' % (cmd, proc.returncode))
   return out  

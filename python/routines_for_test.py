@@ -144,7 +144,7 @@ def add_rand_file_to_dir(path):
   with tempfile.NamedTemporaryFile(mode='w', dir=path, delete=False) as fileobj:
     logger.debug("Writing %s", fileobj.name)
     os.chmod(fileobj.name, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH)
-    for i in xrange(1024):
+    for i in range(1024):
       fileobj.write("%d\n" % random.randint(0,1024*1024*1024))
 
 def setup_filesystem(extra_options, subvol_paths):
@@ -187,11 +187,13 @@ def compare_text_files(left, right):
   if not os.path.isfile(left):
     return 1
 
-  with open(left, 'r') as left_file:
-    with open(right, 'r') as right_file:
+  with open(left, 'rb') as left_file:
+    with open(right, 'rb') as right_file:
       left_text = left_file.read()
       right_text = right_file.read()
-      return cmp(left_text, right_text)
+      if left_text == right_text:
+        return 0
+      return 1  
 
 def modify_random_byte_in_file (filein, min_offset=0):
   size = os.path.getsize(filein)
@@ -202,9 +204,10 @@ def modify_random_byte_in_file (filein, min_offset=0):
   shutil.copyfile(filein, fileout)
   with open(fileout, 'r+b') as fileobj:
     fileobj.seek(offset, os.SEEK_SET) 
-    data = ord( fileobj.read(1) )
+    data = fileobj.read(1)[0]
+    new_data = bytes([ (data+1) % 256 ])
     fileobj.seek(offset, os.SEEK_SET) 
-    fileobj.write( chr((data+1) % 256) )
-    logger.debug("Changing %r @ %d", data, offset)
+    fileobj.write( new_data )
+    logger.debug("Changing %r=>%r @ %d", data, new_data, offset)
   return fileout
 
