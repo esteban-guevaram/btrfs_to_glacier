@@ -16,6 +16,7 @@ native: bin/pybtrfs.so bin/btrfs_test btrfs_lib/tags
 python: $(wildcard python/*.py )
 	$(PYTHON) -m compileall -b -l python
 	mv python/*.pyc bin
+	mv python/*/*.pyc bin
 
 config:	$(wildcard etc/*)
 	cp etc/* bin

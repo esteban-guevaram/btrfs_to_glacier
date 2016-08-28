@@ -3,7 +3,7 @@ from common import *
 from transaction_log import TransactionLog, get_txlog, Record, reset_txlog
 logger = logging.getLogger(__name__)
 
-class BackupFileCommands (object):
+class FileUtils (object):
 
   @staticmethod
   def decrypt_decompress_cmd():
@@ -24,7 +24,7 @@ class BackupFileCommands (object):
   @staticmethod
   def write_send_file(btrfs_cmd, fileout):
     hasher = hashlib.sha256()
-    dump_cmd = BackupFileCommands.encrypt_compress_cmd()
+    dump_cmd = FileUtils.encrypt_compress_cmd()
 
     with ProcessGuard(btrfs_cmd, None, sp.PIPE, None) as btrfs_proc:
       with open(fileout, 'wb') as result_file:
@@ -49,7 +49,7 @@ class BackupFileCommands (object):
   @staticmethod
   def receive_subvol_file(btrfs_cmd, fileout, hashstr):
     hasher = hashlib.sha256()
-    read_cmd = BackupFileCommands.decrypt_decompress_cmd()
+    read_cmd = FileUtils.decrypt_decompress_cmd()
 
     with open(fileout, 'rb') as send_file:
       with ProcessGuard(read_cmd, send_file, sp.PIPE, None) as read_proc:
@@ -73,9 +73,9 @@ class BackupFileCommands (object):
   def write_tx_log():
     logfile = get_txlog().logfile
     back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.send_file_staging, os.path.basename(logfile), timestamp.str)
-    dump_cmd = BackupFileCommands.encrypt_compress_cmd()
+    dump_cmd = FileUtils.encrypt_compress_cmd()
     hashstr = get_txlog().calculate_and_store_txlog_main_hash()
-    get_txlog().record_backup_tx_log(hashstr)
+    get_txlog().record_txlog_to_file(hashstr)
 
     with open(logfile, 'rb') as logfile_obj:
       with open(back_logfile, 'wb') as result_file:
@@ -89,7 +89,7 @@ class BackupFileCommands (object):
   def fetch_tx_log(archive_txlog):
     assert not len(get_txlog()), "Will not overwrite tx log"
     dest_path = get_txlog().logfile
-    read_cmd = BackupFileCommands.decrypt_decompress_cmd()
+    read_cmd = FileUtils.decrypt_decompress_cmd()
 
     with open(archive_txlog, 'rb') as logfile_obj:
       with open(dest_path, 'wb') as result_file:
@@ -99,7 +99,7 @@ class BackupFileCommands (object):
     logger.info("Restored %s from %s", dest_path, archive_txlog)
     reset_txlog() 
 
-### END BackupFileCommands
+### END FileUtils
 
 class ProcessGuard:
   def __init__(self, cmd, stdin, stdout, stderr, interactive=None):

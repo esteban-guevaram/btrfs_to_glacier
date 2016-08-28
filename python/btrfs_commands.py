@@ -1,6 +1,6 @@
 from common import *
 from transaction_log import get_txlog, Record
-from backup_file_commands import *
+from file_utils import *
 from btrfs_subvol_list import *
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class BtrfsCommands (object):
       fileout, snap = self.incremental_backup(subvol)
       backup_result.add_backup_subvol(subvol, snap, fileout)
 
-    back_tx_log = BackupFileCommands.write_tx_log()
+    back_tx_log = FileUtils.write_tx_log()
     backup_result.add_tx_log_save(back_tx_log)
     logger.info("Backup report: %s", backup_result.report())
     return backup_result
@@ -94,8 +94,8 @@ class BtrfsCommands (object):
     else:  
       cmd = 'btrfs send %s' % current.path
 
-    hashstr = BackupFileCommands.write_send_file(cmd, fileout)
-    get_txlog().record_backup_file(fileout, hashstr, current, predecessor)
+    hashstr = FileUtils.write_send_file(cmd, fileout)
+    get_txlog().record_snap_to_file(fileout, hashstr, current, predecessor)
     logger.info("Wrote backup for %r at %s", current, fileout)
     return fileout
 
@@ -116,7 +116,7 @@ class BtrfsCommands (object):
 
   def restore_all_subvols (self, archived_txlog=None):
     if archived_txlog:
-      BackupFileCommands.fetch_tx_log(archived_txlog)
+      FileUtils.fetch_tx_log(archived_txlog)
     get_txlog().check_log_for_restore()
 
     restore_path = get_conf().btrfs.restore_path
@@ -125,7 +125,7 @@ class BtrfsCommands (object):
     restore_result = FsRestoreResult()
 
     for record in get_txlog().iterate_through_records():
-      if record.r_type == Record.BACK_FILE:
+      if record.r_type == Record.SNAP_TO_FILE:
         subvol = self.receive_volume(subvols, restore_path, record)
         restore_result.add_restored_snap(record, subvol)
     
@@ -141,11 +141,11 @@ class BtrfsCommands (object):
 
     logger.debug("Restoring from %r", record)
     fileout = record.fileout
-    BackupFileCommands.receive_subvol_file('btrfs receive ' + restore_path, fileout, record.hashstr)
+    FileUtils.receive_subvol_file('btrfs receive ' + restore_path, fileout, record.hashstr)
     subvol = BtrfsSubvolList.find_by_ruuid(restore_path, record.subvol.uuid)
     assert subvol
 
-    get_txlog().record_restore_snap(fileout, subvol)
+    get_txlog().record_file_to_snap(fileout, subvol)
     logger.info("Restored %r from %s", subvol, fileout)
     return subvol
 

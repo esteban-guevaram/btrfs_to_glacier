@@ -48,7 +48,7 @@ class DummyBtrfsNode (object):
 def fake_backup_file_tx (snap, predecessor):
   fileout = "/root/sendfile/" + snap.name
   hashstr = uuid.uuid4().hex
-  get_txlog().record_backup_file(fileout, hashstr, snap, predecessor)
+  get_txlog().record_snap_to_file(fileout, hashstr, snap, predecessor)
 
 def add_fake_backup_to_txlog ():
   vol1 = DummyBtrfsNode.build()
@@ -70,7 +70,7 @@ def add_fake_backup_to_txlog ():
 
   get_txlog().record_subvol_delete(snap1)
   get_txlog().record_subvol_delete(snap2)
-  #get_txlog().record_backup_tx_log()
+  #get_txlog().record_txlog_to_file()
 
 def add_fake_restore_to_txlog ():
   vol1 = DummyBtrfsNode.build()
@@ -80,10 +80,10 @@ def add_fake_restore_to_txlog ():
   rest12 = DummyBtrfsNode.receive(vol1, rest1)
   rest22 = DummyBtrfsNode.receive(vol2, rest2)
 
-  get_txlog().record_restore_snap('/root/sendfile/' + rest1.name, rest1)
-  get_txlog().record_restore_snap('/root/sendfile/' + rest2.name, rest2)
-  get_txlog().record_restore_snap('/root/sendfile/' + rest12.name, rest12)
-  get_txlog().record_restore_snap('/root/sendfile/' + rest22.name, rest22)
+  get_txlog().record_file_to_snap('/root/sendfile/' + rest1.name, rest1)
+  get_txlog().record_file_to_snap('/root/sendfile/' + rest2.name, rest2)
+  get_txlog().record_file_to_snap('/root/sendfile/' + rest12.name, rest12)
+  get_txlog().record_file_to_snap('/root/sendfile/' + rest22.name, rest22)
   get_txlog().record_subvol_delete(rest1)
   get_txlog().record_subvol_delete(rest2)
 

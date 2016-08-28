@@ -40,7 +40,7 @@ class TestBtrfsBackupRestore (ut.TestCase):
     self.assertTrue(all( subvols.get_by_uuid(s.uuid) for s in restore_result.last_childs.values() ))
 
     record_type_count = calculate_record_type_count()
-    self.assertEqual(4, record_type_count[Record.REST_FILE])
+    self.assertEqual(4, record_type_count[Record.FILE_TO_SNAP])
 
   #@ut.skip("For quick validation")
   def test_restore_filesystem_full_file_compare (self):
@@ -77,7 +77,7 @@ class TestBtrfsBackupRestore (ut.TestCase):
     self.assertTrue(all( subvols.get_by_uuid(s.uuid) for s in restore_result.last_childs.values() ))
 
     record_type_count = calculate_record_type_count()
-    self.assertEqual(4, record_type_count[Record.REST_FILE])
+    self.assertEqual(4, record_type_count[Record.FILE_TO_SNAP])
 
   #@ut.skip("For quick validation")
   def test_backup_filesystem (self):
@@ -99,9 +99,9 @@ class TestBtrfsBackupRestore (ut.TestCase):
     self.assertTrue(all( subvols.get_snap_childs(v) for v in targets ))
 
     record_type_count = calculate_record_type_count()
-    self.assertEqual(4, record_type_count[Record.BACK_FILE])
+    self.assertEqual(4, record_type_count[Record.SNAP_TO_FILE])
     self.assertEqual(4, record_type_count[Record.NEW_SNAP])
-    self.assertEqual(2, record_type_count[Record.BACK_LOG])
+    self.assertEqual(2, record_type_count[Record.TXLOG_TO_FILE])
 
   #@ut.skip("For quick validation")
   def test_backup_single_subvolume (self):
@@ -125,7 +125,7 @@ class TestBtrfsBackupRestore (ut.TestCase):
     self.assertEqual(2, len(get_txlog().recorded_snaps))
 
     record_type_count = calculate_record_type_count()
-    self.assertEqual(2, record_type_count[Record.BACK_FILE])
+    self.assertEqual(2, record_type_count[Record.SNAP_TO_FILE])
     self.assertEqual(2, record_type_count[Record.NEW_SNAP])
 
   #@ut.skip("For quick validation")

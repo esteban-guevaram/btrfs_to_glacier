@@ -23,6 +23,15 @@ class TransactionLog (object):
     else:
       self.cur_uid = 0
 
+  def check_log_for_upload(self):
+    assert self.tx_list
+    assert False, 'no download/restore session in progress'
+    assert False, 'no unfinished backup session'
+
+  def check_log_for_download(self):
+    assert self.tx_list
+    assert False, 'no previous download session finished (glacier is expensive!)'
+
   def check_log_for_restore(self):
     assert self.tx_list
     send_files = set()
@@ -30,8 +39,10 @@ class TransactionLog (object):
     file_snap = {}
     chain_snap = {}
 
+    assert False, 'no download/upload session in progress'
+
     for record in self.tx_list:
-      if record.r_type == Record.BACK_FILE:
+      if record.r_type == Record.SNAP_TO_FILE:
         send_files.add(record.fileout)
         file_snap[record.subvol.uuid] = 1
         origin_uuid = record.subvol.puuid
@@ -56,13 +67,15 @@ class TransactionLog (object):
     vol_dict = dict( (n.uuid, n) for n in subvols.subvols ) 
     backup_files = set()
 
+    assert False, 'no restore session started'
+
     for record in self.tx_list:
       if record.r_type == Record.DEL_SNAP:
         # No deleted snap is still present in the filesystem
         assert record.subvol.uuid not in vol_dict
         # Every deleted snap was previously saved to a file
         assert not record.subvol.is_snapshot() or record.subvol.uuid in backup_files, record.subvol
-      elif record.r_type == Record.BACK_FILE:
+      elif record.r_type == Record.SNAP_TO_FILE:
         # Every snap was saved only once
         assert record.subvol.uuid not in backup_files
         backup_files.add(record.subvol.uuid)
@@ -86,7 +99,7 @@ class TransactionLog (object):
           tx_list.append( record )
           if record.r_type == Record.NEW_SNAP:
             self.recorded_snaps.add(record.subvol.uuid)
-          elif record.r_type == Record.REST_FILE:
+          elif record.r_type == Record.FILE_TO_SNAP:
             self.recorded_restores.add(record.subvol.uuid)
       except EOFError:
         pass
@@ -110,6 +123,53 @@ class TransactionLog (object):
         return record.subvol.uuid
     return None    
 
+  def record_backup_start(self):
+    record = Record(Record.BACK_START, self.new_uid())
+    self.add_and_flush_record(record)
+
+  def record_backup_end(self):
+    record = Record(Record.BACK_END, self.new_uid())
+    self.add_and_flush_record(record)
+
+  def record_restore_start(self):
+    record = Record(Record.REST_START, self.new_uid())
+    self.add_and_flush_record(record)
+
+  def record_restore_end(self):
+    record = Record(Record.REST_END, self.new_uid())
+    self.add_and_flush_record(record)
+
+  def record_aws_session_start(self, session_type):
+    record = Record(Record.AWS_START, self.new_uid())
+    record.session_type = session_type
+    self.add_and_flush_record(record)
+
+  def record_aws_session_end(self, session_type):
+    record = Record(Record.AWS_END, self.new_uid())
+    record.session_type = session_type
+    self.add_and_flush_record(record)
+
+  def record_fileseg_start(self, fileout, aws_id, range_bytes):
+    assert fileout and aws_id
+    record = Record(Record.FILESEG_START, self.new_uid())
+    record.range_bytes = range_bytes
+    record.aws_id = aws_id
+    record.fileout = fileout
+    self.add_and_flush_record(record)
+
+  def record_fileseg_end(self):
+    record = Record(Record.FILESEG_END, self.new_uid())
+    self.add_and_flush_record(record)
+
+  def record_chunk_start(self, range_bytes):
+    record = Record(Record.CHUNK_START, self.new_uid())
+    record.range_bytes = range_bytes
+    self.add_and_flush_record(record)
+
+  def record_chunk_end(self):
+    record = Record(Record.CHUNK_END, self.new_uid())
+    self.add_and_flush_record(record)
+
   def record_snap_creation(self, parent, snap):
     record = Record(Record.NEW_SNAP, self.new_uid())
     record.parent = parent
@@ -122,32 +182,34 @@ class TransactionLog (object):
     record.subvol = subvol
     self.add_and_flush_record(record)
   
-  def record_glacier_upload(self, fileout, job_id):
-    record = Record(Record.UPD_FILE, self.new_uid())
-    record.fileout = fileout
-    record.job_id = job_id
+  def record_txlog_upload(self):
+    record = Record(Record.TXLOG_UPLD, self.new_uid())
     self.add_and_flush_record(record)
 
-  def record_backup_tx_log(self, hashstr):
-    record = Record(Record.BACK_LOG, self.new_uid())
+  def record_txlog_to_file(self, hashstr):
+    record = Record(Record.TXLOG_TO_FILE, self.new_uid())
     record.hashstr = hashstr
     self.add_and_flush_record(record)
 
-  def record_backup_file(self, fileout, hashstr, snap, predecessor=None):
+  def record_snap_to_file(self, fileout, hashstr, snap, predecessor=None):
     assert fileout and hashstr
-    record = Record(Record.BACK_FILE, self.new_uid())
+    record = Record(Record.SNAP_TO_FILE, self.new_uid())
     record.predecessor = predecessor
     record.subvol = snap
     record.fileout = fileout
     record.hashstr = hashstr
     self.add_and_flush_record(record)
 
-  def record_restore_snap(self, fileout, subvol):
-    record = Record(Record.REST_FILE, self.new_uid())
+  def record_file_to_snap(self, fileout, subvol):
+    record = Record(Record.FILE_TO_SNAP, self.new_uid())
     record.subvol = subvol
     record.fileout = fileout
     self.recorded_restores.add(subvol.uuid)
     self.add_and_flush_record(record)
+
+  def reverse_iterate_through_records(self):
+    # we copy the list to avoid iterating over elements created after the call
+    return iter( self.tx_list[::-1] )
 
   def iterate_through_records(self):
     # we copy the list to avoid iterating over elements created after the call
@@ -194,7 +256,7 @@ class TransactionLog (object):
         while 1:
           last_offset = logfile.tell()
           record = pickle.load(logfile)
-          if record.r_type == Record.BACK_LOG:
+          if record.r_type == Record.TXLOG_TO_FILE:
             assert start_seg < last_offset
             segments.append( (start_seg, last_offset) )
             start_seg = last_offset
@@ -234,7 +296,19 @@ class TransactionLog (object):
 ### END TransactionLog
 
 class Record (object):
-  DEL_SNAP, NEW_SNAP, BACK_FILE, UPD_FILE, BACK_LOG, REST_FILE = 'DEL_SNAP', 'NEW_SNAP', 'BACK_FILE', 'UPD_FILE', 'BACK_LOG', 'REST_FILE'
+  SESSION_DOWN, SESSION_UPLD = 'SESSION_DOWN', 'SESSION_UPLD'
+
+  TXLOG_TO_FILE,   TXLOG_UPLD,  = \
+  'TXLOG_TO_FILE', 'TXLOG_UPLD'
+
+  BACK_START,   BACK_END,   DEL_SNAP,   NEW_SNAP,   SNAP_TO_FILE   = \
+  'BACK_START', 'BACK_END', 'DEL_SNAP', 'NEW_SNAP', 'SNAP_TO_FILE'
+
+  REST_START,   REST_END,   FILE_TO_SNAP   = \
+  'REST_START', 'REST_END', 'FILE_TO_SNAP'
+
+  AWS_START,   AWS_END,   FILESEG_START,   FILESEG_END,   CHUNK_START,    CHUNK_END   = \
+  'AWS_START', 'AWS_END', 'FILESEG_START', 'FILESEG_END', 'CHUNK_START',  'CHUNK_END'
 
   def __init__(self, r_type, uid):
     self.r_type = r_type
