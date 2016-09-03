@@ -30,15 +30,24 @@ def sanity_checks (final_conf):
     assert os.path.isdir( final_conf.btrfs.send_file_staging )
 
 def adjust_config_types (final_conf):
-  transform_into_bool(final_conf.app, 'verbose')
-  transform_into_bool(final_conf.app, 'dryrun')
-  transform_into_bool(final_conf.app, 'interactive')
-  transform_into_bool(final_conf.app, 'encrypt')
-  transform_into_int (final_conf.app, 'pickle_proto')
-  transform_into_list(final_conf.btrfs, 'target_subvols')
-  transform_into_int (final_conf.btrfs, 'backup_clean_window')
-  transform_into_int (final_conf.btrfs, 'restore_clean_window')
-  transform_into_list(final_conf.rsync, 'exclude')
+  transform_into_bool  (final_conf.app, 'verbose')
+  transform_into_bool  (final_conf.app, 'dryrun')
+  transform_into_bool  (final_conf.app, 'interactive')
+  transform_into_bool  (final_conf.app, 'encrypt')
+  transform_into_int   (final_conf.app, 'pickle_proto')
+  transform_into_list  (final_conf.btrfs, 'target_subvols')
+  transform_into_int   (final_conf.btrfs, 'backup_clean_window')
+  transform_into_int   (final_conf.btrfs, 'restore_clean_window')
+  transform_into_int   (final_conf.aws, 'chunk_size_in_mb')
+  transform_into_float (final_conf.aws, 'max_glacier_down_bandwith_gb')
+  transform_into_list  (final_conf.rsync, 'exclude')
+
+def transform_into_float (section, prop):
+  if not hasattr(section, prop):
+    assert False, "Bad config for key %r - %s" % (section, prop)
+  
+  value = getattr(section, prop)
+  setattr(section, prop, float( value.strip() ))
 
 def transform_into_int (section, prop):
   if not hasattr(section, prop):

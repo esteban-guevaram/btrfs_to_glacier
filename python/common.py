@@ -49,3 +49,11 @@ def rsync(source, dest):
   assert os.path.isdir(source) and os.path.isdir(dest), "Bad arguments (%s, %s)" % (source, dest)
   call(cmd)
 
+def retry_operation (closure, exception):
+  for attempt in range(2):
+    try:
+      return closure()
+    except exception as err:
+      logger.warn("Attempt %d, operation failed : %r", attempt, err)
+  raise Exception('Permanent failure')
+

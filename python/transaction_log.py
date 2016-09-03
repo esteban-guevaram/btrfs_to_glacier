@@ -1,5 +1,6 @@
 import pickle as pickle, time, struct, hashlib
 from common import *
+from FileUtils import *
 from btrfs_subvol_list import *
 logger = logging.getLogger(__name__)
 
@@ -25,12 +26,13 @@ class TransactionLog (object):
 
   def check_log_for_upload(self):
     assert self.tx_list
-    assert False, 'no download/restore session in progress'
+    assert False, 'no overlapping download/restore session'
     assert False, 'no unfinished backup session'
 
   def check_log_for_download(self):
     assert self.tx_list
     assert False, 'no previous download session finished (glacier is expensive!)'
+    assert False, 'no overlapping download/restore session'
 
   def check_log_for_restore(self):
     assert self.tx_list
@@ -108,6 +110,22 @@ class TransactionLog (object):
     self.validate_main_hash(filehash, hash_domain_upper)
     return tx_list
 
+  def backup_to_crypted_file():
+    logfile = get_txlog().logfile
+    back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.send_file_staging, os.path.basename(logfile), timestamp.str)
+    hashstr = get_txlog().calculate_and_store_txlog_main_hash()
+    get_txlog().record_txlog_to_file(hashstr)
+
+    FileUtils.compress_crypt_file(back_logfile)
+    return back_logfile    
+
+  @staticmethod
+  def restore_from_crypted_file(archive_txlog):
+    assert not len(get_txlog()), "Will not overwrite tx log"
+    FileUtils.decompress_decrypt_file( archive_txlog, get_txlog().logfile )
+    # forces lazy reloading
+    reset_txlog() 
+
   def add_and_flush_record(self, record):
     with open(self.logfile, 'ab') as logfile:
       self.tx_list.append( record )
@@ -170,6 +188,12 @@ class TransactionLog (object):
     record = Record(Record.CHUNK_END, self.new_uid())
     self.add_and_flush_record(record)
 
+  def record_txlog_upload(self, fileout, aws_id):
+    record = Record(Record.TXLOG_UPLD, self.new_uid())
+    record.aws_id = aws_id
+    record.fileout = fileout
+    self.add_and_flush_record(record)
+
   def record_snap_creation(self, parent, snap):
     record = Record(Record.NEW_SNAP, self.new_uid())
     record.parent = parent
@@ -182,10 +206,6 @@ class TransactionLog (object):
     record.subvol = subvol
     self.add_and_flush_record(record)
   
-  def record_txlog_upload(self):
-    record = Record(Record.TXLOG_UPLD, self.new_uid())
-    self.add_and_flush_record(record)
-
   def record_txlog_to_file(self, hashstr):
     record = Record(Record.TXLOG_TO_FILE, self.new_uid())
     record.hashstr = hashstr

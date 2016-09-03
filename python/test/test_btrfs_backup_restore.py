@@ -232,7 +232,26 @@ class TestBtrfsBackupRestore (ut.TestCase):
     # All except the latest 3 snaps have been deleted from the filesystem
     self.assertEqual(3, sum( 1 for s in snaps_created if subvols.get_by_uuid(s.uuid) ) )
 
+  #@ut.skip("For quick validation")
+  def test_restore_subvol_different_folder_than_record (self):
+    assert False
+
 ### END TestBtrfsBackupRestore
+
+class TestTreeHasher (ut.TestCase):
+
+  @classmethod
+  def setUpClass(klass):
+    pass
+
+  def setUp(self):
+    pass
+
+  #@ut.skip("For quick validation")
+  def test_single_shot_calculate (self):
+    assert False
+
+### END TestTreeHasher
 
 if __name__ == "__main__":
   conf_for_test()

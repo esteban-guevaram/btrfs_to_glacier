@@ -1,6 +1,5 @@
 import hashlib
 from common import *
-from transaction_log import TransactionLog, get_txlog, Record, reset_txlog
 logger = logging.getLogger(__name__)
 
 class FileUtils (object):
@@ -70,36 +69,42 @@ class FileUtils (object):
     return fileout
 
   @staticmethod
-  def write_tx_log():
-    logfile = get_txlog().logfile
-    back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.send_file_staging, os.path.basename(logfile), timestamp.str)
+  def compress_crypt_file(source):
+    back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.send_file_staging, os.path.basename(source), timestamp.str)
     dump_cmd = FileUtils.encrypt_compress_cmd()
-    hashstr = get_txlog().calculate_and_store_txlog_main_hash()
-    get_txlog().record_txlog_to_file(hashstr)
 
-    with open(logfile, 'rb') as logfile_obj:
+    with open(source, 'rb') as logfile_obj:
       with open(back_logfile, 'wb') as result_file:
         with ProcessGuard(dump_cmd, logfile_obj, result_file, None) as dump_proc:
           dump_proc.wait()
 
-    logger.info("Wrote tx log at %s", back_logfile)
+    logger.info("Crypted file %s at %s", source, back_logfile)
     return back_logfile    
 
   @staticmethod
-  def fetch_tx_log(archive_txlog):
-    assert not len(get_txlog()), "Will not overwrite tx log"
-    dest_path = get_txlog().logfile
+  def decompress_decrypt_file(source, dest):
     read_cmd = FileUtils.decrypt_decompress_cmd()
 
-    with open(archive_txlog, 'rb') as logfile_obj:
-      with open(dest_path, 'wb') as result_file:
+    with open(source, 'rb') as logfile_obj:
+      with open(dest, 'wb') as result_file:
         with ProcessGuard(read_cmd, logfile_obj, result_file, None) as read_proc:
           read_proc.wait()
 
-    logger.info("Restored %s from %s", dest_path, archive_txlog)
-    reset_txlog() 
+    logger.info("Restored %s from %s", dest, source)
+    return dest
 
 ### END FileUtils
+
+class TreeHasher:
+  PART_LEN = 1024**2
+
+  def __init__ (self):
+    self.hasher = hashlib.sha256()
+
+  def single_shot_calculate (self, byte_array):
+    pass
+
+### END TreeHasher
 
 class ProcessGuard:
   def __init__(self, cmd, stdin, stdout, stderr, interactive=None):
