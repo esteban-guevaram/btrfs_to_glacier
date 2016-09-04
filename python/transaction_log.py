@@ -167,16 +167,22 @@ class TransactionLog (object):
     record.session_type = session_type
     self.add_and_flush_record(record)
 
-  def record_fileseg_start(self, fileout, aws_id, range_bytes):
-    assert fileout and aws_id
+  def record_fileseg_start(self, fileseg):
+    # single upload : fileout, range_bytes
+    # multipart upload : fileout, aws_id, range_bytes
+    # download : fileout, aws_id, archive_id, range_bytes
     record = Record(Record.FILESEG_START, self.new_uid())
-    record.range_bytes = range_bytes
-    record.aws_id = aws_id
-    record.fileout = fileout
+    record.fileout = fileseg.fileout
+    record.aws_id = fileseg.aws_id
+    record.archive_id = fileseg.archive_id
+    record.range_bytes = fileseg.range_bytes
     self.add_and_flush_record(record)
 
-  def record_fileseg_end(self):
+  def record_fileseg_end(self, fileseg):
+    # upload : archive_id
+    # download : None
     record = Record(Record.FILESEG_END, self.new_uid())
+    record.archive_id = fileseg.archive_id
     self.add_and_flush_record(record)
 
   def record_chunk_start(self, range_bytes):
@@ -188,10 +194,11 @@ class TransactionLog (object):
     record = Record(Record.CHUNK_END, self.new_uid())
     self.add_and_flush_record(record)
 
-  def record_txlog_upload(self, fileout, aws_id):
+  def record_txlog_upload(self, fileseg):
     record = Record(Record.TXLOG_UPLD, self.new_uid())
-    record.aws_id = aws_id
-    record.fileout = fileout
+    record.fileout = fileseg.fileout
+    record.archive_id = fileseg.archive_id
+    record.range_bytes = fileseg.range_bytes
     self.add_and_flush_record(record)
 
   def record_snap_creation(self, parent, snap):

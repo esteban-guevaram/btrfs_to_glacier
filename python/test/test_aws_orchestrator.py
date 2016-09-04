@@ -10,6 +10,18 @@ class TestAwsOrchestrator (ut.TestCase):
     pass
 
   #@ut.skip("For quick validation")
+  def test_orchestrate_upload_for_one_backup_session_single_file(self):
+    assert False
+
+  #@ut.skip("For quick validation")
+  def test_orchestrate_upload_for_one_backup_session(self):
+    assert False
+
+  #@ut.skip("For quick validation")
+  def test_orchestrate_upload_for_resumed_backup_session(self):
+    assert False
+
+  #@ut.skip("For quick validation")
   def test_orchestrate_upload_for_several_backup_sessions(self):
     assert False
 
@@ -17,7 +29,7 @@ class TestAwsOrchestrator (ut.TestCase):
   def test_orchestrate_upload_with_no_files(self):
     assert False
 
-### END TestPyBtrfs
+### END TestAwsOrchestrator
 
 if __name__ == "__main__":
   conf_for_test()

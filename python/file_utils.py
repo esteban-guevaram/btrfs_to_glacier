@@ -99,10 +99,50 @@ class TreeHasher:
   PART_LEN = 1024**2
 
   def __init__ (self):
-    self.hasher = hashlib.sha256()
+    self.chunk_hashes = []
 
-  def single_shot_calculate (self, byte_array):
-    pass
+  def update_chunk (self, byte_array):
+    hash_leaves = []
+    for range_bytes in range_bytes_it( (0, len(byte_array)), TreeHasher.PART_LEN):
+      hasher = hashlib.sha256( byte_array[range_bytes[0] : range_bytes[1]] )
+      hash_leaves.append( hasher.digest() )
+
+    hash_bytes = TreeHasher.calculate_treehash_from_leaves(hash_leaves)  
+    self.chunk_hashes.append(hash_bytes)
+    return hash_bytes
+
+  def add_chunk_hash_as_hexstr (self, hexstr):
+    byte_array = convert_hexstr_to_bytes(hexstr)
+    assert len(byte_array) == 32
+    self.chunk_hashes.append( byte_array )
+
+  def digest_chunk_as_hexstr (self):
+    result = self.chunk_hashes[-1]
+    return convert_bytes_to_hexstr(result)
+
+  def digest_all_parts_as_hexstr (self):
+    assert self.chunk_hashes
+    result = TreeHasher.calculate_treehash_from_leaves(self.chunk_hashes)
+    return convert_bytes_to_hexstr(result)
+
+  def digest_single_shot_as_hexstr (self, byte_array):
+    assert not self.chunk_hashes
+    result = self.update_chunk(byte_array)
+    return convert_bytes_to_hexstr(result)
+
+  @staticmethod
+  def calculate_treehash_from_leaves (hash_leaves):
+    if len(hash_leaves) == 1:
+      return hash_leaves[0]
+    
+    next_hash_level = []
+    for i in range(0, len(hash_leaves), 2):
+      if i + 1 < len(hash_leaves):
+        hasher = hashlib.sha256( hash_leaves[i] + hash_leaves[i+1] )
+        next_hash_level.append( hasher.digest() )
+      else:
+        next_hash_level.append( hash_leaves[i] )
+    return TreeHasher.calculate_treehash_from_leaves(next_hash_level)    
 
 ### END TreeHasher
 

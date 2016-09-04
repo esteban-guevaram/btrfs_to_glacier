@@ -9,21 +9,22 @@ class AwsOrchestrator:
 
   def upload_all (self):
     get_txlog().check_log_for_upload()
+    boto_session = boto3.Session()
 
     session = AwsGlobalSession.rebuild_from_txlog_or_new_session(Record.SESSION_UPLD)
     if not session:
       session = AwsGlobalSession.start_new(Record.SESSION_UPLD)
 
-    self.upload_all_subvols_to_glacier()
-    backup_fileseg = self.backup_and_upload_txlog_to_glacier(session)
-    self.upload_txlog_to_s3(session, backup_fileseg)
+    self.upload_all_subvols_to_glacier(boto_session)
+    backup_fileseg = self.backup_and_upload_txlog_to_glacier(boto_session, session)
+    self.upload_txlog_to_s3(boto_session, session, backup_fileseg)
     session.close()
 
     logger.info("Upload finished :\n%r", session.print_summary())
     return session
 
-  def upload_all_subvols_to_glacier (self, session):
-    glacier = AwsGlacierManager()
+  def upload_all_subvols_to_glacier (self, boto_session, session):
+    glacier = AwsGlacierManager(boto_session)
     filepaths = self.collect_files_to_upload_since_last_session()
     filesegs_left = self.search_filesegs_pending_upload(session, filepaths)
     pending_fileseg = session.get_pending_glacier_fileseg()
@@ -36,16 +37,16 @@ class AwsOrchestrator:
     logger.info("Upload finished :\n%r", session.print_glacier_summary())
     return session
 
-  def backup_and_upload_txlog_to_glacier (self, session):
-    glacier = AwsGlacierManager()
+  def backup_and_upload_txlog_to_glacier (self, boto_session, session):
+    glacier = AwsGlacierManager(boto_session)
     backup_fileseg = Fileseg.build_from_fileout( get_txlog().backup_to_crypted_file() )
     glacier.upload(session, backup_fileseg)
     return backup_fileseg
 
-  def upload_txlog_to_s3 (self, session, backup_fileseg):
-    s3 = AwsS3Manager()
-    fileseg = Fileseg.build_from_fileout(backup_fileseg.fileoutm backup_fileseg.range_bytes)
-    s3.upload(session, fileseg)
+  def upload_txlog_to_s3 (self, boto_session, session, backup_fileseg):
+    s3 = AwsS3Manager(boto_session)
+    fileseg = Fileseg.build_from_fileout(backup_fileseg.fileout, backup_fileseg.range_bytes)
+    s3.upload_txlog(session, fileseg)
     return fileseg
 
   def collect_files_to_upload_since_last_session (self):

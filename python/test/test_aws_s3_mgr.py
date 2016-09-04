@@ -3,32 +3,30 @@ from common import *
 from aws_session import *
 logger = logging.getLogger(__name__)
 
-class TestAwsGlobalSession (ut.TestCase):
+class TestAwsS3Manager (ut.TestCase):
 
   @classmethod
   def setUpClass(klass):
     pass
 
   #@ut.skip("For quick validation")
-  def test_rebuild_done_session(self):
-    # no done session case, no sessions at all case
+  def test_idempotent_bucket_creation(self):
     assert False
 
   #@ut.skip("For quick validation")
-  def test_rebuild_pending_session(self):
-    # no pending session case, no sessions at all case
+  def test_upload_txlog(self):
+    # check session modified
     assert False
 
   #@ut.skip("For quick validation")
-  def test_rebuild_invalid_session(self):
-    # more than one fileseg pending
-    # unordered chunk ranges
+  def test_upload_txlog_failure(self):
     assert False
 
-### END TestAwsGlobalSession
+### END TestAwsS3Manager
 
 if __name__ == "__main__":
   conf_for_test()
   ut.main()
+
 
 

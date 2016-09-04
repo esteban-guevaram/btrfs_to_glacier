@@ -244,8 +244,13 @@ class TestTreeHasher (ut.TestCase):
   def setUpClass(klass):
     pass
 
-  def setUp(self):
-    pass
+  #@ut.skip("For quick validation")
+  def test_odd_number_of_chunks (self):
+    assert False
+
+  #@ut.skip("For quick validation")
+  def test_even_number_of_chunks (self):
+    assert False
 
   #@ut.skip("For quick validation")
   def test_single_shot_calculate (self):

@@ -1,6 +1,6 @@
 from config import get_conf, conf_for_test, reset_conf
-import logging, config_log, random, getpass
-import os, re, stat, datetime, tempfile
+import logging, config_log, random
+import os, re, stat, datetime, tempfile, binascii, base64
 import subprocess as sp
 logger = logging.getLogger(__name__)
 
@@ -56,4 +56,45 @@ def retry_operation (closure, exception):
     except exception as err:
       logger.warn("Attempt %d, operation failed : %r", attempt, err)
   raise Exception('Permanent failure')
+
+def build_mime_range (range_bytes):
+  return '%d-%d/*' % (range_bytes[0], range_bytes[1]-1)
+
+_mime_rex = re.compile(r'(\d+)-(\d+)/\*')
+def build_range_from_mime (mimestr):
+  match = _mime_rex.match(mimestr)
+  assert match, "Invalid mime string '%s'" % mimestr
+  return (int(match.group(1)), int(match.group(2)) + 1)
+
+def range_bytes_it (full_range, step):
+  if full_range[1] <= full_range[0]:
+    return []
+
+  last = full_range[0]
+  for end in range(last+step, full_range[1], step):
+    yield (last, end)
+    last = end
+  
+  assert full_range[1] - last <= step
+  yield (last, full_range[1])
+
+def convert_hexstr_to_bytes (hexstr):
+  return binascii.hexify(hexstr)
+
+def convert_bytes_to_hexstr (byte_array):
+  return binascii.unhexify(byte_array)
+
+def calculate_md5_base64_encoded (byte_array):
+  hash_bytes = hashlib.md5(byte_array).digest()
+  return base64.b64encode(hash_bytes).decode()
+
+def read_fileseg (fileseg, chunk_range=None):
+  if not chunk_range:
+    chunk_range = fileseg.range_bytes
+
+  with open(fileseg.fileout, 'rb') as fileobj:
+    fileobj.seek( chunk_range[0], os.SEEK_SET )
+    byte_array = fileobj.read(chunk_range[1] - chunk_range[0])
+    assert len(byte_array) == chunk_range[1] - chunk_range[0]
+  return byte_array
 
