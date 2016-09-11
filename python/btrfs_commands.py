@@ -84,7 +84,7 @@ class BtrfsCommands (object):
 
   def send_volume (self, current, predecessor=None):
     assert current.is_snapshot()
-    fileout = '%s/backup_%s.btrfs' % (get_conf().btrfs.send_file_staging, current.name)
+    fileout = '%s/backup_%s.btrfs' % (get_conf().app.staging_dir, current.name)
     assert not os.path.exists(fileout)
 
     if predecessor:
@@ -139,8 +139,8 @@ class BtrfsCommands (object):
       logger.warning("Will not restore because there is already a matching subvolume : %r / %r", record, already_restored)
       return already_restored
 
+    fileout = os.path.join( get_conf().app.staging_dir, record.fileout )
     logger.debug("Restoring from %r", record)
-    fileout = record.fileout
     FileUtils.receive_subvol_file('btrfs receive ' + restore_path, fileout, record.hashstr)
     subvol = BtrfsSubvolList.find_by_ruuid(restore_path, record.subvol.uuid)
     assert subvol

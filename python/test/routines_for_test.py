@@ -88,7 +88,7 @@ def add_fake_restore_to_txlog ():
   get_txlog().record_subvol_delete(rest2)
 
 def clean_send_file_staging ():
-  stage_dir = get_conf().btrfs.send_file_staging
+  stage_dir = get_conf().app.staging_dir
   safe_copy = os.path.dirname(stage_dir) + '/stage_' + uuid.uuid4().hex
   shutil.move(stage_dir, safe_copy)
   os.mkdir(stage_dir)
@@ -199,7 +199,7 @@ def modify_random_byte_in_file (filein, min_offset=0):
   size = os.path.getsize(filein)
   assert size > min_offset
   offset = random.randint(min_offset, size-1)
-  fileout = get_conf().btrfs.send_file_staging + '/' + uuid.uuid4().hex
+  fileout = get_conf().app.staging_dir + '/' + uuid.uuid4().hex
   assert not os.path.exists(fileout)
   shutil.copyfile(filein, fileout)
   with open(fileout, 'r+b') as fileobj:

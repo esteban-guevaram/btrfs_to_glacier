@@ -29,6 +29,14 @@ class TestAwsOrchestrator (ut.TestCase):
   def test_orchestrate_upload_with_no_files(self):
     assert False
 
+
+  #@ut.skip("For quick validation")
+  def test_schedule_download(self):
+    # from new session
+    # resuming session
+    # splitting filesegs
+    assert False
+
 ### END TestAwsOrchestrator
 
 if __name__ == "__main__":

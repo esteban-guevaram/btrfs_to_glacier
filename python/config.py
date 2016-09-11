@@ -27,7 +27,7 @@ def sanity_checks (final_conf):
     assert os.path.isdir( final_conf.rsync.source )
     assert os.path.isdir( final_conf.rsync.dest )
     assert os.path.isdir( final_conf.btrfs.backup_subvol )
-    assert os.path.isdir( final_conf.btrfs.send_file_staging )
+    assert os.path.isdir( final_conf.app.staging_dir )
 
 def adjust_config_types (final_conf):
   transform_into_bool  (final_conf.app,    'verbose')
@@ -40,7 +40,10 @@ def adjust_config_types (final_conf):
   transform_into_int   (final_conf.btrfs,  'restore_clean_window')
   transform_into_int   (final_conf.aws,    'chunk_size_in_mb')
   transform_into_int   (final_conf.aws,    's3_object_ttl_days_help')
-  transform_into_float (final_conf.aws,    'max_glacier_down_bandwith_gb')
+  transform_into_int   (final_conf.aws,    'glacier_max_jobs_in_flight')
+  transform_into_float (final_conf.aws,    'glacier_down_bandwith_gb')
+  transform_into_float (final_conf.aws,    'glacier_job_timeout_hours')
+  transform_into_float (final_conf.aws,    'polling_period_secs_help')
   transform_into_list  (final_conf.rsync,  'exclude')
 
 def transform_into_float (section, prop):

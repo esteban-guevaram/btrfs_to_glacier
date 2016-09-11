@@ -1,7 +1,6 @@
 import pickle as pickle, time, struct, hashlib
 from common import *
 from FileUtils import *
-from btrfs_subvol_list import *
 logger = logging.getLogger(__name__)
 
 class TransactionLog (object):
@@ -112,16 +111,19 @@ class TransactionLog (object):
 
   def backup_to_crypted_file():
     logfile = get_txlog().logfile
-    back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.send_file_staging, os.path.basename(logfile), timestamp.str)
+    back_logfile = '%s/backup_%s_%s' % (get_conf().app.staging_dir, os.path.basename(logfile), timestamp.str)
     hashstr = get_txlog().calculate_and_store_txlog_main_hash()
     get_txlog().record_txlog_to_file(hashstr)
 
     FileUtils.compress_crypt_file(back_logfile)
     return back_logfile    
+  
+  def is_empty (self):
+    return not self.tx_list
 
   @staticmethod
   def restore_from_crypted_file(archive_txlog):
-    assert not len(get_txlog()), "Will not overwrite tx log"
+    assert not get_txlog().tx_list, "Will not overwrite tx log"
     FileUtils.decompress_decrypt_file( archive_txlog, get_txlog().logfile )
     # forces lazy reloading
     reset_txlog() 
@@ -167,12 +169,19 @@ class TransactionLog (object):
     record.session_type = session_type
     self.add_and_flush_record(record)
 
+  def record_aws_down_job_submit(self, fileout, aws_id, range_bytes):
+    record = Record(Record.AWS_DOWN_INIT, self.new_uid())
+    record.fileout = os.path.basename( fileout )
+    record.aws_id = aws_id
+    record.range_bytes = range_bytes
+    self.add_and_flush_record(record)
+
   def record_fileseg_start(self, fileseg):
     # single upload : fileout, range_bytes
     # multipart upload : fileout, aws_id, range_bytes
     # download : fileout, aws_id, archive_id, range_bytes
     record = Record(Record.FILESEG_START, self.new_uid())
-    record.fileout = fileseg.fileout
+    record.fileout = os.path.basename( fileseg.fileout )
     record.aws_id = fileseg.aws_id
     record.archive_id = fileseg.archive_id
     record.range_bytes = fileseg.range_bytes
@@ -196,7 +205,7 @@ class TransactionLog (object):
 
   def record_txlog_upload(self, fileseg):
     record = Record(Record.TXLOG_UPLD, self.new_uid())
-    record.fileout = fileseg.fileout
+    record.fileout = os.path.basename( fileseg.fileout )
     record.archive_id = fileseg.archive_id
     record.range_bytes = fileseg.range_bytes
     self.add_and_flush_record(record)
@@ -223,14 +232,14 @@ class TransactionLog (object):
     record = Record(Record.SNAP_TO_FILE, self.new_uid())
     record.predecessor = predecessor
     record.subvol = snap
-    record.fileout = fileout
+    record.fileout = os.path.basename( fileout )
     record.hashstr = hashstr
     self.add_and_flush_record(record)
 
   def record_file_to_snap(self, fileout, subvol):
     record = Record(Record.FILE_TO_SNAP, self.new_uid())
     record.subvol = subvol
-    record.fileout = fileout
+    record.fileout = os.path.basename( fileout )
     self.recorded_restores.add(subvol.uuid)
     self.add_and_flush_record(record)
 
@@ -334,8 +343,8 @@ class Record (object):
   REST_START,   REST_END,   FILE_TO_SNAP   = \
   'REST_START', 'REST_END', 'FILE_TO_SNAP'
 
-  AWS_START,   AWS_END,   FILESEG_START,   FILESEG_END,   CHUNK_START,    CHUNK_END   = \
-  'AWS_START', 'AWS_END', 'FILESEG_START', 'FILESEG_END', 'CHUNK_START',  'CHUNK_END'
+  AWS_START,   AWS_END,   AWS_DOWN_INIT,    FILESEG_START,   FILESEG_END,   CHUNK_START,    CHUNK_END   = \
+  'AWS_START', 'AWS_END', 'AWS_DOWN_INIT', 'FILESEG_START', 'FILESEG_END', 'CHUNK_START',  'CHUNK_END'
 
   def __init__(self, r_type, uid):
     self.r_type = r_type

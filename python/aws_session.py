@@ -1,12 +1,15 @@
 from common import *
-from transaction_log import TransactionLog, get_txlog, Record
+from transaction_log import get_txlog, Record
 logger = logging.getLogger(__name__)
 
 class AwsGlobalSession:
 
   def __init__ (self, session_type):
+    # INVARIANT : len(filesegs) <= len(_submitted_aws_down_jobs) for down sessions
+    # => if a fileseg download is started, there must already be a aws job
     self.session_type = session_type
     self.filesegs = {}
+    self._submitted_aws_down_jobs = {}
     self.txlog_fileseg = None
     self.done = False
 
@@ -17,7 +20,7 @@ class AwsGlobalSession:
     self._add_fileseg(fileseg)
     get_txlog().record_fileseg_start(fileseg)
 
-  def close_fileseg (self, key, archive_id):
+  def close_fileseg (self, key, archive_id=None):
     self.filesegs[key].set_done(archive_id)
     get_txlog().record_fileseg_end(fileseg)
 
@@ -40,10 +43,15 @@ class AwsGlobalSession:
     get_txlog().record_chunk_end(fileseg)
 
   def save_atomic_txlog_s3_upload (self, fileseg):
-    self.txlog_fileseg = Fileseg.build_from_fileout(fileseg.fileout)
+    self.txlog_fileseg = copy.copy(fileseg)
     self.txlog_fileseg.archive_id = fileseg.archive_id
     self.txlog_fileseg.set_done()
     get_txlog().record_txlog_upload(fileseg)
+
+  def add_download_job (self, fileseg):
+    assert fileseg.aws_id and fileseg.aws_id not in self._submitted_aws_down_jobs
+    self._submitted_aws_down_jobs[fileseg.aws_id] = copy.copy(fileseg)
+    get_txlog().record_aws_down_job_submit(fileseg.fileout, filesegs.aws_id, fileseg.range_bytes)
 
   def close (self):
     assert all( fs.done for fs in self.filesegs.values() )
@@ -59,6 +67,28 @@ class AwsGlobalSession:
     pending = [ fs for fs in self.filesegs.values() if not fs.done ]
     assert not pending or len(pending) == 1, 'At most one pending glacier fileseg per session'
     return pending and pending[0]
+
+  def view_fskey_with_submitted_job (self):
+    return set( fs.key() for fs in self._submitted_aws_down_jobs.items() )
+
+  def view_fs_with_submitted_job (self):
+    # the view will filter failed job that have been resubmitted
+    view = []
+    for aws_id,fs in self._submitted_aws_down_jobs.items():
+      if fs.key() in self.filesegs and aws_id == self.filesegs[fs.key()].aws_id:
+        view.append(self.filesegs[fs.key()])
+      else:
+        view.append(fs)
+    assert len(view) >= len(self.filesegs)
+    return view
+
+  def view_fileout_to_filesegs (self):
+    view = {}
+    for fs in session.iterate():
+      if fs.fileout not in view:
+        view[fs.fileout] = []
+      view[fs.fileout].append(fs)  
+    return view
 
   @staticmethod
   def start_new (session_type):
@@ -77,44 +107,10 @@ class AwsGlobalSession:
     return session
 
   @staticmethod
-  def rebuild_last_complete_from_txlog (session_type):
-    accumulator = AwsGlobalSession.collect_records_from_last_completed(session_type)
-    if accumulator != None:
-      logger.debug('No previous session found')
-      return None
-    
-    session = AwsGlobalSession.build_glacier_session_from_records(session_type, accumulator)
-    assert not self.get_pending_fileseg()
-
-    txlog_upload_record = next( r for r in accumulator if r.r_type == Record.TXLOG_UPLD )
-    self.txlog_fileseg = Fileseg.build_from_txlog_upload(txlog_upload_record)
-    session.done = True
-    return session
-
-  @staticmethod
-  def collect_records_from_last_completed (session_type):
-    accumulator = []
-    saw_txlog_upld, saw_session_end = False, False
-
-    for record in get_txlog().reverse_iterate_through_records():
-      saw_session_end = record.r_type == Record.AWS_END and record.session_type == session_type
-      saw_txlog_upld = saw_txlog_upld and record.r_type == Record.TXLOG_UPLD
-
-      if record.r_type in (Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_START, Record.CHUNK_END, Record.TXLOG_UPLD):
-        accumulator.append(record) 
-
-      if record.r_type == Record.AWS_START and record.session_type == session_type:
-        logger.debug('Found complete session with %d records', len(accumulator))
-        break
-
-    if not accumulator:
-      return None
-    assert saw_txlog_upld and saw_txlog_upld and accumulator, "Invalid complete session"
-    return reversed(accumulator)    
-
-  @staticmethod
   def collect_records_from_pending_session (session_type):
     accumulator = []
+    interesting_record_types = (Record.AWS_DOWN_INIT, Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_START, Record.CHUNK_END):
+
     for record in get_txlog().reverse_iterate_through_records():
       assert record.r_type != Record.TXLOG_UPLD, "A txlog record should not be found in a pending session"
 
@@ -122,7 +118,7 @@ class AwsGlobalSession:
         assert not accumulator, 'Inconsistent session'
         return None # the last session is complete, start a new one
 
-      if record.r_type in (Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_START, Record.CHUNK_END):
+      if record.r_type in interesting_record_types:
         accumulator.append(record) 
 
       if record.r_type == Record.AWS_START and record.session_type == session_type:
@@ -133,8 +129,13 @@ class AwsGlobalSession:
   @staticmethod
   def build_glacier_session_from_records (session_type, accumulator):
     session = AwsGlobalSession()
-    state = RestoreState()
+    state = RestoreFilesegState()
+
     for record in accumulator:
+      if record.r_type == Record.AWS_DOWN_INIT:
+        assert session_type == Record.SESSION_DOWN
+        session._add_down_job_from_record(record)
+
       state.push(record)
       fileseg = state.flush_fileseg_if_done()
       if fileseg:
@@ -145,11 +146,19 @@ class AwsGlobalSession:
       session._add_fileseg(state.fileseg)
     return session
 
+  def _add_down_job_from_record (self, record):
+    assert record.aws_id not in self._submitted_aws_down_jobs
+    fileseg = Fileseg.build_from_record(record)
+    self._submitted_aws_down_jobs[record.aws_id] = fileseg
+
   def _add_fileseg (self, fileseg):
     assert fileseg.key() not in self.filesegs
-    self.filesegs[fileseg.key()] = fileseg
+    self.filesegs[fileseg.key()] = copy.copy(fileseg)
 
-  def print_summary (self):
+  def print_download_summary (self):
+    return 'submitted_jobs=%d, fileseg_len=%d' % (len(self._submitted_aws_down_jobs), len(self.filesegs))
+
+  def print_upload_summary (self):
     return 'session_done=%r, fileseg_len=%r, txlog_upload=%r' % (self.done, len(self.filesegs), self.txlog_fileseg)
   
   def print_glacier_summary (self):
@@ -158,13 +167,13 @@ class AwsGlobalSession:
 
 ## END AwsGlobalSession
 
-class RestoreState:
+class RestoreFilesegState:
   __slots__ = ['fileseg', 'chunk']
 
   def push (self, record):
     if record.r_type == Record.FILESEG_START:
       assert not self.fileseg, 'Cannot have 2 pending filesegs'
-      self.fileseg = Fileseg.build_from_fileseg_start_record(record)
+      self.fileseg = Fileseg.build_from_record(record)
     elif record.r_type == Record.FILESEG_END:
       assert self.fileseg and self.chunk and self.chunk.done, 'Empty or pending chunk when ending fileseg'
       self.fileseg.set_done(record.archive_id)
@@ -178,7 +187,8 @@ class RestoreState:
       # we only add chunks if they were finished
       self.fileseg.add_chunk(self.chunk)
       self.chunk = None
-    assert False, 'Invalid record type in accumulator'  
+    else:
+      logger.debug("Ignoring record %r", record)
   
   def flush_fileseg_if_done (self, record):
     fileseg = None
@@ -187,37 +197,49 @@ class RestoreState:
       self.fileseg = None
     return fileseg
 
-## END RestoreState
+## END RestoreFilesegState
 
 class Fileseg:
-  __slots__ = ['aws_id', 'archive_id', 'fileout', 'range_bytes', 'chunks', 'done', 'timestamp']
+  __slots__ = ['aws_id', 'archive_id', 'fileout', 'range_bytes', 'chunks', 'done']
 
   @staticmethod
-  def build_from_fileseg_start_record (fileout, record):
-    fileseg = Fileseg(record.fileout, record.aws_id, record.archive_id, record.range_bytes, record.when)
+  def build_from_record (fileout, record):
+    fileout = os.path.join( get_conf().app.staging_dir, record.fileout )
+    aws_id, archive_id = None, None
+    if hasattr(record, 'aws_id'):     awd_id = record.awd_is
+    if hasattr(record, 'archive_id'): archive_id = record.archive_id
+    fileseg = Fileseg(fileout, aws_id, archive_id, record.range_bytes)
     return fileseg
 
   @staticmethod
   def build_from_fileout (fileout, range_bytes=None):
-    fileseg = Fileseg(fileout, None, None, range_bytes, None)
+    fileseg = Fileseg(fileout, None, None, range_bytes)
     return fileseg
 
   @staticmethod
+  def calculate_range_substraction (adjacent_filesegs, containing_fs):
+    merged_range = merge_range(adjacent_filesegs)
+    range_bytes = range_substraction(containing_fs.range_bytes, merged_range)
+    if not range_bytes:
+      return None
+
+    result = copy.copy(containing_fs)
+    result.range_bytes = range_bytes
+    return result
+
+  @staticmethod
   def build_from_txlog_upload (record):
-    fileseg = Fileseg(record.fileout, None, record.archive_id, None, record.when)
+    fileout = os.path.join( get_conf().app.staging_dir, record.fileout )
+    fileseg = Fileseg(fileout, None, record.archive_id, None)
     fileseg.done = True
     return fileseg
 
-  def __init__ (self, fileout, aws_id, archive_id, fileout, range_bytes, timestamp):
+  def __init__ (self, fileout, aws_id, archive_id, range_bytes):
     self.fileout = fileout
     self.aws_id = aws_id
     self.archive_id = archive_id
     self.done = False
     self.chunks = []
-
-    self.timestamp = timestamp
-    if not timestamp:
-      self.timestamp = datetime.datetime.now()
 
     if not range_bytes and os.path.exists(fileout):
       size = os.stat(fileout).st_size
@@ -225,6 +247,7 @@ class Fileseg:
     else:
       self.range_bytes = range_bytes
     assert fileout and range_bytes
+    assert os.path.dirname(fileout) == get_conf().app.staging_dir
   
   def calculate_remaining_range (self):
     if not self.chunks:
@@ -257,8 +280,14 @@ class Fileseg:
     assert not self.chunks or self.chunks[-1][1] == chunk[0], 'Uncontinous chunk added to fileseg'
     self.chunks.append(chunk)
 
+  def get_aws_arch_description(self):
+    return str(self.key())
+
+  def len (self):
+    return self.range_bytes[1] - self.range_bytes[0]
+
   def key (self):
-    return (self.fileout, self.range_bytes)
+    return (os.path.basename(self.fileout), self.range_bytes)
 
   def __repr__ (self):
     return "(aws_id=%r, fileout=%r, range=%r, done=%r)" % (self.aws_id, self.fileout, self.range_bytes, self.done)
@@ -276,4 +305,55 @@ class Chunk:
     return "(range=%r, done=%r)" % (self.range_bytes, self.done)
 
 ## END Chunk
+
+class BandwithQuota:
+  GLACIER_QUOTA_HOURS = 4
+  DELTA = datetime.timedelta(hours=BandwithQuota.GLACIER_QUOTA_HOURS, seconds=60)
+  TIMEOUT_FACTOR = 1.5
+
+  QUOTA_SIZE = get_conf().aws.glacier_down_bandwith_gb * 1024**3
+  MAX_SIZE = BandwithQuota.QUOTA_SIZE + get_conf().aws.chunk_size_in_mb * 1024**2
+
+  __slots__ = ['expiry_time', 'total_bytes', 'submitted_filesegs']
+  def __init__ (self, quota_start=None, total=0):
+    assert total < BandwithQuota.MAX_SIZE
+    if not quota_start:
+      quota_start = datetime.datetime.now()
+    self.expiry_time = quota_start + BandwithQuota.DELTA
+    self.total_bytes = total
+    self.submitted_fileseg_keys = set()
+
+  def space_left (self):
+    # left can be negative
+    left = BandwithQuota.QUOTA_SIZE - self.total_bytes
+    tolerated = BandwithQuota.MAX_SIZE - self.total_bytes
+    return left, tolerated
+
+  def add_to_submit (self, fileseg):
+    new_total = fileseg.len() + self.total_bytes
+    assert new_total < BandwithQuota.MAX_SIZE
+    self.total_bytes = new_total
+    self.submitted_fileseg_keys.add(fileseg.key())
+
+  def is_expired (self):
+    return datetime.datetime.now() > self.expiry_time
+
+  def __repr__ (self):
+    return "(expiry=%r, total=%r, submitted=%d)" % (self.expiry_time, self.total_bytes, len(self.submitted_filesegs))
+
+  @staticmethod
+  def check_time_delta_in_quota (past, now):
+    expiry_time = past + BandwithQuota.DELTA
+    return expiry_time > now
+
+  @staticmethod
+  def build_empty_expired ():
+    quota_start = datetime.datetime.now() - 2*BandwithQuota.DELTA
+    return BandwithQuota(quota_start)
+
+  @staticmethod
+  def is_in_timeout (now, creation_date):
+    return now - creation_date > BandwithQuota.TIMEOUT_FACTOR * BandwithQuota.DELTA
+
+## END BandwithQuota
 

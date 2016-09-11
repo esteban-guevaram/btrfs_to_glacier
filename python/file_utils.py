@@ -70,7 +70,7 @@ class FileUtils (object):
 
   @staticmethod
   def compress_crypt_file(source):
-    back_logfile = '%s/backup_%s_%s' % (get_conf().btrfs.send_file_staging, os.path.basename(source), timestamp.str)
+    back_logfile = '%s/backup_%s_%s' % (get_conf().app.staging_dir, os.path.basename(source), timestamp.str)
     dump_cmd = FileUtils.encrypt_compress_cmd()
 
     with open(source, 'rb') as logfile_obj:

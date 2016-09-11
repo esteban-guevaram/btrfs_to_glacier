@@ -1,52 +1,50 @@
 from common import *
-from aws_glacier_mgr import *
-from aws_s3_mgr import *
-from aws_glacier_session import *
+from aws_session import *
 logger = logging.getLogger(__name__)
 
 # Should work without any parameters from the clients, it must rebuilt everything from the tx log
-class AwsOrchestrator:
+class AwsUploadOrchestrator:
+
+  def __init__ (self, glacier_mgr, s3_manager):
+    self.glacier_mgr = glacier_mgr
+    self.s3_mgr = s3_mgr
 
   def upload_all (self):
     get_txlog().check_log_for_upload()
-    boto_session = boto3.Session()
 
     session = AwsGlobalSession.rebuild_from_txlog_or_new_session(Record.SESSION_UPLD)
     if not session:
       session = AwsGlobalSession.start_new(Record.SESSION_UPLD)
 
-    self.upload_all_subvols_to_glacier(boto_session)
-    backup_fileseg = self.backup_and_upload_txlog_to_glacier(boto_session, session)
-    self.upload_txlog_to_s3(boto_session, session, backup_fileseg)
+    self.upload_all_subvols_to_glacier(session)
+    backup_fileseg = self.backup_and_upload_txlog_to_glacier(session)
+    self.upload_txlog_to_s3(session, backup_fileseg)
     session.close()
 
-    logger.info("Upload finished :\n%r", session.print_summary())
+    logger.info("Upload finished :\n%r", session.print_upload_summary())
     return session
 
-  def upload_all_subvols_to_glacier (self, boto_session, session):
-    glacier = AwsGlacierManager(boto_session)
+  def upload_all_subvols_to_glacier (self, session):
     filepaths = self.collect_files_to_upload_since_last_session()
     filesegs_left = self.search_filesegs_pending_upload(session, filepaths)
-    pending_fileseg = session.get_pending_glacier_fileseg()
   
-    if pending_fileseg:
-      glacier.finish_upload(session, pending_fileseg)
+    if session.get_pending_glacier_fileseg():
+      self.glacier_mgr.finish_pending_upload(session)
     for fileseg in filesegs_left:
-      glacier.upload(session, fileseg)
+      self.glacier_mgr.upload(session, fileseg)
 
     logger.info("Upload finished :\n%r", session.print_glacier_summary())
     return session
 
-  def backup_and_upload_txlog_to_glacier (self, boto_session, session):
-    glacier = AwsGlacierManager(boto_session)
+  def backup_and_upload_txlog_to_glacier (self, session):
     backup_fileseg = Fileseg.build_from_fileout( get_txlog().backup_to_crypted_file() )
-    glacier.upload(session, backup_fileseg)
+    self.glacier_mgr.upload(session, backup_fileseg)
     return backup_fileseg
 
-  def upload_txlog_to_s3 (self, boto_session, session, backup_fileseg):
-    s3 = AwsS3Manager(boto_session)
+  def upload_txlog_to_s3 (self, session, backup_fileseg):
+    # we drop the aws_id and archive_id from glacier
     fileseg = Fileseg.build_from_fileout(backup_fileseg.fileout, backup_fileseg.range_bytes)
-    s3.upload_txlog(session, fileseg)
+    self.s3_mgr.upload_txlog(session, fileseg)
     return fileseg
 
   def collect_files_to_upload_since_last_session (self):
@@ -57,8 +55,9 @@ class AwsOrchestrator:
         return accumulator
 
       if record.r_type == Record.SNAP_TO_FILE:
-        assert os.isfile(record.fileout), 'Cannot find file to upload'
-        accumulator.append(record.fileout) 
+        fileout = os.path.join( get_conf().app.staging_dir, record.fileout )
+        assert os.isfile(fileout), 'Cannot find file to upload'
+        accumulator.append(fileout) 
     return None    
 
   def search_filesegs_pending_upload (self, session, filepaths):
@@ -68,4 +67,5 @@ class AwsOrchestrator:
     logger.debug('Resuming upload session %d/%d files left', len(filesegs_left), len(filepaths))
     return filesegs_left
   
+## END AwsUploadOrchestrator
 

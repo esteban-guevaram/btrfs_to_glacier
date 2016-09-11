@@ -1,12 +1,15 @@
 from config import get_conf, conf_for_test, reset_conf
 import logging, config_log, random
-import os, re, stat, datetime, tempfile, binascii, base64
+import os, re, stat, datetime, copy, tempfile, binascii, base64, json, time, itertools
 import subprocess as sp
 logger = logging.getLogger(__name__)
 
 class timestamp (object):
   now = datetime.datetime.now()
   str = now.strftime('%Y%m%d%H%M')
+
+  def new (self):
+    return datetime.datetime.now().strftime('%Y%m%d%H%M')
 
 def annoying_confirm_prompt(cmd):
   for attempt in range(3):
@@ -54,13 +57,19 @@ def retry_operation (closure, exception):
     try:
       return closure()
     except exception as err:
+      # exception may also be a tuple
       logger.warn("Attempt %d, operation failed : %r", attempt, err)
+      time.sleep(0.5)
   raise Exception('Permanent failure')
 
+def build_arch_retrieve_range (range_bytes):
+  return '%d-%d' % (range_bytes[0], range_bytes[1]-1)
+
+# range formats are different for upload and download ...
 def build_mime_range (range_bytes):
   return '%d-%d/*' % (range_bytes[0], range_bytes[1]-1)
 
-_mime_rex = re.compile(r'(\d+)-(\d+)/\*')
+_mime_rex = re.compile(r'^(\d+)-(\d+)(/\*)?$')
 def build_range_from_mime (mimestr):
   match = _mime_rex.match(mimestr)
   assert match, "Invalid mime string '%s'" % mimestr
@@ -97,4 +106,47 @@ def read_fileseg (fileseg, chunk_range=None):
     byte_array = fileobj.read(chunk_range[1] - chunk_range[0])
     assert len(byte_array) == chunk_range[1] - chunk_range[0]
   return byte_array
+
+def parse_json_date (dct):
+  for s in dct.keys():
+    if s.endswith('Date'):
+      dct[s] = dateutil.parser.parse(dct[s])
+  return dct
+
+def convert_json_bytes_to_dict (byte_array):
+  return json.loads(byte_array.decode('utf-8'), object_hook=parse_json_date))
+  
+def wait_for_polling_period ():
+  secs = get_conf().aws.polling_period_secs
+  logger.debug('Going to sleep for %r secs', secs)
+  time.sleep(secs)
+
+def flatten_dict (key_to_list, *keys):
+  if not keys:
+    return itertools.chain( *key_to_list.keys() )
+  lists = [ key_to_list[k] for k in keys ]
+  return itertools.chain(*lists)
+    
+def sum_fs_size (filesegs):
+  return sum( fs.len() for fs in filesegs )
+
+def merge_ranges (filesegs):
+  # we expect the ranges to form a continuous segment
+  sorted_ranges = sorted( fs.range_bytes for fs in filesegs )
+  return (sorted_ranges[0][0], sorted_ranges[-1][1])
+
+def range_contains(contained, container):
+  return container[0] <= contained[0] and container[1] >= contained[1]
+
+def range_substraction (source, to_remove):
+  if source[0] >= to_remove[1] or source[1] <= to_remove[0]:
+    return source # disjoint
+  if source[0] < to_remove[0]:
+    assert source[1] <= to_remove[1], 'source contains to_remove'
+    return (source[0], to_remove[0])
+  if source[0] < to_remove[1]:
+    if source[1] <= to_remove[1]:
+      return None
+    return (to_remove[1], source[1])
+  assert False  
 

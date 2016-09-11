@@ -70,11 +70,26 @@ class AwsS3Manager:
     session.save_atomic_txlog_s3_upload(fileseg)
     return s3_object  
 
-  def download_txlog_to_file (self, fileseg):
-    retry_operation (
-      lambda : self.bucket.download_file(fileseg.archive_id, fileseg.fileout),
+  def download_most_recent_txlog (self, back_logfile):
+    fileseg = None
+    obj_summaries = retry_operation (
+      lambda : list( self.bucket.objects.all() )
       botoex.ClientError
     )
+    logger.info('Found %d objects in %s', len(obj_summaries), self.bucket.name)
+    obj_summaries.sort( key=lambda x:x.last_modified )
+
+    if obj_summaries:
+      last_txlog = obj_summaries[-1]
+      logger.debug('Retrieving %s modified %r', last_txlog.key, last_txlog.last_modified)
+
+      retry_operation (
+        lambda : self.bucket.download_file(last_txlog.key, back_logfile),
+        botoex.ClientError
+      )
+      fileseg = Fileseg.build_from_fileout(back_logfile)
+      fileseg.archive_id = last_txlog.key
+
     return fileseg
 
 ## END AwsS3Manager
