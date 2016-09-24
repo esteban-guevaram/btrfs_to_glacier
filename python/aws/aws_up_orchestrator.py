@@ -13,6 +13,7 @@ class AwsUploadOrchestrator:
 
   def upload_all (self):
     self.txlog_checker.check_for_upload( get_txlog().iterate_through_records() )
+    logger.info("Upload phase starting ...")
 
     session = AwsGlobalSession.rebuild_from_txlog_or_new_session(Record.SESSION_UPLD)
     if not session:

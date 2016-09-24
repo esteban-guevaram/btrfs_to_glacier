@@ -50,13 +50,29 @@ class TxLogConsistencyChecker (object):
 
   @staticmethod
   def check_log_for_restore(tx_list):
-    complete_down_session = False
+    pending_down_session = False
+    complete_down_session = True
+    glacier_filepaths = {}
 
     for record in tx_list:
+      if record.r_type == Record.AWS_START and record.session_type == Record.SESSION_DOWN:
+        pending_down_session = True
+        complete_down_session = False
       if record.r_type == Record.AWS_END and record.session_type == Record.SESSION_DOWN:
+        pending_down_session = False
         complete_down_session = True
+
+      if record.r_type == Record.FILESEG_START:
+        if record.fileout not in glacier_filepaths:
+          glacier_filepaths[record.fileout] = 1
+        else:
+          glacier_filepaths[record.fileout] += 1
       assert record.r_type != Record.REST_START, 'No pending restore session allowed'
-    assert complete_down_session, 'Exactly one completed download session'    
+
+    assert all( v == 2 for k,v in glacier_filepaths.items() if k in total_filepaths ), \
+      'Expecting each fileseg to be both uploaded and downloaded'
+    assert (not pending_down_session) or complete_down_session, \
+      'Either there is not download session, or it has finished'
 
   @staticmethod
   def check_log_for_backup(tx_list):

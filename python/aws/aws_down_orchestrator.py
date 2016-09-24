@@ -21,7 +21,7 @@ class AwsDowloadOrchestrator:
 
   def download_all (self):
     self.txlog_checker.check_for_download( get_txlog().iterate_through_records() )
-    get_txlog().check_log_for_download()
+    logger.info("Download phase starting ...")
 
     # we expect each fileseg in session to contain the glacier archive_id
     session = AwsGlobalSession.rebuild_from_txlog_or_new_session(Record.SESSION_DOWN)
@@ -217,7 +217,7 @@ class AwsDowloadOrchestrator:
     filesegs = []
     fileseg = None
 
-    for record in get_txlog().iterate():
+    for record in get_txlog().iterate_through_records():
       if record.r_type == Record.FILESEG_START:
         # Note that we do not take the aws_id since it belongs to the upload job which is irrelevant
         fileseg = Fileseg.build_from_fileout(record.fileout, record.range_bytes)

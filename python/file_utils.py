@@ -1,4 +1,3 @@
-import hashlib
 from common import *
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ class FileUtils (object):
       return 'gzip -c'
 
   @staticmethod
-  def write_send_file(btrfs_cmd, fileout):
+  def encrypt_from_cmd_stdout(btrfs_cmd, fileout):
     hasher = hashlib.sha256()
     dump_cmd = FileUtils.encrypt_compress_cmd()
 
@@ -46,7 +45,7 @@ class FileUtils (object):
     return hashstr
 
   @staticmethod
-  def receive_subvol_file(btrfs_cmd, fileout, hashstr):
+  def decrypt_file_into_cmd_stdin(btrfs_cmd, fileout):
     hasher = hashlib.sha256()
     read_cmd = FileUtils.decrypt_decompress_cmd()
 
@@ -65,8 +64,9 @@ class FileUtils (object):
           btrfs_proc.stdin.close()
           btrfs_proc.wait()
           assert btrfs_proc.returncode == 0 and read_proc.returncode == 0
-    assert hashstr == hasher.digest()
-    return fileout
+
+    hashstr = hasher.digest()  
+    return hashstr
 
   @staticmethod
   def compress_crypt_file(source):
