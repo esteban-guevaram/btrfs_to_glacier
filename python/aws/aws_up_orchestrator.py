@@ -1,25 +1,28 @@
 from common import *
 from aws_session import *
+from transaction_log import get_txlog
 logger = logging.getLogger(__name__)
 
 # Should work without any parameters from the clients, it must rebuilt everything from the tx log
 class AwsUploadOrchestrator:
 
-  def __init__ (self, glacier_mgr, s3_manager):
+  def __init__ (self, txlog_checker, glacier_mgr, s3_manager):
+    self.txlog_checker = txlog_checker
     self.glacier_mgr = glacier_mgr
     self.s3_mgr = s3_mgr
 
   def upload_all (self):
-    get_txlog().check_log_for_upload()
+    self.txlog_checker.check_for_upload( get_txlog().iterate_through_records() )
 
     session = AwsGlobalSession.rebuild_from_txlog_or_new_session(Record.SESSION_UPLD)
     if not session:
       session = AwsGlobalSession.start_new(Record.SESSION_UPLD)
 
     self.upload_all_subvols_to_glacier(session)
-    backup_fileseg = self.backup_and_upload_txlog_to_glacier(session)
-    self.upload_txlog_to_s3(session, backup_fileseg)
     session.close()
+    # txlog uploads are not in session so that they have a consistent sequence of records
+    backup_fileseg = self.backup_and_upload_txlog_to_glacier()
+    self.upload_txlog_to_s3(session, backup_fileseg)
 
     logger.info("Upload finished :\n%r", session.print_upload_summary())
     return session
@@ -36,15 +39,16 @@ class AwsUploadOrchestrator:
     logger.info("Upload finished :\n%r", session.print_glacier_summary())
     return session
 
-  def backup_and_upload_txlog_to_glacier (self, session):
+  def backup_and_upload_txlog_to_glacier (self):
     backup_fileseg = Fileseg.build_from_fileout( get_txlog().backup_to_crypted_file() )
-    self.glacier_mgr.upload(session, backup_fileseg)
+    self.glacier_mgr.upload_out_of_session(backup_fileseg)
     return backup_fileseg
 
   def upload_txlog_to_s3 (self, session, backup_fileseg):
     # we drop the aws_id and archive_id from glacier
     fileseg = Fileseg.build_from_fileout(backup_fileseg.fileout, backup_fileseg.range_bytes)
-    self.s3_mgr.upload_txlog(session, fileseg)
+    self.s3_mgr.upload_txlog(fileseg)
+    session.signal_txlog_upload_after_close(fileseg)
     return fileseg
 
   def collect_files_to_upload_since_last_session (self):

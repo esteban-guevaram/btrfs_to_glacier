@@ -1,5 +1,6 @@
 from common import *
 from aws_session import *
+from transaction_log import get_txlog
 logger = logging.getLogger(__name__)
 
 # Should work without any parameters from the clients, it must rebuilt everything from the tx log
@@ -12,13 +13,14 @@ logger = logging.getLogger(__name__)
 # (otherwise segments of a same file may be concatenated in the wrong order)
 class AwsDowloadOrchestrator:
 
-  def __init__ (self, glacier_mgr, s3_manager, emergency_mgr):
+  def __init__ (self, txlog_checker, glacier_mgr, s3_manager, emergency_mgr):
+    self.txlog_checker = txlog_checker
     self.glacier_mgr = glacier_mgr
     self.s3_mgr = s3_mgr
     self.emergency_mgr = emergency_mgr
 
   def download_all (self):
-    self.load_txlog_from_aws_or_local_copy()
+    self.txlog_checker.check_for_download( get_txlog().iterate_through_records() )
     get_txlog().check_log_for_download()
 
     # we expect each fileseg in session to contain the glacier archive_id

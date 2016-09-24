@@ -10,7 +10,6 @@ class AwsGlobalSession:
     self.session_type = session_type
     self.filesegs = {}
     self._submitted_aws_down_jobs = {}
-    self.txlog_fileseg = None
     self.done = False
 
   def iterate (self):
@@ -42,12 +41,6 @@ class AwsGlobalSession:
     chunk.done = True
     get_txlog().record_chunk_end(fileseg)
 
-  def save_atomic_txlog_s3_upload (self, fileseg):
-    self.txlog_fileseg = copy.copy(fileseg)
-    self.txlog_fileseg.archive_id = fileseg.archive_id
-    self.txlog_fileseg.set_done()
-    get_txlog().record_txlog_upload(fileseg)
-
   def add_download_job (self, fileseg):
     assert fileseg.aws_id and fileseg.aws_id not in self._submitted_aws_down_jobs
     self._submitted_aws_down_jobs[fileseg.aws_id] = copy.copy(fileseg)
@@ -55,8 +48,12 @@ class AwsGlobalSession:
 
   def close (self):
     assert all( fs.done for fs in self.filesegs.values() )
-    assert self.txlog_fileseg
     get_txlog().record_aws_session_end()
+
+  def signal_txlog_upload_after_close (self, fileseg):
+    # This is not needed but we put it in the txlog anyway for accountability
+    assert self.done
+    get_txlog().record_txlog_upload(fileseg)
 
   def clean_pending_fileseg (self):
     pending = [ fs for fs in self.filesegs.values() if not fs.done ]
@@ -159,7 +156,7 @@ class AwsGlobalSession:
     return 'submitted_jobs=%d, fileseg_len=%d' % (len(self._submitted_aws_down_jobs), len(self.filesegs))
 
   def print_upload_summary (self):
-    return 'session_done=%r, fileseg_len=%r, txlog_upload=%r' % (self.done, len(self.filesegs), self.txlog_fileseg)
+    return 'session_done=%r, fileseg_len=%r' % (self.done, len(self.filesegs))
   
   def print_glacier_summary (self):
     lines = [ repr(fs) for fs in self.filesegs.values() ]

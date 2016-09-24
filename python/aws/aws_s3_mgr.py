@@ -1,4 +1,4 @@
-import boto3, botocore.exceptions as botoex
+import botocore.exceptions as botoex
 from common import *
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class AwsS3Manager:
     assert int(response['HTTPStatusCode']) == 200
     return bucket
 
-  def upload_txlog (self, session, fileseg):
+  def upload_txlog (self, fileseg):
     logger.debug('Uploading into s3: %r', fileseg)
     assert fileseg.range_bytes[1] <= self.max_s3_size, 'Filesize too big'
 
@@ -67,7 +67,6 @@ class AwsS3Manager:
     assert int(response['HTTPStatusCode']) == 200
 
     fileseg.archive_id = s3_object.key
-    session.save_atomic_txlog_s3_upload(fileseg)
     return s3_object  
 
   def download_most_recent_txlog (self, back_logfile):

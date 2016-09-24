@@ -1,4 +1,4 @@
-import boto3, botocore.exceptions as botoex
+import botocore.exceptions as botoex
 from common import *
 from file_utils import *
 logger = logging.getLogger(__name__)
@@ -26,6 +26,15 @@ class AwsGlacierManager:
       archive = self.single_shot_upload(session, fileseg)
     else:
       archive = self.multi_part_upload(session, fileseg)
+    return archive  
+
+  def upload_out_of_session (self, fileseg):
+    logger.debug('Uploading (no session) into glacier: %r', fileseg)
+
+    if fileseg.range_bytes[1] <= self.max_chunk_bytes:
+      archive = self.single_shot_upload(None, fileseg)
+    else:
+      assert False, 'Out of session uploads do not support multipart'
     return archive  
 
   def finish_upload (self, session):
@@ -84,13 +93,13 @@ class AwsGlacierManager:
     }
 
     logger.info("Submitting job : %r", jobParameters)
-    job = retry_operation (
-      lambda : archive.initiate_inventory_retrieval(**kwargs),
-      botoex.ClientError
-    )
-
-    fileseg.aws_id = job.id
-    session.add_download_job(fileseg)
+    with tx_handler():
+      job = retry_operation (
+        lambda : archive.initiate_inventory_retrieval(**kwargs),
+        botoex.ClientError
+      )
+      fileseg.aws_id = job.id
+      session.add_download_job(fileseg)
     return job
 
   def get_all_down_jobs_in_vault_by_stx (self):
@@ -108,6 +117,7 @@ class AwsGlacierManager:
     return result
 
 
+  # Session can be null if we do not want to log anything in to the txlog
   def single_shot_upload (self, session, fileseg):
     byte_array = read_fileseg(fileseg)
     kwargs = {
@@ -116,12 +126,16 @@ class AwsGlacierManager:
       'checksum' : TreeHasher().digest_single_shot_as_hexstr(byte_array),
     }
 
-    session.start_fileseg_single_chunk(fileseg)
+    if session:
+      session.start_fileseg_single_chunk(fileseg)
+
     archive = retry_operation (
       lambda : self.vault.upload_archive(**kwargs),
       botoex.ClientError
     )
-    session.close_fileseg_single_chunk(fileseg.key(), archive.id)
+
+    if session:
+      session.close_fileseg_single_chunk(fileseg.key(), archive.id)
     return archive
 
   def multi_part_upload (self, session, fileseg):
@@ -129,12 +143,14 @@ class AwsGlacierManager:
       'partSize' : str(self.max_chunk_bytes),
       'archiveDescription' : fileseg.get_aws_arch_description(),
     }
-    multipart_job = retry_operation (
-      lambda : self.vault.initiate_multipart_upload(**kwargs),
-      botoex.ClientError
-    )
-    fileseg.aws_id = multipart_job.id
-    session.start_fileseg(fileseg)
+
+    with tx_handler():
+      multipart_job = retry_operation (
+        lambda : self.vault.initiate_multipart_upload(**kwargs),
+        botoex.ClientError
+      )
+      fileseg.aws_id = multipart_job.id
+      session.start_fileseg(fileseg)
 
     hasher = TreeHasher()
     for chunk_range in range_bytes_it(fileseg.range_bytes, self.max_chunk_bytes):
@@ -204,12 +220,7 @@ class AwsGlacierManager:
       (botoex.ClientError, IOError)
     )
 
-    with open(fileseg.fileout, 'ab') as fileobj:
-      fileobj.write(body_bytes)
-      file_size = fileobj.tell()
-
-    assert file_size == fileseg.chunks[-1][1], \
-      "The real file lenght does not match the last chunk : %d / %d" % (file_size, fileseg.chunks[-1][1])
+    write_fileseg(fileseg, chunk_range, body_bytes)
     session.close_chunk(fskey)
 
   def _build_download_and_check_closure (self, chunk_range, aws_job):
@@ -267,127 +278,4 @@ class AwsGlacierManager:
     return remaining_range
 
 ## END AwsGlacierManager
-
-# Separate class because seldom used and does not alter any session
-class AwsGlacierEmergencyManager:
-
-  def __init__ (self, boto_session):
-    glacier = boto_session.resource('glacier')
-    vault_name = get_conf().aws.glacier_vault
-    self.vault = glacier.Vault(AwsGlacierManager.DEFAULT_ACCOUNT, vault_name)
-
-  # In case you cannot retrieve the txlog from a local copy or s3 !!
-  def download_last_txlog (self, search_key, fileout):
-    inventory = self.check_for_recent_inventory_job()
-    if not inventory:
-      inventory = self.retrieve_vault_inventory()
-    archive_id, size = self.find_most_recent_tx_log(inventory, search_key)
-
-    fileseg = Fileseg(fileout, None, archive_id, (0,size))
-    if not self.download_from_existing_job(fileseg):
-      self.single_shot_download (fileseg)
-    return fileseg
-
-  def retrieve_vault_inventory (self):
-    retrieval_job = retry_operation (
-      lambda : self.vault.initiate_inventory_retrieval(),
-      botoex.ClientError
-    )  
-
-    logger.info("Submitted inventory retrieval job %r", retrieval_job.id)
-    self.wait_for_job_completion(retrieval_job)
-    output = retry_operation (
-      lambda : retrieval_job.get_output(),
-      botoex.ClientError
-    )  
-
-    assert int(output['status']) == 200
-    inventory = convert_json_bytes_to_dict(output['body'].read())
-    logger.info("Got inventory with %d items", len(inventory['ArchiveList']))
-    return inventory
-
-  def find_most_recent_tx_log (self, inventory, search_key):
-    candidates = [ arc for arc in inventory['ArchiveList'] 
-                   if arc['ArchiveDescription'].find(search_key) > -1 ]
-
-    most_recent = next(sorted( candidates, reverse=True, key=lambda x:x['CreationDate'] ))
-    logger.info("Most recent txlog found : %r", most_recent)
-    return most_recent['ArchiveId'], int(most_recent['Size'])
-
-  def check_for_recent_inventory_job (self):
-    # in case we crash before retrieving the txlog we do not start many other jobs
-    job = next( j for j in self.vault.jobs.all() 
-                if j.status_code in ('InProgress', 'Succeeded') and j.action == 'InventoryRetrieval',
-                None )
-    if not job:
-      return None
-
-    logger.info("Found existing inventory retrieval job %r", job.id)
-    self.wait_for_job_completion(job)
-    output = retry_operation (
-      lambda : job.get_output(),
-      botoex.ClientError
-    )  
-
-    assert int(output['status']) == 200
-    inventory = convert_json_bytes_to_dict(output['body'].read())
-    logger.info("Got inventory with %d items", len(inventory['ArchiveList']))
-    return inventory
-
-  def wait_for_job_completion (self, aws_job):
-    # no job timeout handling ...
-    if aws_job.status_code = 'Succeeded': return
-
-    while True:
-      logger.info('Checking if glacier job %r has completed', aws_job.id)
-      fresh_stx = next( j for j in self.vault.jobs.all() if j.id == aws_job.id )
-      if fresh_stx.status_code = 'Succeeded': return
-      assert fresh_stx.status_code == 'InProgress'
-      wait_for_polling_period()
-
-  def download_from_existing_job (self, fileseg):
-    job = next( j for j in self.vault.jobs.all() 
-                if j.status_code in ('InProgress', 'Succeeded') and j.archive_id == fileseg.archive_id,
-                None )
-    if not job:
-      return False
-
-    logger.info("Found existing job %r for %r", job.id, fileseg.archive_id)
-    self.wait_for_job_completion(job)
-    output = retry_operation (
-      lambda : job.get_output(),
-      botoex.ClientError
-    )  
-
-    assert int(output['status']) == 200
-    self.write_into_fileseg(fileseg, output)
-    return True
-
-  def single_shot_download (self, fileseg):
-    archive = self.vault.Archive(fileseg.archive_id)
-    job = retry_operation (
-      lambda : archive.initiate_inventory_retrieval(**kwargs),
-      botoex.ClientError
-    )
-    logger.info("Submitted download job %r", job.id)
-
-    self.wait_for_job_completion(job)
-    output = retry_operation (
-      lambda : job.get_output(),
-      botoex.ClientError
-    )  
-
-    assert int(output['status']) == 200
-    self.write_into_fileseg(fileseg, output)
-  
-  def write_into_fileseg (self, fileseg, job_output):
-    logger.info("Writing into %r : %r", fileseg.fileout, output['ResponseMetadata']['HTTPHeaders'])
-    body_bytes = job_output['body'].read()
-    
-    # we truncate the fileseg
-    with open(fileseg.fileout, 'wb') as fileobj:
-      fileobj.write(body_bytes)
-      assert fileobj.tell() == fileseg.range_bytes[1]
-
-## END AwsGlacierEmergencyManager
 
