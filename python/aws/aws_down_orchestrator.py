@@ -127,8 +127,8 @@ class AwsDowloadOrchestrator:
         filesegs_left.insert(cursor, fs1)
         quota.add_to_submit( filesegs_left[cursor] )
      
-     logger.info("New quota created : %r", quota)
-     return quota
+    logger.info("New quota created : %r", quota)
+    return quota
 
   def submit_down_jobs_for_fs_in_quota (self, session, bandwith_quota, filesegs_left):
     for fs in filesegs_left:
@@ -143,7 +143,7 @@ class AwsDowloadOrchestrator:
   def download_job_output (session, filesegs_left, jobs_ready):
     # Since concurrent fileseg download in not allowed, the restore session pending fileseg takes priority
     fs = session.get_pending_glacier_fileseg()
-    matching_job = fs and next(j for j in jobs_ready if j.id == fs.awd_id, None)
+    matching_job = fs and next((j for j in jobs_ready if j.id == fs.awd_id), None)
 
     if fs and not matching_job:
       logger.warn("%d jobs ready but none for pending fileseg %r", len(jobs_ready), fs)
@@ -170,7 +170,7 @@ class AwsDowloadOrchestrator:
     else:
       return [ fs for fs in filesegs_left if fs.aws_id != aws_job.id ]
 
-  def check_if_filesegs_in_quota_done (self, session, bandwith_quota)
+  def check_if_filesegs_in_quota_done (self, session, bandwith_quota):
     return all( key in session.filesegs and session.filesegs[key].done
                 for key in bandwith_quota.submitted_fileseg_keys )
 
@@ -296,7 +296,7 @@ class AwsDowloadOrchestrator:
     pending_ids = set( fs.aws_id for fs in fs_pending )
     all_jobs = self.glacier_mgr.get_all_down_jobs_in_vault_by_stx()
     all_jobs_sorted = sorted( flatten_dict(all_jobs), key=lambda x:x.creation_date, reverse=True )
-    return next( j.creation_date for j in all_jobs_sorted if j.id in pending_ids,
+    return next( (j.creation_date for j in all_jobs_sorted if j.id in pending_ids),
                  default=None )
 
   def split_on_chunk_boundary_until (self, tolerate, fileseg):

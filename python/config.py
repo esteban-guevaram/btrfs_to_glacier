@@ -10,6 +10,7 @@ class MyStoreTrue(argparse.Action):
 ARG_OPTION_MAPPING = {
   ('app', 'verbose')  :   { 'flag' : '-v', 'args' : { 'action' : MyStoreTrue } },
   ('app', 'dryrun')   :   { 'flag' : '-d', 'args' : { 'action' : MyStoreTrue } },
+  ('app', 'action')   :   { 'flag' : '-a', 'args' : { } },
 }
 
 class FinalConf (object): 

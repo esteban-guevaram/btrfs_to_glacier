@@ -157,7 +157,7 @@ def parse_json_date (dct):
   return dct
 
 def convert_json_bytes_to_dict (byte_array):
-  return json.loads(byte_array.decode('utf-8'), object_hook=parse_json_date))
+  return json.loads(byte_array.decode('utf-8'), object_hook=parse_json_date)
   
 def wait_for_polling_period ():
   secs = get_conf().aws.polling_period_secs

@@ -93,6 +93,23 @@ class FileUtils (object):
     logger.info("Restored %s from %s", dest, source)
     return dest
 
+  @staticmethod
+  def clean_staging_dir ():
+    interesting_records = (Record.SNAP_TO_FILE, Record.FILESEG_START)
+    staging_dir = get_conf().app.staging_dir
+    files_to_remove = set()
+
+    for record in get_txlog().iterate_through_records():
+      if record.r_type in interesting_records:
+        filepath = os.path.join(staging_dir, record.fileout)
+        files_to_remove.add(filepath)
+
+    logger.info("Cleaning staging dir %s, to be removed : %r", staging_dir, files_to_remove)
+    for filepath in files_to_remove:
+      if os.path.isfile(filepath):
+        os.remove(filepath)
+    return files_to_remove    
+
 ### END FileUtils
 
 class TreeHasher:

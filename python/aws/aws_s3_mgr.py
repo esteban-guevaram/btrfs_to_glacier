@@ -28,7 +28,7 @@ class AwsS3Manager:
       'CreateBucketConfiguration' : { 'LocationConstraint' : boto_session.region_name },
     }
     response = retry_operation (
-      lambda : bucket.create(**kwargs)
+      lambda : bucket.create(**kwargs),
       botoex.ClientError
     )
     assert int(response['HTTPStatusCode']) == 200
@@ -37,11 +37,11 @@ class AwsS3Manager:
     rule = {
       'ID' : bucket.name + '.lifecycle.rule', 
       'Status' : 'Enabled',
-      'Prefix' : ''
+      'Prefix' : '',
       'Expiration' : { 'Days' : self.s3_object_ttl_days },
     }
     response = retry_operation (
-      lambda : lifecycle.put(LifecycleConfiguration={ 'Rules' : [rule] })
+      lambda : lifecycle.put(LifecycleConfiguration={ 'Rules' : [rule] }),
       botoex.ClientError
     )
     assert int(response['HTTPStatusCode']) == 200
@@ -61,7 +61,7 @@ class AwsS3Manager:
       'ContentMD5' : calculate_md5_base64_encoded(byte_array),
     }
     response = retry_operation (
-      lambda : lifecycle.put(LifecycleConfiguration={ 'Rules' : [rule] })
+      lambda : lifecycle.put(LifecycleConfiguration={ 'Rules' : [rule] }),
       botoex.ClientError
     )
     assert int(response['HTTPStatusCode']) == 200
@@ -72,7 +72,7 @@ class AwsS3Manager:
   def download_most_recent_txlog (self, back_logfile):
     fileseg = None
     obj_summaries = retry_operation (
-      lambda : list( self.bucket.objects.all() )
+      lambda : list( self.bucket.objects.all() ),
       botoex.ClientError
     )
     logger.info('Found %d objects in %s', len(obj_summaries), self.bucket.name)

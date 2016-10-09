@@ -14,7 +14,7 @@ SOFLAGS := -shared -Wl,--version-script=btrfs_lib/pybtrfs.export
 native: bin/pybtrfs.so bin/btrfs_test btrfs_lib/tags
 
 python: $(wildcard python/*.py )
-	$(PYTHON) -m compileall -b -l python
+	$(PYTHON) -m compileall -b -l python python/*
 	mv python/*.pyc bin
 	mv python/*/*.pyc bin
 

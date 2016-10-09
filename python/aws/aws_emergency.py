@@ -51,8 +51,8 @@ class AwsGlacierEmergencyManager:
 
   def check_for_recent_inventory_job (self):
     # in case we crash before retrieving the txlog we do not start many other jobs
-    job = next( j for j in self.vault.jobs.all() 
-                if j.status_code in ('InProgress', 'Succeeded') and j.action == 'InventoryRetrieval',
+    job = next( (j for j in self.vault.jobs.all() 
+                if j.status_code in ('InProgress', 'Succeeded') and j.action == 'InventoryRetrieval'),
                 None )
     if not job:
       return None
@@ -71,18 +71,18 @@ class AwsGlacierEmergencyManager:
 
   def wait_for_job_completion (self, aws_job):
     # no job timeout handling ...
-    if aws_job.status_code = 'Succeeded': return
+    if aws_job.status_code == 'Succeeded': return
 
     while True:
       logger.info('Checking if glacier job %r has completed', aws_job.id)
       fresh_stx = next( j for j in self.vault.jobs.all() if j.id == aws_job.id )
-      if fresh_stx.status_code = 'Succeeded': return
+      if fresh_stx.status_code == 'Succeeded': return
       assert fresh_stx.status_code == 'InProgress'
       wait_for_polling_period()
 
   def download_from_existing_job (self, fileseg):
-    job = next( j for j in self.vault.jobs.all() 
-                if j.status_code in ('InProgress', 'Succeeded') and j.archive_id == fileseg.archive_id,
+    job = next( (j for j in self.vault.jobs.all() 
+                if j.status_code in ('InProgress', 'Succeeded') and j.archive_id == fileseg.archive_id),
                 None )
     if not job:
       return False

@@ -56,7 +56,7 @@ class DummyResource:
     self._created = False
     meta = object()
     meta.data = object()
-    self._attributes = { 'meta' = meta }
+    self._attributes = { 'meta' : meta }
     self.name = name
     self.parent = parent
   
@@ -304,7 +304,7 @@ class DummyArchive (DummyResource):
       
     job = DummyJob(self.id, self, DummyJob.InventoryRetrieval, start, end)
     assert not self.jobs_in_progress._has(self.id)
-    self.jobs_in_progress._add(self.id job)
+    self.jobs_in_progress._add(self.id, job)
     return job
 
   def _chunkFull (self):

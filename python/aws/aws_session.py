@@ -106,7 +106,7 @@ class AwsGlobalSession:
   @staticmethod
   def collect_records_from_pending_session (session_type):
     accumulator = []
-    interesting_record_types = (Record.AWS_DOWN_INIT, Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_START, Record.CHUNK_END):
+    interesting_record_types = (Record.AWS_DOWN_INIT, Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_START, Record.CHUNK_END)
 
     for record in get_txlog().reverse_iterate_through_records():
       assert record.r_type != Record.TXLOG_UPLD, "A txlog record should not be found in a pending session"
