@@ -1,6 +1,12 @@
 import uuid, shutil
 from common import *
-from transaction_log import reset_txlog, get_txlog
+from file_utils import *
+from btrfs_commands import *
+from btrfs_subvol_list import *
+from btrfs_backup_orchestrator import *
+from btrfs_restore_orchestrator import *
+from transaction_log import *
+from txlog_consistency import *
 logger = logging.getLogger(__name__)
 
 class DummyBtrfsNode (object):
@@ -56,16 +62,16 @@ def add_fake_backup_to_txlog ():
   snap1 = DummyBtrfsNode.snap(vol1)
   snap2 = DummyBtrfsNode.snap(vol2)
 
-  get_txlog().record_snap_creation(vol1, snap1)
+  get_txlog().record_snap_creation(snap1)
   fake_backup_file_tx(snap1, None)
-  get_txlog().record_snap_creation(vol2, snap2)
+  get_txlog().record_snap_creation(snap2)
   fake_backup_file_tx(snap2, None)
 
   snap12 = DummyBtrfsNode.snap(vol1)
   snap22 = DummyBtrfsNode.snap(vol2)
-  get_txlog().record_snap_creation(vol1, snap12)
+  get_txlog().record_snap_creation(snap12)
   fake_backup_file_tx(snap12, snap1)
-  get_txlog().record_snap_creation(vol2, snap22)
+  get_txlog().record_snap_creation(snap22)
   fake_backup_file_tx(snap22, snap2)
 
   get_txlog().record_subvol_delete(snap1)
@@ -80,17 +86,19 @@ def add_fake_restore_to_txlog ():
   rest12 = DummyBtrfsNode.receive(vol1, rest1)
   rest22 = DummyBtrfsNode.receive(vol2, rest2)
 
-  get_txlog().record_file_to_snap('/root/sendfile/' + rest1.name, rest1)
-  get_txlog().record_file_to_snap('/root/sendfile/' + rest2.name, rest2)
-  get_txlog().record_file_to_snap('/root/sendfile/' + rest12.name, rest12)
-  get_txlog().record_file_to_snap('/root/sendfile/' + rest22.name, rest22)
+  get_txlog().record_file_to_snap('/root/sendfile/' + rest1.name, rest1, vol1.uuid)
+  get_txlog().record_file_to_snap('/root/sendfile/' + rest2.name, rest2, vol2.uuid)
+  get_txlog().record_file_to_snap('/root/sendfile/' + rest12.name, rest12, vol1.uuid)
+  get_txlog().record_file_to_snap('/root/sendfile/' + rest22.name, rest22, vol2.uuid)
   get_txlog().record_subvol_delete(rest1)
   get_txlog().record_subvol_delete(rest2)
 
 def clean_send_file_staging ():
   stage_dir = get_conf().app.staging_dir
-  safe_copy = os.path.dirname(stage_dir) + '/stage_' + uuid.uuid4().hex
-  shutil.move(stage_dir, safe_copy)
+  # Uncomment to save the staging dirs for each test
+  #safe_copy = os.path.dirname(stage_dir) + '/stage_' + uuid.uuid4().hex
+  #shutil.move(stage_dir, safe_copy)
+  shutil.rmtree(stage_dir)
   os.mkdir(stage_dir)
 
 def clean_tx_log():
@@ -103,7 +111,7 @@ def change_timestamp():
   # We need to modify the timestamp or there will be filename collision
   global ts_state
   now = datetime.datetime.now()
-  str_now = now.strftime('%Y%m%d%H%M')
+  str_now = now.strftime('%Y%m%d%H%M%S')
   timestamp.str = "%s_%d" % (str_now, ts_state)
   ts_state += 1
 
@@ -210,4 +218,12 @@ def modify_random_byte_in_file (filein, min_offset=0):
     fileobj.write( new_data )
     logger.debug("Changing %r=>%r @ %d", data, new_data, offset)
   return fileout
+
+def pull_last_childs_from_session (session):
+  return { k:v[-1] for k,v in session.child_subvols.items() }
+
+def get_send_file_and_snap_from (backup_session, puuid):
+  fileout = backup_session.btrfs_sv_files[puuid][-1]
+  snap = backup_session.child_subvols[puuid][-1]
+  return fileout, snap
 

@@ -45,21 +45,31 @@ void BtrfsNodeType__del__(struct BtrfsNode* self) {
 }
 
 PyObject* BtrfsNodeType__repr__(struct BtrfsNode* self) {
-  PyObject *path = NULL, *uuid = NULL, *creation_utc = NULL, *tuple = NULL, *repr = NULL;
+  PyObject *name = NULL, *uuid = NULL, *creation_utc = NULL, 
+           *utc_str = NULL, *uuid_str = NULL, *tuple = NULL, *repr = NULL;
+  char buffer[BTRFS_UUID_SIZE*2 + 1] = {'\0'};         
 
   GOTO_IF_NULL(BtrfsNodeType__repr__clean,
-    path = PyObject_GetAttrString((PyObject*)self, "path") );
+    name = PyObject_GetAttrString((PyObject*)self, "name") );
   GOTO_IF_NULL(BtrfsNodeType__repr__clean,
     uuid = PyObject_GetAttrString((PyObject*)self, "uuid") );
   GOTO_IF_NULL(BtrfsNodeType__repr__clean,
     creation_utc = PyObject_GetAttrString((PyObject*)self, "creation_utc") );
 
+  uuid_to_str((u8*)PyBytes_AsString(uuid), buffer);
   GOTO_IF_NULL(BtrfsNodeType__repr__clean,
-    tuple = PyTuple_Pack(3, path, uuid, creation_utc) );
+    utc_str = PyObject_CallMethod(creation_utc, "strftime", "s", "%Y/%m/%d %H:%M:%S") );
+  GOTO_IF_NULL(BtrfsNodeType__repr__clean,
+    uuid_str = PyUnicode_FromString(buffer) );
+
+  GOTO_IF_NULL(BtrfsNodeType__repr__clean,
+    tuple = PyTuple_Pack(3, name, uuid_str, utc_str) );
   repr = PyUnicode_Format(PyUnicode_FromString("[%s, %r, %r]"), tuple);
 
   BtrfsNodeType__repr__clean:
   Py_XDECREF(tuple);
+  Py_XDECREF(utc_str);
+  Py_XDECREF(uuid_str);
   return repr;
 }
 

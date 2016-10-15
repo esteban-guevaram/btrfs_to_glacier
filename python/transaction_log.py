@@ -1,6 +1,6 @@
 import pickle as pickle, time, struct, hashlib
 from common import *
-from FileUtils import *
+from file_utils import *
 logger = logging.getLogger(__name__)
 
 class TransactionLog (object):
@@ -49,13 +49,12 @@ class TransactionLog (object):
     self.validate_main_hash(filehash, hash_domain_upper)
     return tx_list
 
-  def backup_to_crypted_file():
+  def backup_to_crypted_file(self):
     logfile = self.logfile
-    back_logfile = '%s/backup_%s_%s' % (get_conf().app.staging_dir, os.path.basename(logfile), timestamp.str)
     hashstr = self.calculate_and_store_txlog_main_hash()
     self.record_txlog_to_file(hashstr)
 
-    FileUtils.compress_crypt_file(back_logfile)
+    back_logfile = FileUtils.compress_crypt_file(logfile)
     return back_logfile    
 
   def save_txlog_header (self, hash_domain_upper, filehash):
@@ -175,18 +174,19 @@ class TransactionLog (object):
     record.hashstr = hashstr
     self.add_and_flush_record(record)
 
-  def record_snap_to_file(self, fileout, hashstr, snap, predecessor=None):
+  def record_snap_to_file(self, fileout, hashstr, snap, pre_uuid=None):
     assert fileout and hashstr
     record = Record(Record.SNAP_TO_FILE, self.new_uid())
-    record.predecessor = predecessor
+    record.pre_uuid = pre_uuid
     record.subvol = snap
     record.fileout = os.path.basename( fileout )
     record.hashstr = hashstr
     self.add_and_flush_record(record)
 
-  def record_file_to_snap(self, fileout, subvol):
+  def record_file_to_snap(self, fileout, subvol, ancestor_uuid):
     record = Record(Record.FILE_TO_SNAP, self.new_uid())
     record.subvol = subvol
+    record.ancestor_uuid = ancestor_uuid
     record.fileout = os.path.basename( fileout )
     self.recorded_restores.add(subvol.uuid)
     self.add_and_flush_record(record)
@@ -220,7 +220,7 @@ class TransactionLog (object):
     reset_txlog() 
 
   @staticmethod
-  def parse_header_and_advance_file (self, logfile):
+  def parse_header_and_advance_file (logfile):
     header_raw = logfile.read(TransactionLog.HEADER_LEN)
     assert len(header_raw) == TransactionLog.HEADER_LEN
     version, hash_domain_upper, main_hash = struct.unpack(TransactionLog.HEADER_STRUCT, header_raw)
@@ -259,14 +259,15 @@ class Record (object):
     return "%s=%r" % (self.r_type, vars(self))
 ### END Record  
 
-singleton_transaction = None
+singleton_txlog = None
 def get_txlog():
-  global singleton_transaction
-  if not singleton_transaction:
-    singleton_transaction = TransactionLog()
-  return singleton_transaction  
+  global singleton_txlog
+  if singleton_txlog == None:
+    logger.info('Creating new tx log')
+    singleton_txlog = TransactionLog()
+  return singleton_txlog  
 
 def reset_txlog():
-  global singleton_transaction
-  singleton_transaction = None
+  global singleton_txlog
+  singleton_txlog = None
 

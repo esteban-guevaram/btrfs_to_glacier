@@ -45,7 +45,7 @@ class AwsDowloadOrchestrator:
     fileseg = self.s3_mgr.download_most_recent_txlog(back_logfile)
 
     if not fileseg:
-      logger.warn("No local or s3 txlog, last chance is to look in glacier !")
+      logger.warning("No local or s3 txlog, last chance is to look in glacier !")
       fileseg = self.emergency_mgr.download_last_txlog(get_conf().app.transaction_log, back_logfile)
 
     TransactionLog.restore_from_crypted_file(fileseg.fileout)
@@ -146,7 +146,7 @@ class AwsDowloadOrchestrator:
     matching_job = fs and next((j for j in jobs_ready if j.id == fs.awd_id), None)
 
     if fs and not matching_job:
-      logger.warn("%d jobs ready but none for pending fileseg %r", len(jobs_ready), fs)
+      logger.warning("%d jobs ready but none for pending fileseg %r", len(jobs_ready), fs)
       return None
 
     if fs and matching_job:
@@ -189,7 +189,7 @@ class AwsDowloadOrchestrator:
                         and BandwithQuota.is_in_timeout(now, job.creation_date) ]
     
     if timeout_jobs:
-      logger.warn("Timeout jobs found : %r", timeout_jobs)
+      logger.warning("Timeout jobs found : %r", timeout_jobs)
     return timeout_jobs
 
   def look_for_fs_with_expired_job_in_quota (self, session, bandwith_quota, filesegs_left, all_jobs):
@@ -208,7 +208,7 @@ class AwsDowloadOrchestrator:
         fs.aws_id = None
         expired_fs.append(fs)
 
-    logger.warn( "Filesegs with expired job found : %r" % expired_id )
+    logger.warning( "Filesegs with expired job found : %r" % expired_id )
     return expired_fs
 
   # It is important the return value is a list because we want to preserve the order for downloads

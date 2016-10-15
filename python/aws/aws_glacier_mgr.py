@@ -113,7 +113,7 @@ class AwsGlacierManager:
 
     logger.debug("Glacier job status : %r", [ (k, len(v)) for k,v in result.items() ])
     if 'InProgress' in result and len(result['InProgress']) > max_jobs:
-      logger.warn("Too many jobs in progress : %d", len(result['InProgress']))
+      logger.warning("Too many jobs in progress : %d", len(result['InProgress']))
     return result
 
 
@@ -244,7 +244,7 @@ class AwsGlacierManager:
       assert multipart_job.archive_description == fileseg.fileout
       return multipart_job
     except botoex.ClientError:
-      logger.warn('MultipartUpload %r is not valid anymore', fileseg.aws_id)
+      logger.warning('MultipartUpload %r is not valid anymore', fileseg.aws_id)
     return None
 
   def load_hasher_with_uploaded_chunks_checksums (self, multipart_job, hasher):

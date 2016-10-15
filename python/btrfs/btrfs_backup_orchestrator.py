@@ -29,8 +29,8 @@ class BtrfsBackupOrchestrator :
   def snapshot_and_backup_to_file (self, session, subvol, predecessor):
     logger.info("Snapshot subvol, save snap to file, clean old snaps for subvol : %r", subvol)
 
-    cur_snap = self.create_snapshot(session, subvol)
-    fileout = self.send_volume(session, cur_snap, predecessor)
+    cur_snap = self.btrfs_cmds.create_snapshot(session, subvol)
+    fileout = self.btrfs_cmds.send_volume(session, cur_snap, predecessor)
 
     assert cur_snap.uuid in get_txlog().recorded_snaps
     return fileout, cur_snap
@@ -40,20 +40,21 @@ class BtrfsBackupOrchestrator :
     window = get_conf().btrfs.backup_clean_window
     assert window > 0
 
-    for parent,snaps in sv_childs_in_txlog.items():
+    for puuid,snaps in sv_childs_in_txlog.items():
       subvols_to_del = snaps[:-window]
       logger.info("These volumes are old and will be discarted : %r", subvols_to_del)
 
       for snap in subvols_to_del:
         assert snap.creation_utc <= snaps[-1].creation_utc, \
           'We expected the last snap to be the most recent one, it must not be deleted'
-        self.delete_snapshot(session, snap, parent)
+        self.btrfs_cmds.delete_snapshot(session, snap, puuid)
 
   def determine_predecessors_snap_for_delta(self, subvols):
     predecessors = { v.uuid : None for v in subvols }
     for record in get_txlog().reverse_iterate_through_records():
       if record.r_type == Record.NEW_SNAP and record.subvol.puuid in predecessors:
         predecessors[record.subvol.puuid] = record.subvol
+        break
 
     logger.debug("Found the following last snapshots : %r", predecessors)
     return predecessors    

@@ -1,8 +1,6 @@
 from common import *
 from routines_for_test import *
 import unittest as ut
-from btrfs_commands import *
-from transaction_log import get_txlog, Record
 logger = logging.getLogger(__name__)
 
 class TestBtrfsBackupRestore (ut.TestCase):
@@ -10,107 +8,116 @@ class TestBtrfsBackupRestore (ut.TestCase):
   @classmethod
   def setUpClass(klass):
     setup_filesystem([], get_conf().btrfs.target_subvols)
+    pass
 
   def setUp(self):
+    logger.info("*** Running : %r", self.id())
     reset_conf()
     clean_tx_log()
     clean_send_file_staging()
     change_timestamp()
 
+  def build_objects (self):
+    btrfs_cmd = BtrfsCommands(BtrfsSubvolList, FileUtils)
+    back_orch = BtrfsBackupOrchestrator(TxLogConsistencyChecker, btrfs_cmd)
+    rest_orch = BtrfsRestoreOrchestrator(TxLogConsistencyChecker, btrfs_cmd)
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
+    return btrfs_cmd, back_orch, rest_orch, subvols
+
   #@ut.skip("For quick validation")
-  def test_backup_restore_filesystem_from_backup_txlog (self):
-    savior = BtrfsCommands()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+  def test_backup_restore_filesystem (self):
+    btrfs_cmd, back_orch, rest_orch, subvols = self.build_objects()
     targets = subvols.get_main_subvols()
 
-    savior.incremental_backup_all()
+    back_orch.snap_backup_clean_all_targets()
     change_timestamp()
     add_rand_file_to_all_targets(targets)
 
-    backup_result = savior.incremental_backup_all()
+    back_orch.snap_backup_clean_all_targets()
     change_timestamp()
-    clean_tx_log()
-    restore_result = savior.restore_all_subvols( backup_result.back_tx_log )
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    restore_result = rest_orch.restore_subvols_from_received_files()
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
 
     self.assertEqual(2, len(restore_result.child_subvols))
-    self.assertEqual(2, len(restore_result.last_childs.values()))
-    self.assertEqual(4, sum( len(l) for l in restore_result.child_subvols.values() ))
-    self.assertEqual(4, sum( len(l) for l in restore_result.restored_files.values() ))
-    self.assertTrue(all( subvols.get_by_uuid(s.uuid) for s in restore_result.last_childs.values() ))
+    self.assertEqual(2, sum( len(l) for l in restore_result.child_subvols.values() ))
+    self.assertEqual(2, sum( len(l) for l in restore_result.deleted_subvols.values() ))
+    self.assertEqual(4, sum( len(l) for l in restore_result.btrfs_sv_files.values() ))
+    self.assertTrue(all( subvols.get_by_uuid(s.uuid) for s in pull_last_childs_from_session(restore_result).values() ))
 
     record_type_count = calculate_record_type_count()
     self.assertEqual(4, record_type_count[Record.FILE_TO_SNAP])
 
   #@ut.skip("For quick validation")
   def test_restore_filesystem_full_file_compare (self):
-    savior = BtrfsCommands()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    btrfs_cmd, back_orch, rest_orch, subvols = self.build_objects()
     targets = subvols.get_main_subvols()
 
-    savior.incremental_backup_all()
+    add_rand_file_to_all_targets(targets)
+    add_rand_file_to_all_targets(targets)
+    back_orch.snap_backup_clean_all_targets()
+
     change_timestamp()
-    restore_result = savior.restore_all_subvols()
+    restore_result = rest_orch.restore_subvols_from_received_files()
 
     for target in targets:
-      last_snap = restore_result.last_childs[target.uuid]
+      last_snap = pull_last_childs_from_session(restore_result)[target.uuid]
       self.assertEqual(0, compare_all_in_dir(target.path, last_snap.path) )
 
   #@ut.skip("For quick validation")
   def test_backup_restore_filesystem_progressively (self):
-    savior = BtrfsCommands()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    btrfs_cmd, back_orch, rest_orch, subvols = self.build_objects()
     targets = subvols.get_main_subvols()
 
-    savior.incremental_backup_all()
+    back_orch.snap_backup_clean_all_targets()
     change_timestamp()
-    restore_result = savior.restore_all_subvols()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
-    self.assertTrue(all( subvols.get_by_uuid(s.uuid) for s in restore_result.last_childs.values() ))
+    restore_result = rest_orch.restore_subvols_from_received_files()
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
+    self.assertTrue(all( subvols.get_by_uuid(s.uuid) for s in pull_last_childs_from_session(restore_result).values() ))
     change_timestamp()
 
     add_rand_file_to_all_targets(targets)
-    savior.incremental_backup_all()
+    back_orch.snap_backup_clean_all_targets()
     change_timestamp()
-    restore_result = savior.restore_all_subvols()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
-    self.assertTrue(all( subvols.get_by_uuid(s.uuid) for s in restore_result.last_childs.values() ))
+    restore_result = rest_orch.restore_subvols_from_received_files()
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
+    self.assertTrue(all( subvols.get_by_uuid(s.uuid) for s in pull_last_childs_from_session(restore_result).values() ))
 
     record_type_count = calculate_record_type_count()
     self.assertEqual(4, record_type_count[Record.FILE_TO_SNAP])
 
   #@ut.skip("For quick validation")
   def test_backup_filesystem (self):
-    savior = BtrfsCommands()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    btrfs_cmd, back_orch, rest_orch, subvols = self.build_objects()
     targets = subvols.get_main_subvols()
 
-    backup_result = savior.incremental_backup_all()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
-    self.assertTrue(all( os.path.isfile(f) for f in backup_result.restored_files.values() ))
+    backup_result = back_orch.snap_backup_clean_all_targets()
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
+    send_files = [ f for l in backup_result.btrfs_sv_files.values() for f in l ] 
+    self.assertTrue(all( os.path.isfile(f) for f in send_files ))
     self.assertTrue(all( subvols.get_snap_childs(v) for v in targets ))
 
     change_timestamp()
     add_rand_file_to_all_targets(targets)
 
-    backup_result = savior.incremental_backup_all()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
-    self.assertTrue(all( os.path.isfile(f) for f in backup_result.restored_files.values() ))
+    backup_result = back_orch.snap_backup_clean_all_targets()
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
+    send_files = [ f for l in backup_result.btrfs_sv_files.values() for f in l ] 
+    self.assertTrue(all( os.path.isfile(f) for f in send_files ))
     self.assertTrue(all( subvols.get_snap_childs(v) for v in targets ))
 
     record_type_count = calculate_record_type_count()
     self.assertEqual(4, record_type_count[Record.SNAP_TO_FILE])
     self.assertEqual(4, record_type_count[Record.NEW_SNAP])
-    self.assertEqual(2, record_type_count[Record.TXLOG_TO_FILE])
 
   #@ut.skip("For quick validation")
   def test_backup_single_subvolume (self):
-    savior = BtrfsCommands()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    btrfs_cmd, back_orch, rest_orch, subvols = self.build_objects()
     subvol = next( s for s in subvols.get_main_subvols() )
+    get_conf().btrfs.target_subvols = [ subvol.path ]
 
-    fileout, snap = savior.incremental_backup(subvol)
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    backup_result = back_orch.snap_backup_clean_all_targets()
+    fileout, snap = get_send_file_and_snap_from(backup_result, subvol.uuid)
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     self.assertTrue(os.path.isfile(fileout))
     self.assertTrue(snap.uuid in [s.uuid for s in subvols.get_snap_childs(subvol)])
     self.assertEqual(1, len(get_txlog().recorded_snaps))
@@ -118,8 +125,9 @@ class TestBtrfsBackupRestore (ut.TestCase):
     change_timestamp()
     add_rand_file_to_dir(subvol.path)
 
-    fileout, snap = savior.incremental_backup(subvol)
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    backup_result = back_orch.snap_backup_clean_all_targets()
+    fileout, snap = get_send_file_and_snap_from(backup_result, subvol.uuid)
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     self.assertTrue(os.path.isfile(fileout))
     self.assertTrue(snap.uuid in [s.uuid for s in subvols.get_snap_childs(subvol)])
     self.assertEqual(2, len(get_txlog().recorded_snaps))
@@ -130,19 +138,20 @@ class TestBtrfsBackupRestore (ut.TestCase):
 
   #@ut.skip("For quick validation")
   def test_restore_does_not_delete_unrelated_vols (self):
+    btrfs_cmd, back_orch, rest_orch, subvols = self.build_objects()
+    subvol = next( s for s in subvols.get_main_subvols() )
+
+    get_conf().btrfs.target_subvols = [ subvol.path ]
     get_conf().btrfs.restore_clean_window = 4
     get_conf().btrfs.backup_clean_window = 4
-    savior = BtrfsCommands()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
-    subvol = next( s for s in subvols.get_main_subvols() )
 
     for i in range(2):
       change_timestamp()
-      savior.incremental_backup(subvol)
+      back_orch.snap_backup_clean_all_targets()
       add_rand_file_to_dir(subvol.path)
 
-    restore_result = savior.restore_all_subvols()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    rest_orch.restore_subvols_from_received_files()
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     previous_subvols = subvols.get_readonly_subvols()
     self.assertTrue( len(previous_subvols) > 0 )
 
@@ -151,69 +160,77 @@ class TestBtrfsBackupRestore (ut.TestCase):
     clean_tx_log()
     for i in range(2):
       change_timestamp()
-      savior.incremental_backup(subvol)
+      back_orch.snap_backup_clean_all_targets()
       add_rand_file_to_dir(subvol.path)
 
-    restore_result = savior.restore_all_subvols()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    rest_orch.restore_subvols_from_received_files()
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     # None of the previous subvolumes must be deleted
     self.assertTrue( all( subvols.get_by_uuid(s.uuid) != None for s in previous_subvols ) )
 
   #@ut.skip("For quick validation")
   def test_restore_clean_window (self):
+    btrfs_cmd, back_orch, rest_orch, subvols = self.build_objects()
+    subvol = next( s for s in subvols.get_main_subvols() )
+
     restore_created = []
     get_conf().btrfs.restore_clean_window = 1
-    savior = BtrfsCommands()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
-    subvol = next( s for s in subvols.get_main_subvols() )
+    get_conf().btrfs.target_subvols = [ subvol.path ]
 
     for i in range(4):
       change_timestamp()
-      savior.incremental_backup(subvol)
+      back_orch.snap_backup_clean_all_targets()
       add_rand_file_to_dir(subvol.path)
 
     delete_count = calculate_record_type_count()[Record.DEL_SNAP]
-    restore_result = savior.restore_all_subvols()
+    restore_result = rest_orch.restore_subvols_from_received_files()
     delete_count = calculate_record_type_count()[Record.DEL_SNAP] - delete_count
     self.assertEqual(3, delete_count)
+    self.assertEqual(3, len(restore_result.deleted_subvols[subvol.uuid]))
 
-    restore_children = restore_result.get_restores_for_subvol(subvol.uuid)
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    restore_children = restore_result.child_subvols[subvol.uuid]
+    deleted_children = restore_result.deleted_subvols[subvol.uuid]
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
+
     # All except the latest restore have been deleted from the filesystem
-    self.assertEqual(1, sum( 1 for s in restore_children if subvols.get_by_uuid(s.uuid) ) )
+    self.assertTrue( subvols.get_by_uuid(s.uuid) for s in restore_children )
+    self.assertTrue( not subvols.get_by_uuid(s.uuid) for s in deleted_children )
 
     clean_tx_log()
     get_conf().btrfs.restore_clean_window = 5
     for i in range(4):
       change_timestamp()
-      savior.incremental_backup(subvol)
+      back_orch.snap_backup_clean_all_targets()
       add_rand_file_to_dir(subvol.path)
 
     delete_count = calculate_record_type_count()[Record.DEL_SNAP]
-    restore_result = savior.restore_all_subvols()
+    restore_result = rest_orch.restore_subvols_from_received_files()
     delete_count = calculate_record_type_count()[Record.DEL_SNAP] - delete_count
     self.assertEqual(0, delete_count)
+    self.assertFalse(subvol.uuid in restore_result.deleted_subvols)
 
-    restore_children = restore_result.get_restores_for_subvol(subvol.uuid)
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    restore_children = restore_result.child_subvols[subvol.uuid]
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     # No restores have been deleted
     self.assertEqual(4, sum( 1 for s in restore_children if subvols.get_by_uuid(s.uuid) ) )
 
   #@ut.skip("For quick validation")
   def test_backup_clean_window (self):
+    btrfs_cmd, back_orch, rest_orch, subvols = self.build_objects()
+    subvol = next( s for s in subvols.get_main_subvols() )
+
     snaps_created = []
     get_conf().btrfs.backup_clean_window = 1
-    savior = BtrfsCommands()
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
-    subvol = next( s for s in subvols.get_main_subvols() )
+    get_conf().btrfs.target_subvols = [ subvol.path ]
 
     for i in range(4):
       change_timestamp()
-      fileout, snap = savior.incremental_backup(subvol)
+      backup_result = back_orch.snap_backup_clean_all_targets()
+      fileout, snap = get_send_file_and_snap_from(backup_result, subvol.uuid)
       snaps_created.append(snap)
       add_rand_file_to_dir(subvol.path)
 
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     record_type_count = calculate_record_type_count()
     self.assertEqual(3, record_type_count[Record.DEL_SNAP])
     # All except the latest snap have been deleted from the filesystem
@@ -222,41 +239,18 @@ class TestBtrfsBackupRestore (ut.TestCase):
     get_conf().btrfs.backup_clean_window = 3
     for i in range(4):
       change_timestamp()
-      fileout, snap = savior.incremental_backup(subvol)
+      backup_result = back_orch.snap_backup_clean_all_targets()
+      fileout, snap = get_send_file_and_snap_from(backup_result, subvol.uuid)
       snaps_created.append(snap)
       add_rand_file_to_dir(subvol.path)
 
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     record_type_count = calculate_record_type_count()
     self.assertEqual(5, record_type_count[Record.DEL_SNAP])
     # All except the latest 3 snaps have been deleted from the filesystem
     self.assertEqual(3, sum( 1 for s in snaps_created if subvols.get_by_uuid(s.uuid) ) )
 
-  #@ut.skip("For quick validation")
-  def test_restore_subvol_different_folder_than_record (self):
-    assert False
-
 ### END TestBtrfsBackupRestore
-
-class TestTreeHasher (ut.TestCase):
-
-  @classmethod
-  def setUpClass(klass):
-    pass
-
-  #@ut.skip("For quick validation")
-  def test_odd_number_of_chunks (self):
-    assert False
-
-  #@ut.skip("For quick validation")
-  def test_even_number_of_chunks (self):
-    assert False
-
-  #@ut.skip("For quick validation")
-  def test_single_shot_calculate (self):
-    assert False
-
-### END TestTreeHasher
 
 if __name__ == "__main__":
   conf_for_test()

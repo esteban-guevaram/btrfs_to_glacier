@@ -55,7 +55,7 @@ char* uuid_to_str(u8* uuid, char *result)
   }
   else {
     for(u64 i=0; i<BTRFS_UUID_SIZE; ++i)
-      snprintf(result + 2*i, 3, "%.2X", uuid[i]);
+      snprintf(result + 2*i, 3, "%.2x", uuid[i]);
     result[2 * BTRFS_UUID_SIZE] = '\0';  
   }
   return result;

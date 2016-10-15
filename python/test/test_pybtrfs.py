@@ -10,6 +10,7 @@ class TestPyBtrfs (ut.TestCase):
   @classmethod
   def setUpClass(klass):
     setup_filesystem(['-s'], get_conf().btrfs.target_subvols)
+    pass
 
   def check_empty_subvol(self, subvol):
     self.assertIsNone(subvol.name)
@@ -63,10 +64,10 @@ class TestPyBtrfs (ut.TestCase):
     self.assertTrue(any( is_read.values() ))
 
   def test_subvol_list_wrapper(self):
-    subvols = BtrfsSubvolList( get_conf().test.root_fs )
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem( get_conf().test.root_fs )
     logger.debug( "subvolume list :\n%r", subvols )
-    self.assertTrue(len(subvols.subvols) > 0)
-    self.assertTrue(all( n.uuid for n in subvols.subvols ))
+    self.assertTrue(len(subvols) > 0)
+    self.assertTrue(all( n.uuid for n in subvols ))
 
   def test_subvol_pickle_with_data(self):
     subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )

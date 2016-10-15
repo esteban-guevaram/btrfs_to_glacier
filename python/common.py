@@ -6,10 +6,10 @@ logger = logging.getLogger(__name__)
 
 class timestamp (object):
   now = datetime.datetime.now()
-  str = now.strftime('%Y%m%d%H%M')
+  str = now.strftime('%Y%m%d%H%M%S')
 
   def new (self):
-    return datetime.datetime.now().strftime('%Y%m%d%H%M')
+    return datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 
 class tx_handler (object):
   STACK_DEPTH = 0
@@ -33,8 +33,6 @@ class tx_handler (object):
     else:
       sys.exit(signum)
 
-  signal.signal(signal.SIGINT, tx_handler.interrupt_handler)
-
   @staticmethod
   def wrap (func):
     def __closure__ (*args, **kwargs):
@@ -45,6 +43,9 @@ class tx_handler (object):
         tx_handler.STACK_DEPTH -= 1
         if tx_handler.INT_COUNT:
           sys.exit(1)
+    return __closure__      
+
+signal.signal(signal.SIGINT, tx_handler.interrupt_handler)
 ## END tx_handler
 
 def retry_operation (closure, exception):
@@ -53,7 +54,7 @@ def retry_operation (closure, exception):
       return closure()
     except exception as err:
       # exception may also be a tuple
-      logger.warn("Attempt %d, operation failed : %r", attempt, err)
+      logger.warning("Attempt %d, operation failed : %r", attempt, err)
       time.sleep(0.5)
   raise Exception('Permanent failure')
 

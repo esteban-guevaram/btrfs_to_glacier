@@ -10,11 +10,12 @@ class BtrfsSubvolList (list):
     subvol_list = BtrfsSubvolList()
     subvol_list.extend( pybtrfs.build_subvol_list(btrfs_path) )
     assert subvol_list
+    return subvol_list
 
   @staticmethod
   def find_by_ruuid(btrfs_path, ruuid):
     subvols = BtrfsSubvolList.get_subvols_from_filesystem(btrfs_path)
-    return next((n for n in subvols.subvols if n.ruuid == ruuid), None)
+    return next((n for n in subvols if n.ruuid == ruuid), None)
 
   def get_by_ruuid(self, ruuid):
     return next((n for n in self if n.ruuid == ruuid), None)

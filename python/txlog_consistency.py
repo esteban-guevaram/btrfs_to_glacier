@@ -1,5 +1,5 @@
 from common import *
-from FileUtils import *
+from transaction_log import *
 logger = logging.getLogger(__name__)
 
 class TxLogConsistencyChecker (object):
@@ -85,11 +85,12 @@ class TxLogConsistencyChecker (object):
       if record.r_type == Record.BACK_END:   complete_bak_session = True
 
       if record.r_type == Record.NEW_SNAP:
-        if not record.subvol.puuid: parent_to_childs[record.subvol.puuid] = set()
+        if record.subvol.puuid not in parent_to_childs: 
+          parent_to_childs[record.subvol.puuid] = set()
+          parent_to_deleted[record.subvol.puuid] = set()
         parent_to_childs[record.subvol.puuid].add( record.subvol.uuid )
 
       if record.r_type == Record.DEL_SNAP:
-        if not record.subvol.puuid: parent_to_deleted[record.subvol.puuid] = set()
         parent_to_deleted[record.subvol.puuid].add( record.subvol.uuid )
         assert record.subvol.uuid in parent_to_childs[record.subvol.puuid], \
           'All deleted snaps mst have been created previously'

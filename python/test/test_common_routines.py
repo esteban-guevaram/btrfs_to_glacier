@@ -1,8 +1,6 @@
 import unittest as ut
 from common import *
 from routines_for_test import *
-from file_utils import *
-from btrfs_commands import *
 
 class TestBackupFiles (ut.TestCase):
   
@@ -19,12 +17,17 @@ class TestBackupFiles (ut.TestCase):
 
   #@ut.skip("For quick validation")
   def test_sendfile_unencrypted_backup_restore (self):
+    btrfs_cmd = BtrfsCommands(BtrfsSubvolList, FileUtils)
     restore_path = get_conf().btrfs.restore_path
-    subvols = BtrfsSubvolList(get_conf().test.root_fs)
-    snap = next( s for s in subvols.subvols if s.is_snapshot() )
-    fileout = BtrfsCommands().send_volume(snap)
+
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
+    snap = next( s for s in subvols if s.is_snapshot() )
+    session = BackupSession.start_new()
+    session.record_snap_creation(snap)
+    fileout = btrfs_cmd.send_volume(session, snap)
+
     record = next( r for r in get_txlog().iterate_through_records() if r.r_type == Record.SNAP_TO_FILE )
-    restored = BtrfsCommands().receive_volume(subvols, restore_path, record)
+    restored = btrfs_cmd.receive_volume(RestoreSession.start_new(), record.subvol, record.hashstr, record.fileout, restore_path)
     self.assertEqual(0, compare_all_in_dir(snap.path, restored.path))
 
   #@ut.skip("For quick validation")
@@ -35,9 +38,9 @@ class TestBackupFiles (ut.TestCase):
   #@ut.skip("For quick validation")
   def test_txlog_unencrypted_backup_restore (self):
     add_fake_backup_to_txlog()
-    fileout = FileUtils.write_tx_log()
+    fileout = get_txlog().backup_to_crypted_file()
     clean_tx_log()
-    FileUtils.fetch_tx_log(fileout)
+    TransactionLog.restore_from_crypted_file(fileout)
     record_type_count = calculate_record_type_count()
     self.assertEqual(4, record_type_count[Record.NEW_SNAP])
     self.assertEqual(4, record_type_count[Record.SNAP_TO_FILE])
@@ -65,8 +68,8 @@ class TestBackupFiles (ut.TestCase):
   #@ut.skip("For quick validation")
   def test_per_restore_batch_hash_protection (self):
     add_fake_backup_to_txlog()
-    good_file = FileUtils.write_tx_log()
-    get_txlog().validate_all_individual_batch_hashes()
+    good_file = get_txlog().backup_to_crypted_file()
+    TxLogConsistencyChecker._validate_all_individual_batch_hashes(get_txlog().logfile)
     
     clean_tx_log()
     for i in range(10):
@@ -79,7 +82,7 @@ class TestBackupFiles (ut.TestCase):
       change_timestamp()
 
     with self.assertRaises(Exception):
-      get_txlog().validate_all_individual_batch_hashes()
+      TxLogConsistencyChecker._validate_all_individual_batch_hashes(get_txlog().logfile)
 
 class TestCommon (ut.TestCase):
 
@@ -100,6 +103,26 @@ class TestCommon (ut.TestCase):
       self.assertEqual('chocolat', out_file.read())
 
 ### END TestCommon
+
+class TestTreeHasher (ut.TestCase):
+
+  @classmethod
+  def setUpClass(klass):
+    pass
+
+  @ut.skip("For quick validation")
+  def test_odd_number_of_chunks (self):
+    assert False
+
+  @ut.skip("For quick validation")
+  def test_even_number_of_chunks (self):
+    assert False
+
+  @ut.skip("For quick validation")
+  def test_single_shot_calculate (self):
+    assert False
+
+### END TestTreeHasher
 
 if __name__ == "__main__":
   conf_for_test()
