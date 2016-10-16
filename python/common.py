@@ -117,10 +117,10 @@ def range_bytes_it (full_range, step):
   yield (last, full_range[1])
 
 def convert_hexstr_to_bytes (hexstr):
-  return binascii.hexify(hexstr)
+  return binascii.unhexlify(hexstr)
 
 def convert_bytes_to_hexstr (byte_array):
-  return binascii.unhexify(byte_array)
+  return binascii.hexlify(byte_array)
 
 def calculate_md5_base64_encoded (byte_array):
   hash_bytes = hashlib.md5(byte_array).digest()
