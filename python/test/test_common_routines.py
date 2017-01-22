@@ -2,18 +2,13 @@ import unittest as ut
 from common import *
 from routines_for_test import *
 
+@deco_setup_each_test
 class TestBackupFiles (ut.TestCase):
   
   @classmethod
   def setUpClass(klass):
     setup_filesystem(['-s'], get_conf().btrfs.target_subvols)
     pass
-
-  def setUp(self):
-    reset_conf()
-    clean_tx_log()
-    clean_send_file_staging()
-    change_timestamp()
 
   #@ut.skip("For quick validation")
   def test_sendfile_unencrypted_backup_restore (self):

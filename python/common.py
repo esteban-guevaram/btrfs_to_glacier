@@ -1,6 +1,6 @@
 from config import get_conf, conf_for_test, reset_conf
 import logging, config_log, random
-import os, re, stat, datetime, copy, tempfile, binascii, base64, json, time, itertools, signal, hashlib
+import sys, os, re, stat, datetime, copy, tempfile, binascii, base64, json, time, itertools, signal, hashlib
 import subprocess as sp
 logger = logging.getLogger(__name__)
 

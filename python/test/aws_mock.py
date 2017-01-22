@@ -1,7 +1,7 @@
 from common import *
 import uuid, tempfile, json
-assert 'boto3' in sys.modules, 'import this module after boto'
 import boto3
+import botocore.exceptions as botoex
 logger = logging.getLogger(__name__)
 
 # Change default session so that if any operation reaches AWS it will be rejected
@@ -10,94 +10,149 @@ boto3.setup_default_session(
   aws_secret_access_key='likes_bananas',
 )
 
+#####################################################################################
+# Behaviour
+
+class DummyOkResponse (dict):
+  def __init__ (self, src_type, method_name, kwargs):
+    key = src_type.__name__ + method_name.__name__
+    self.update(kwargs)
+    self['__debug__'] = key
+    self['HTTPStatusCode'] = 200
+
+class DummyKoResponse (dict):
+  VOID_METHODS = set(
+    'DummyBucket' + 'download_file'
+  )
+
+  def __init__ (self, src_type, method_name, kwargs):
+    key = src_type.__name__ + method_name.__name__
+    if DummySession.blowup_on_fail or key in DummyKoResponse.VOID_METHODS:
+      raise DummyException(key)
+
+    self.update(kwargs)
+    self['__debug__'] = key
+    self['HTTPStatusCode'] = 400
+
+def always_ok_behaviour (src_type, method_name, **kwargs):
+  return DummyOkResponse(src_type, method_name, kwargs)
+
+def always_ko_behaviour (src_type, method_name, **kwargs):
+  return DummyKoResponse(src_type, method_name, kwargs)
+
+def fail_at_random_with_limit (perc_fail, limit):
+  streak = {}
+  def inner_helper (src_type, method_name, **kwargs):
+    chance = random.randrange(100)
+    key = src_type.__name__ + method_name.__name__
+    streak.setdefault(key, 0)
+    if chance >= perc_fail or streak[key] >= limit:
+      streak[key] = 0
+      return DummyOkResponse(src_type, method_name, kwargs)
+    else:
+      streak[key] += 1
+      return DummyKoResponse(src_type, method_name, kwargs)
+  return inner_helper
+
+def fail_at_random (perc_fail):
+  def inner_helper (src_type, method_name, **kwargs):
+    chance = random.randrange(100)
+    if chance >= perc_fail:
+      return DummyOkResponse(src_type, method_name, kwargs)
+    else:
+      return DummyKoResponse(src_type, method_name, kwargs)
+  return inner_helper
+
+def fail_at_first_then_ok (fail_count):
+  count = {}
+  def inner_helper (src_type, method_name, **kwargs):
+    key = src_type.__name__ + method_name.__name__
+    count.setdefault(key, 0)
+    if count[key] < fail_count:
+      count[key] += 1
+      return DummyKoResponse(src_type, method_name, kwargs)
+    return DummyOkResponse(src_type, method_name, kwargs)
+  return inner_helper
+
+#####################################################################################
+# Root objects
+
 class DummySession:
+  region_name = 'banana_land'
+  behaviour = always_ok_behaviour
+  blowup_on_fail = True
+
+  def __init__ (self):
+    self.glacier = DummyGlacier( str(uuid.uuid4()) )
+    self.s3 = DummyS3( str(uuid.uuid4()) )
 
   def session (self, *args, **kwargs):
     return DummySession.create_dummy_resource(*args, **kwargs)
 
   def resource (self, *args, **kwargs):
-    logger.info("Creating resource : %r, %r", args, kwargs)
-    name = args[0]
-    if name == 'glacier':
-      return DummyGlacier()
-    if name == 's3':
-      return DummyS3()
-    raise Exception('not implemented')
+    return self.create_dummy_resource(*args, **kwargs)
 
   def client (self, *args, **kwargs):
-    raise Exception('not implemented')
+    return self.create_dummy_client(*args, **kwargs)
 
   @staticmethod
   def create_dummy_session (*args, **kwargs):
     logger.info("Creating session : %r, %r", args, kwargs)
     return DummySession()
 
-  @staticmethod
-  def create_dummy_resource (*args, **kwargs):
-    logger.info("Creating session : %r, %r", args, kwargs)
+  def create_dummy_resource (self, *args, **kwargs):
+    logger.info("Creating resource : %r, %r", args, kwargs)
     if args[0] == 'glacier':
-      return DummyGlacier()
+      return self.glacier
     if args[0] == 's3':
-      return DummyS3()
+      return self.s3
     raise Exception('not implemented')
 
-  @staticmethod
-  def create_dummy_client (*args, **kwargs):
-    logger.info("Creating session : %r, %r", args, kwargs)
+  def create_dummy_client (self, *args, **kwargs):
+    logger.info("Creating client : %r, %r", args, kwargs)
     raise Exception('not implemented')
 
-  boto3.session = create_dummy_session
-  boto3.resource = create_dummy_resource
-  boto3.client = create_dummy_client
+
+boto3.session.Session = DummySession.create_dummy_session
+boto3.resource        = None
+boto3.client          = None
+
 
 class DummyResource:
   
+  class ObjWithDict: pass
+
   def __init__ (self, name, parent):
     self._created = False
-    meta = object()
-    meta.data = object()
+    meta = DummyResource.ObjWithDict()
+    meta.data = DummyResource.ObjWithDict()
     self._attributes = { 'meta' : meta }
     self.name = name
     self.parent = parent
   
   def _setattr (self, name, value):
-    self._attributes['name'] = value 
+    self._attributes[name] = value 
 
   def __getattr__(self, name):
     if not self._created:
-      raise DummyException()
-    return self._attributes['name']  
+      raise DummyException('not self._created')
+    return self._attributes[name]  
 
   def load (self): pass
   def reload (self): pass
   def get_available_subresources():
     return []
 
-class DummyCollection:
-  
-  def __init__ (self):
-    self.objects = {}
-  
-  def _has (self, key):
-    return key in self.objects
-
-  def _del (self, key):
-    del self.objects[key]
-
-  def _get (self, key):
-    return self.objects.get(key)
-
-  def _add (self, key, val):
-    self.objects[key] = val
-
-  def _clear (self):
-    self.objects.clear()
-
+class DummyCollection (dict):
   def all (self):
-    return self.objects.values()
+    return self.values()
 
-class DummyException (Exception):
-  pass
+class DummyException (botoex.ClientError):
+  def __init__ (self, msg):
+    self.msg = msg
+
+  def __repr__ (self):
+    return '%s : %s' % (type(self).__name__, self.msg)
 
 class DummyStream:
   def __init__ (self, stream):
@@ -132,7 +187,7 @@ class DummyVault (DummyResource):
     self._setattr('last_inventory_date', datetime.datetime.now())
     self._setattr('number_of_archives', 0)
     self._setattr('size_in_bytes', 0)
-    self._setattr('vault_arn', uuid.uuid4())
+    self._setattr('vault_arn', str(uuid.uuid4()) )
     # Collections
     #self.failed_jobs = DummyCollection()
     #self.succeeded_jobs = DummyCollection()
@@ -147,24 +202,24 @@ class DummyVault (DummyResource):
     {'location': '/843392324993/vaults/dummy_vault', 'ResponseMetadata': {'HTTPStatusCode': 201, 'HTTPHeaders': {'content-length': '2', 'x-amzn-requestid': 'kClaL7QvT4LR_slpdu6rXi0jrBH6XjjUV7tgBA2b_peySko', 'location': '/843392324993/vaults/dummy_vault', 'date': 'Sat, 27 Aug 2016 17:51:31 GMT', 'content-type': 'application/json'}, 'RequestId': 'kClaL7QvT4LR_slpdu6rXi0jrBH6XjjUV7tgBA2b_peySko'}}
     '''
     self._created = True
-    self.parent._add(self.name, self)
+    self.parent[self.name] = self
 
   def _fail_job (self, job):
-    self.jobs_in_progress._del(job.name)
+    del self.jobs_in_progress[job.name]
     job.status_code = DummyJob.Failed
 
   def _transition_jobs_to_complete (self):
     for k,job in self.jobs_in_progress.all():
       job.completed = True
-    self.jobs_in_progress._clear()
+    self.jobs_in_progress.clear()
 
   def initiate_inventory_retrieval (self):
     '''
     {'InventoryDate': '2016-08-21T00:46:31Z', 'ArchiveList': [{'SHA256TreeHash': '1acac939ccb8d55467ecaa6bb413ae59434b6ef5008f45adbf16c397d74da15c', 'ArchiveId': 'T8ecmVSHxb1pcW31Ia0C4Q4mbSb6c3ERw9lm4q-Erhc562Qo9r8XqAa8aFUjoIcrnbL7h58Z_FzxI7lNevXenmR9d3vvXWd5KezsL07Akf6Mt9hVGhhFVaO0GzRxzRGiyP94OXqSqA', 'Size': 71641, 'CreationDate': '2016-01-06T18:42:57Z', 'ArchiveDescription': 'test random file upload'}, {'SHA256TreeHash': '2ecfdbd275e1e00bf050b4954fa6d1467190a6c1719cffaa22d96f0c2e69188b', 'ArchiveId': 'poti53ZqdyE4LYfYUyG7x4Zahb-4Ux6Ry98rma1FZJqcOg2FwrZriGZkNHAZGSYrDI2Al1CZygJj4UqLzJ9B0r2h88UHR5b5Xi_Vi56VtZnkku2FQ0mA3mK16uhVOw3kg9x2vXXizQ', 'Size': 12582912, 'CreationDate': '2016-08-20T13:44:27Z', 'ArchiveDescription': 'to_glacier_single_part_upl'}, {'SHA256TreeHash': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'ArchiveId': 'S-CStPFbgPAdXh8QVEkd9OKamTIkRdHHshwbiA8O6-84in4SBVj8zHFAxh65mjr3dD_6dRUn1NaCZr9EBuiH8ZuPQ4yqc7qPNA6ZwB8Zq-ofWiat66CCnBWPNiCWAMm0-GeA7f5pzg', 'Size': 12582912, 'CreationDate': '2016-08-20T14:44:34Z', 'ArchiveDescription': 'to_glacier_multipart_upl'}], 'VaultARN': 'arn:aws:glacier:eu-west-1:843392324993:vaults/dummy_vault'}
     '''
     job = DummyJob('retrieval_job', self, DummyJob.InventoryRetrieval)
-    assert not self.jobs_in_progress._has('retrieval_job')
-    self.jobs_in_progress._add('retrieval_job', job)
+    assert not 'retrieval_job' in self.jobs_in_progress
+    self.jobs_in_progress['retrieval_job'] = job
     return job
 
   def upload_archive (self, **kwargs):
@@ -180,8 +235,8 @@ class DummyVault (DummyResource):
     assert 'archiveDescription' in kwargs
     assert 'partSize' in kwargs
     job = DummyMultiPart(kwargs['archiveDescription'], self, int(kwargs['partSize']))
-    assert not self.multipart_uplaods._has(kwargs['archiveDescription'])
-    self.multipart_uplaods._add(kwargs['archiveDescription'], job)
+    assert not kwargs['archiveDescription'] in self.multipart_uplaods
+    self.multipart_uplaods[kwargs['archiveDescription']] = job
     return job
   
 
@@ -191,12 +246,12 @@ class DummyMultiPart (DummyResource):
     self._archive = DummyArchive(kwargs['archiveDescription'], parent)
     self.archive_description = name
     self.creation_date = datetime.datetime.now()
-    self.multipart_upload_id = uuid.uuid4()
+    self.multipart_upload_id = str(uuid.uuid4())
     self.part_size_in_bytes = partSize
     self_parts = []
 
   def abort(self):
-    self.parent.multipart_uplaods._del(self.name)
+    del self.parent.multipart_uplaods[self.name]
 
   def complete(self):
     '''
@@ -234,7 +289,7 @@ class DummyJob (DummyResource):
     super().__init__(name, parent)
     self._start = start
     self._end = end
-    self.job_id = uuid.uuid4()
+    self.job_id = str(uuid.uuid4())
     self.action = action
     self.job_description = self.name
     self.creation_date = datetime.datetime.now()
@@ -286,7 +341,7 @@ class DummyJob (DummyResource):
 
 class DummyArchive (DummyResource):
   def __init__ (self, name, parent):
-    super().__init__(uuid.uuid4(), parent)
+    super().__init__( str(uuid.uuid4()) , parent)
     self.description = name
     self.id = self.name
     self._content = tempfile.TemporaryFile()
@@ -303,8 +358,8 @@ class DummyArchive (DummyResource):
       end = int( re.search(r'-(\d+)', kwargs['jobParameters']['RetrievalByteRange']).group(1) ) + 1
       
     job = DummyJob(self.id, self, DummyJob.InventoryRetrieval, start, end)
-    assert not self.jobs_in_progress._has(self.id)
-    self.jobs_in_progress._add(self.id, job)
+    assert not self.id in self.jobs_in_progress
+    self.jobs_in_progress[self.id] = job
     return job
 
   def _chunkFull (self):
@@ -333,6 +388,9 @@ class DummyS3 (DummyResource):
     self.buckets = DummyCollection()
   
   def Bucket(self, name):
+    bucket = self.buckets.get(name)
+    if bucket:
+      return bucket
     return DummyBucket(name, self)
 
 class DummyBucket (DummyResource):
@@ -349,34 +407,47 @@ class DummyBucket (DummyResource):
     '''
     logger.info('Creating bucket %s', self.name)
     assert 'LocationConstraint' in kwargs['CreateBucketConfiguration']
-    assert not self.parent.objects._has(name)
+    assert not self.name in self.parent.buckets
+    self.parent.buckets[self.name] = self
     self._created = True
-    self.buckets.add(name, self)
+    return DummySession.behaviour(type(self), self.create)
 
   def download_file (self, key, filename):
     logger.info('Downloading %s to %s', key, filename)
     with open(filename, 'wb') as fileobj:
       fileobj.write(self.objects[key]._bytes)
 
+    return DummySession.behaviour(type(self), self.download_file)
+
   def put_object (self, **kwargs):
     assert 'Body' in kwargs
     assert 'Key' in kwargs
-    obj = self.objects._get(kwargs['Key'])
+    obj = self.objects.get(kwargs['Key'])
     if not obj:
       obj = DummyS3Object(kwargs['Key'], self)
-      self.objects._add( kwargs['Key'], obj )
+      self.objects[ kwargs['Key']] = obj 
     obj._bytes = kwargs['Body']
 
   def upload_file (self, filename, key):
-    obj = self.objects._get(key)
+    obj = self.objects.get(key)
     if not obj:
       obj = DummyS3Object(key, self)
-      self.objects._add( kwargs['Key'], obj )
+      self.objects[ kwargs['Key']] = obj 
     with open(filename, 'rb') as fileobj:
       obj._bytes = fileobj.read()
 
+  def Lifecycle (self):
+    return DummyLifecycle(self)
+
   def Object (self, key):
     return DummyS3Object(key, self)
+
+class DummyLifecycle (DummyResource):
+  def __init__ (self, parent):
+    super().__init__(str(uuid.uuid4()), parent)
+
+  def put (self, **kwargs):
+    return DummySession.behaviour(type(self), self.put)
 
 class DummyS3Object (DummyResource):
   def __init__ (self, name, parent):
@@ -389,26 +460,30 @@ class DummyS3Object (DummyResource):
     self.version_id = None
 
   def delete (self):
-    assert self.parent.objects._has(self.name)
-    self.parent.objects._del(self.name)
+    assert self.name in self.parent.objects
+    del self.parent.objects[self.name]
     self._created = False
+    return DummySession.behaviour(type(self), self.delete)
 
   def download_file (self, filename):
     self.parent.download_file(self.name, filename)
+    return DummySession.behaviour(type(self), self.download_file)
 
   def get (self):
     '''
     {'Metadata': {}, 'Body': <botocore.response.StreamingBody object at 0x7f57553d7ba8>, 'ResponseMetadata': {'HostId': '/ymvGE8jdY8JDw1zXQEYzfs8zuynQNeJeGDNwfLPOLW8QBQaJd+B7vhFYS9ggaSXNK4+r1lsXLs=', 'HTTPStatusCode': 200, 'HTTPHeaders': {'x-amz-id-2': '/ymvGE8jdY8JDw1zXQEYzfs8zuynQNeJeGDNwfLPOLW8QBQaJd+B7vhFYS9ggaSXNK4+r1lsXLs=', 'content-length': '14', 'last-modified': 'Wed, 24 Aug 2016 21:44:55 GMT', 'x-amz-request-id': '51187B034C395B3A', 'date': 'Sat, 27 Aug 2016 13:41:41 GMT', 'content-type': 'binary/octet-stream', 'accept-ranges': 'bytes', 'x-amz-expiration': 'expiry-date="Sat, 03 Dec 2016 00:00:00 GMT", rule-id="test_clean_rule"', 'etag': '"618cfda8848cdfba75913a9779d03bdf"', 'server': 'AmazonS3'}, 'RequestId': '51187B034C395B3A'}, 'ContentType': 'binary/octet-stream', 'LastModified': datetime.datetime(2016, 8, 24, 21, 44, 55, tzinfo=tzutc()), 'ETag': '"618cfda8848cdfba75913a9779d03bdf"', 'Expiration': 'expiry-date="Sat, 03 Dec 2016 00:00:00 GMT", rule-id="test_clean_rule"', 'ContentLength': 14, 'AcceptRanges': 'bytes'}
     '''
     self._created = True
-    return { 'Body' : DummyStream(self._bytes) }
+    return DummySession.behaviour(type(self), self.get, Body=DummyStream(self._bytes))
 
   def put (self, **kwargs):
     assert 'Body' in kwargs
     self._bytes = kwargs['Body']
+    return DummySession.behaviour(type(self), self.put)
 
   def upload_file (self, filename):
     with open(filename, 'rb') as fileobj:
       self._bytes = fileobj.read()
+    return DummySession.behaviour(type(self), self.upload_file)
 
 

@@ -1,4 +1,5 @@
 from common import *
+from file_utils import *
 from transaction_log import get_txlog, Record
 logger = logging.getLogger(__name__)
 
@@ -196,124 +197,17 @@ class RestoreFilesegState:
 
 ## END RestoreFilesegState
 
-class Fileseg:
-  __slots__ = ['aws_id', 'archive_id', 'fileout', 'range_bytes', 'chunks', 'done']
-
-  @staticmethod
-  def build_from_record (fileout, record):
-    fileout = os.path.join( get_conf().app.staging_dir, record.fileout )
-    aws_id, archive_id = None, None
-    if hasattr(record, 'aws_id'):     awd_id = record.awd_is
-    if hasattr(record, 'archive_id'): archive_id = record.archive_id
-    fileseg = Fileseg(fileout, aws_id, archive_id, record.range_bytes)
-    return fileseg
-
-  @staticmethod
-  def build_from_fileout (fileout, range_bytes=None):
-    fileseg = Fileseg(fileout, None, None, range_bytes)
-    return fileseg
-
-  @staticmethod
-  def calculate_range_substraction (adjacent_filesegs, containing_fs):
-    merged_range = merge_range(adjacent_filesegs)
-    range_bytes = range_substraction(containing_fs.range_bytes, merged_range)
-    if not range_bytes:
-      return None
-
-    result = copy.copy(containing_fs)
-    result.range_bytes = range_bytes
-    return result
-
-  @staticmethod
-  def build_from_txlog_upload (record):
-    fileout = os.path.join( get_conf().app.staging_dir, record.fileout )
-    fileseg = Fileseg(fileout, None, record.archive_id, None)
-    fileseg.done = True
-    return fileseg
-
-  def __init__ (self, fileout, aws_id, archive_id, range_bytes):
-    self.fileout = fileout
-    self.aws_id = aws_id
-    self.archive_id = archive_id
-    self.done = False
-    self.chunks = []
-
-    if not range_bytes and os.path.exists(fileout):
-      size = os.stat(fileout).st_size
-      range_bytes = (0, size)
-    else:
-      self.range_bytes = range_bytes
-    assert fileout and range_bytes
-    assert os.path.dirname(fileout) == get_conf().app.staging_dir
-  
-  def calculate_remaining_range (self):
-    if not self.chunks:
-      return self.range_bytes
-    range_bytes = (self.chunks[-1].range_bytes[1], self.range_bytes[1])
-    assert range_bytes[1] - range_bytes[0] > 0
-    return range_bytes
-
-  def clean_pending_chunk (self):
-    self.done = False
-    if self.chunks and not self.chunks[1].done:
-      self.chunks.pop()
-
-  def clean_chunks (self):
-    self.chunks = []
-    self.done = False
-
-  def assert_in_valid_pending_state (self):
-    assert not self.done
-    if self.chunks and self.chunks[1].done:
-      assert self.range_bytes[1] > self.chunks[1].range_bytes[1]
-
-  def set_done (self, archive_id=None):
-    if archive_id:
-      self.archive_id = archive_id
-    assert self.fileout and self.archive_id
-    self.done = True
-
-  def add_chunk (self, chunk):
-    assert not self.chunks or self.chunks[-1][1] == chunk[0], 'Uncontinous chunk added to fileseg'
-    self.chunks.append(chunk)
-
-  def get_aws_arch_description(self):
-    return str(self.key())
-
-  def len (self):
-    return self.range_bytes[1] - self.range_bytes[0]
-
-  def key (self):
-    return (os.path.basename(self.fileout), self.range_bytes)
-
-  def __repr__ (self):
-    return "(aws_id=%r, fileout=%r, range=%r, done=%r)" % (self.aws_id, self.fileout, self.range_bytes, self.done)
-
-## END Fileseg
-
-class Chunk:
-  __slots__ = ['range_bytes', 'done']
-  def __init__ (self, range_bytes):
-    assert not range_bytes or range_bytes[0] < range_bytes[1]
-    self.range_bytes = range_bytes
-    self.done = False
-
-  def __repr__ (self):
-    return "(range=%r, done=%r)" % (self.range_bytes, self.done)
-
-## END Chunk
-
 class BandwithQuota:
   GLACIER_QUOTA_HOURS = 4
-  DELTA = datetime.timedelta(hours=BandwithQuota.GLACIER_QUOTA_HOURS, seconds=60)
+  DELTA = datetime.timedelta(hours=GLACIER_QUOTA_HOURS, seconds=60)
   TIMEOUT_FACTOR = 1.5
-
-  QUOTA_SIZE = get_conf().aws.glacier_down_bandwith_gb * 1024**3
-  MAX_SIZE = BandwithQuota.QUOTA_SIZE + get_conf().aws.chunk_size_in_mb * 1024**2
 
   __slots__ = ['expiry_time', 'total_bytes', 'submitted_filesegs']
   def __init__ (self, quota_start=None, total=0):
-    assert total < BandwithQuota.MAX_SIZE
+    QUOTA_SIZE = get_conf().aws.glacier_down_bandwith_gb * 1024**3
+    MAX_SIZE = self.QUOTA_SIZE + get_conf().aws.chunk_size_in_mb * 1024**2
+    assert total < self.MAX_SIZE
+
     if not quota_start:
       quota_start = datetime.datetime.now()
     self.expiry_time = quota_start + BandwithQuota.DELTA
@@ -322,13 +216,13 @@ class BandwithQuota:
 
   def space_left (self):
     # left can be negative
-    left = BandwithQuota.QUOTA_SIZE - self.total_bytes
-    tolerated = BandwithQuota.MAX_SIZE - self.total_bytes
+    left = self.QUOTA_SIZE - self.total_bytes
+    tolerated = self.MAX_SIZE - self.total_bytes
     return left, tolerated
 
   def add_to_submit (self, fileseg):
     new_total = fileseg.len() + self.total_bytes
-    assert new_total < BandwithQuota.MAX_SIZE
+    assert new_total < self.MAX_SIZE
     self.total_bytes = new_total
     self.submitted_fileseg_keys.add(fileseg.key())
 

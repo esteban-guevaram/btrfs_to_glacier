@@ -1,5 +1,7 @@
 import uuid, shutil
 from common import *
+from aws_session import *
+from aws_mock import *
 from file_utils import *
 from btrfs_commands import *
 from btrfs_subvol_list import *
@@ -51,6 +53,9 @@ class DummyBtrfsNode (object):
   def is_snapshot (self): return self.is_snap   
   def is_readonly (self): return self.is_read   
 
+#################################################################################
+# Transaction log
+
 def fake_backup_file_tx (snap, predecessor):
   fileout = "/root/sendfile/" + snap.name
   hashstr = uuid.uuid4().hex
@@ -92,6 +97,53 @@ def add_fake_restore_to_txlog ():
   get_txlog().record_file_to_snap('/root/sendfile/' + rest22.name, rest22, vol2.uuid)
   get_txlog().record_subvol_delete(rest1)
   get_txlog().record_subvol_delete(rest2)
+
+def calculate_record_type_count():
+  record_type_count = {}
+  for record in get_txlog().iterate_through_records():
+    if record.r_type not in record_type_count:
+      record_type_count[record.r_type] = 0
+    record_type_count[record.r_type] += 1
+  return record_type_count  
+
+#################################################################################
+# Session routines
+
+def pull_last_childs_from_session (session):
+  return { k:v[-1] for k,v in session.child_subvols.items() }
+
+def get_send_file_and_snap_from (backup_session, puuid):
+  fileout = backup_session.btrfs_sv_files[puuid][-1]
+  snap = backup_session.child_subvols[puuid][-1]
+  return fileout, snap
+
+#################################################################################
+# Tests setup
+
+def deco_setup_each_test (klass):
+  def setUp(self):
+    logger.info("*** Running : %r", self.id())
+    reset_conf()
+    clean_tx_log()
+    clean_send_file_staging()
+    change_timestamp()
+    DummySession.behaviour = always_ok_behaviour
+    DummySession.blowup_on_fail = True
+  
+  klass.setUp = setUp
+  return klass
+
+def setup_filesystem(extra_options, subvol_paths):
+  avoid_shoot_in_the_foot()
+  script_path = os.path.dirname(os.path.realpath(__file__)) + '/' + get_conf().test.btrfs_setup_script
+  subvol_names = [ os.path.basename(n) for n in subvol_paths ]
+
+  setup_cmd = [ script_path, '-d', get_conf().test.btrfs_device ]
+  setup_cmd.extend(extra_options)
+  setup_cmd.extend(subvol_names)
+
+  logger.info("Reset filesystem : %r", setup_cmd)
+  sp.check_call( setup_cmd )
 
 def clean_send_file_staging ():
   stage_dir = get_conf().app.staging_dir
@@ -136,36 +188,32 @@ def avoid_shoot_in_the_foot ():
   assert dev_size * 512 < 8 * 1024**3 and 7 * 1024**3 < dev_size * 512
   assert dev_removable == 1
 
-def calculate_record_type_count():
-  record_type_count = {}
-  for record in get_txlog().iterate_through_records():
-    if record.r_type not in record_type_count:
-      record_type_count[record.r_type] = 0
-    record_type_count[record.r_type] += 1
-  return record_type_count  
+#################################################################################
+# File routines
 
 def add_rand_file_to_all_targets(targets):
   for target in targets:
     add_rand_file_to_dir(target.path)
 
-def add_rand_file_to_dir(path):
+def give_stage_filepath(path):
+  with tempfile.NamedTemporaryFile(mode='w', dir=path, delete=True) as fileobj:
+    return fileobj.name
+
+def add_rand_file_to_dir(path, size_kb=None):
   with tempfile.NamedTemporaryFile(mode='w', dir=path, delete=False) as fileobj:
     logger.debug("Writing %s", fileobj.name)
     os.chmod(fileobj.name, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH)
-    for i in range(1024):
-      fileobj.write("%d\n" % random.randint(0,1024*1024*1024))
-
-def setup_filesystem(extra_options, subvol_paths):
-  avoid_shoot_in_the_foot()
-  script_path = os.path.dirname(os.path.realpath(__file__)) + '/' + get_conf().test.btrfs_setup_script
-  subvol_names = [ os.path.basename(n) for n in subvol_paths ]
-
-  setup_cmd = [ script_path, '-d', get_conf().test.btrfs_device ]
-  setup_cmd.extend(extra_options)
-  setup_cmd.extend(subvol_names)
-
-  logger.info("Reset filesystem : %r", setup_cmd)
-  sp.check_call( setup_cmd )
+    
+    if not size_kb: # random length
+      for i in range(1024):
+        fileobj.write("%d\n" % random.randint(0,1024*1024*1024))
+    else:
+      line = (str(random.randrange(100000000000000, 999999999999999)) + "\n") * 64
+      for i in range(size_kb):
+        fileobj.write(line)
+    
+    fileseg = Fileseg.build_from_fileout(fileobj.name)
+  return fileseg
 
 def compare_all_in_dir(left, right, depth=0):
   if not depth:
@@ -218,12 +266,4 @@ def modify_random_byte_in_file (filein, min_offset=0):
     fileobj.write( new_data )
     logger.debug("Changing %r=>%r @ %d", data, new_data, offset)
   return fileout
-
-def pull_last_childs_from_session (session):
-  return { k:v[-1] for k,v in session.child_subvols.items() }
-
-def get_send_file_and_snap_from (backup_session, puuid):
-  fileout = backup_session.btrfs_sv_files[puuid][-1]
-  snap = backup_session.child_subvols[puuid][-1]
-  return fileout, snap
 

@@ -3,19 +3,13 @@ from routines_for_test import *
 import unittest as ut
 logger = logging.getLogger(__name__)
 
+@deco_setup_each_test
 class TestBtrfsBackupRestore (ut.TestCase):
 
   @classmethod
   def setUpClass(klass):
     setup_filesystem([], get_conf().btrfs.target_subvols)
     pass
-
-  def setUp(self):
-    logger.info("*** Running : %r", self.id())
-    reset_conf()
-    clean_tx_log()
-    clean_send_file_staging()
-    change_timestamp()
 
   def build_objects (self):
     btrfs_cmd = BtrfsCommands(BtrfsSubvolList, FileUtils)
