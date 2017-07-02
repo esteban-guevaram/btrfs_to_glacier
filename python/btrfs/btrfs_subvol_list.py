@@ -1,6 +1,5 @@
-import logging
+from common import *
 import pybtrfs
-logger = logging.getLogger(__name__)
 
 # Shim between btrfs c python module and regular python code
 class BtrfsSubvolList (list):
@@ -8,7 +7,8 @@ class BtrfsSubvolList (list):
   @staticmethod
   def get_subvols_from_filesystem(btrfs_path):
     subvol_list = BtrfsSubvolList()
-    subvol_list.extend( pybtrfs.build_subvol_list(btrfs_path) )
+    with setuserid.PriviledgeGuard():
+      subvol_list.extend( pybtrfs.build_subvol_list(btrfs_path) )
     assert subvol_list
     return subvol_list
 

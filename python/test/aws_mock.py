@@ -13,65 +13,69 @@ boto3.setup_default_session(
 #####################################################################################
 # Behaviour
 
-class DummyOkResponse (dict):
-  def __init__ (self, src_type, method_name, kwargs):
-    key = src_type.__name__ + method_name.__name__
-    self.update(kwargs)
-    self['__debug__'] = key
-    self['HTTPStatusCode'] = 200
+RESP_VOID = 'RESP_VOID'
 
-class DummyKoResponse (dict):
-  VOID_METHODS = set(
-    'DummyBucket' + 'download_file'
-  )
+def build_ok_response (src_type, method_name, answer=None, **kwargs):
+  key = src_type.__name__ + method_name.__name__
+  resp = None
+  if answer:
+    resp = answer
+  elif answer != RESP_VOID:
+    resp = {}
+    resp.update(kwargs)
+    resp['__debug__'] = key
+    resp['HTTPStatusCode'] = 200
+  return resp  
 
-  def __init__ (self, src_type, method_name, kwargs):
-    key = src_type.__name__ + method_name.__name__
-    if DummySession.blowup_on_fail or key in DummyKoResponse.VOID_METHODS:
-      raise DummyException(key)
+def build_ko_response (src_type, method_name, answer=None, **kwargs):
+  key = src_type.__name__ + method_name.__name__
+  if DummySession.blowup_on_fail or answer == RESP_VOID:
+    raise DummyException(key)
 
-    self.update(kwargs)
-    self['__debug__'] = key
-    self['HTTPStatusCode'] = 400
+  resp = {}
+  resp.update(kwargs)
+  resp['__debug__'] = key
+  resp['HTTPStatusCode'] = 400
+  return resp
 
-def always_ok_behaviour (src_type, method_name, **kwargs):
-  return DummyOkResponse(src_type, method_name, kwargs)
+def always_ok_behaviour (src_type, method_name, answer=None, **kwargs):
+  return build_ok_response(src_type, method_name, answer, **kwargs)
 
-def always_ko_behaviour (src_type, method_name, **kwargs):
-  return DummyKoResponse(src_type, method_name, kwargs)
+def always_ko_behaviour (src_type, method_name, answer=None, **kwargs):
+  return build_ko_response(src_type, method_name, answer, **kwargs)
 
 def fail_at_random_with_limit (perc_fail, limit):
   streak = {}
-  def inner_helper (src_type, method_name, **kwargs):
+  def inner_helper (src_type, method_name, answer=None, **kwargs):
     chance = random.randrange(100)
     key = src_type.__name__ + method_name.__name__
     streak.setdefault(key, 0)
     if chance >= perc_fail or streak[key] >= limit:
       streak[key] = 0
-      return DummyOkResponse(src_type, method_name, kwargs)
+      return build_ok_response(src_type, method_name, answer, **kwargs)
     else:
       streak[key] += 1
-      return DummyKoResponse(src_type, method_name, kwargs)
+      return build_ko_response(src_type, method_name, answer, **kwargs)
   return inner_helper
 
 def fail_at_random (perc_fail):
-  def inner_helper (src_type, method_name, **kwargs):
+  def inner_helper (src_type, method_name, answer=None, **kwargs):
     chance = random.randrange(100)
     if chance >= perc_fail:
-      return DummyOkResponse(src_type, method_name, kwargs)
+      return build_ok_response(src_type, method_name, answer, **kwargs)
     else:
-      return DummyKoResponse(src_type, method_name, kwargs)
+      return build_ko_response(src_type, method_name, answer, **kwargs)
   return inner_helper
 
 def fail_at_first_then_ok (fail_count):
   count = {}
-  def inner_helper (src_type, method_name, **kwargs):
+  def inner_helper (src_type, method_name, answer=None, **kwargs):
     key = src_type.__name__ + method_name.__name__
     count.setdefault(key, 0)
     if count[key] < fail_count:
       count[key] += 1
-      return DummyKoResponse(src_type, method_name, kwargs)
-    return DummyOkResponse(src_type, method_name, kwargs)
+      return build_ko_response(src_type, method_name, answer, **kwargs)
+    return build_ok_response(src_type, method_name, answer, **kwargs)
   return inner_helper
 
 #####################################################################################
@@ -135,7 +139,7 @@ class DummyResource:
 
   def __getattr__(self, name):
     if not self._created:
-      raise DummyException('not self._created')
+      raise Exception('not self._created : %r / %s' % (type(self), name))
     return self._attributes[name]  
 
   def load (self): pass
@@ -175,6 +179,9 @@ class DummyGlacier (DummyResource):
     self.vaults = DummyCollection()
 
   def Vault (self, account_id, name):
+    vault = self.vaults.get(name)
+    if vault:
+      return vault
     return DummyVault(name, self)
    
 class DummyVault (DummyResource):
@@ -195,14 +202,14 @@ class DummyVault (DummyResource):
     #self.completed_jobs = DummyCollection()
     self.jobs_in_progress = DummyCollection()
     self.multipart_uplaods = DummyCollection()
-    self.archives = {}
+    self._archives = DummyCollection()
 
   def create (self):
     '''
     {'location': '/843392324993/vaults/dummy_vault', 'ResponseMetadata': {'HTTPStatusCode': 201, 'HTTPHeaders': {'content-length': '2', 'x-amzn-requestid': 'kClaL7QvT4LR_slpdu6rXi0jrBH6XjjUV7tgBA2b_peySko', 'location': '/843392324993/vaults/dummy_vault', 'date': 'Sat, 27 Aug 2016 17:51:31 GMT', 'content-type': 'application/json'}, 'RequestId': 'kClaL7QvT4LR_slpdu6rXi0jrBH6XjjUV7tgBA2b_peySko'}}
     '''
     self._created = True
-    self.parent[self.name] = self
+    self.parent.vaults[self.name] = self
 
   def _fail_job (self, job):
     del self.jobs_in_progress[job.name]
@@ -228,8 +235,8 @@ class DummyVault (DummyResource):
     assert 'checksum' in kwargs
     archive = DummyArchive(kwargs['archiveDescription'], self)
     archive._addPart(kwargs['body'])
-    self.archives[archive.name] = archive
-    return archive
+    self._archives[archive.name] = archive
+    return DummySession.behaviour(type(self), self.upload_archive, archive)
 
   def initiate_multipart_upload (self):
     assert 'archiveDescription' in kwargs
@@ -260,6 +267,7 @@ class DummyMultiPart (DummyResource):
     assert 'archiveSize' in kwargs
     assert 'checksum' in kwargs
     assert int(kwargs['archiveSize']) == self._archive._size
+    self.parent._archives[self._archive.name] = self._archive
 
   def parts(self):
     '''
@@ -342,7 +350,7 @@ class DummyJob (DummyResource):
 class DummyArchive (DummyResource):
   def __init__ (self, name, parent):
     super().__init__( str(uuid.uuid4()) , parent)
-    self.description = name
+    self._description = name
     self.id = self.name
     self._content = tempfile.TemporaryFile()
     self._size = 0
@@ -403,7 +411,8 @@ class DummyBucket (DummyResource):
 
   def create (self, **kwargs):
     '''
-    botocore.exceptions.ClientError: An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation: Your previous request to create the named bucket succeeded and you already own it.
+    botocore.exceptions.ClientError: An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation: 
+                                     Your previous request to create the named bucket succeeded and you already own it.
     '''
     logger.info('Creating bucket %s', self.name)
     assert 'LocationConstraint' in kwargs['CreateBucketConfiguration']
@@ -417,7 +426,7 @@ class DummyBucket (DummyResource):
     with open(filename, 'wb') as fileobj:
       fileobj.write(self.objects[key]._bytes)
 
-    return DummySession.behaviour(type(self), self.download_file)
+    return DummySession.behaviour(type(self), self.download_file, RESP_VOID)
 
   def put_object (self, **kwargs):
     assert 'Body' in kwargs

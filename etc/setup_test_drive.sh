@@ -13,13 +13,15 @@ LABEL='PybtrfsTestDrive'
 SUBVOL_LIST=( )
 CREATE_SNAP_FLAG=0
 CREATE_PART_FLAG=0
+OVERRIDE_SAFETY=1
 
 parse_opts() {
-  while getopts 'd:sp' opt; do
+  while getopts 'd:osp' opt; do
     case $opt in
       d) DEVICE="$OPTARG" ;;
       s) CREATE_SNAP_FLAG=1 ;;
       p) CREATE_PART_FLAG=1 ;;
+			o) OVERRIDE_SAFETY=1 ;;
       *)
         echo "[USAGE] $0 -d DEVICE [-s][-p] [SUBVOL_LIST]"
         exit 5
@@ -27,6 +29,7 @@ parse_opts() {
     esac
   done
   shift $((OPTIND-1))
+	BASE_DEVICE=`basename "${DEVICE}"`
   PARTITION="${DEVICE}1"
   SUBVOL_LIST=( "$@" )
 }
@@ -56,10 +59,24 @@ run_cmd() {
 # We will only erase a partition if it does not exist or if it has a test label
 avoid_shot_in_the_foot() {
 	try_or_die ! -z "$DEVICE" -a -e "$DEVICE"
-	part_info="`sudo blkid $PARTITION`"
+	local part_info="`sudo blkid $PARTITION`"
+	local is_removable=`cat "/sys/block/$BASE_DEVICE/removable" | tr -d '\n'`
+	local ack_warn=""
+
+	if [[ "$is_removable" != 1 ]]; then
+		echo "[ERROR] $DEVICE is not removable"
+		exit 7
+	fi
+
 	if [[ ! -z "$part_info" ]]; then
 		if [[ "$part_info" == *"LABEL=\"$LABEL\""* ]]; then
 			echo "[INFO] We will erase this : $part_info"
+
+		elif [[ "$OVERRIDE_SAFETY" == 1 ]]; then
+			echo "[WARN] OVERRIDE_SAFETY is set, partition found $part_info"
+			read -p "To continue enter 'oki' : " ack_warn
+			[[ "$ack_warn" == "oki" ]] || exit 6
+
 		else
 			echo "[ERROR] Abort will NOT touch : $part_info"
 			exit 4

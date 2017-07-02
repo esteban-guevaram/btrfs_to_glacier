@@ -1,5 +1,5 @@
 from config import get_conf, conf_for_test, reset_conf
-import logging, config_log, random
+import logging, config_log, random, setuserid
 import sys, os, re, stat, datetime, copy, tempfile, binascii, base64, json, time, itertools, signal, hashlib
 import subprocess as sp
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def retry_operation (closure, exception):
       time.sleep(0.5)
   raise Exception('Permanent failure')
 
-def call (cmd, interactive=None):
+def call (cmd, interactive=None, as_root=False):
   dryrun = get_conf().app.dryrun
   if type(cmd) == str: 
     cmd = cmd.split()
@@ -70,7 +70,7 @@ def call (cmd, interactive=None):
     interactive = get_conf().app.interactive
   if interactive:
     annoying_confirm_prompt(cmd)
-  return sync_simple_call(cmd)
+  return sync_simple_call(cmd, as_root)
 
 def annoying_confirm_prompt(cmd):
   for attempt in range(3):
@@ -80,9 +80,9 @@ def annoying_confirm_prompt(cmd):
     if int(answer) != ok_token:
       raise Exception('Aborted by user')
 
-def sync_simple_call (cmd):
-  proc = sp.Popen(cmd, stdin=None, stdout=sp.PIPE, stderr=sp.PIPE, universal_newlines=True)
-  (out, err) = proc.communicate()
+def sync_simple_call (cmd, as_root=False):
+  with ProcessGuard(cmd, stdin=None, stdout=sp.PIPE, stderr=sp.PIPE, as_root=as_root, universal_newlines=True) as proc:
+    (out, err) = proc.communicate()
 
   logger.debug('Output :\n%s', out)  
   if len(err):
@@ -193,4 +193,56 @@ def range_substraction (source, to_remove):
       return None
     return (to_remove[1], source[1])
   assert False  
+
+
+class ProcessGuard:
+  def __init__(self, cmd, stdin, stdout, stderr, as_root=None, interactive=None, universal_newlines=False):
+    self.cmd = cmd
+    self.inf = stdin
+    self.err = stderr
+    self.out = stdout
+    self.proc = None
+    self.interactive = interactive
+    self.as_root = as_root
+    self.uni_lines = universal_newlines
+    if type(cmd) == str: 
+      self.cmd = cmd.split()
+
+  def __enter__(self):
+    dryrun = get_conf().app.dryrun
+    logger.debug("Running (dryrun=%r):\n %r", dryrun, self.cmd)
+    if dryrun: return None
+
+    if self.interactive == None:
+      self.interactive = get_conf().app.interactive
+    if self.interactive:
+      annoying_confirm_prompt(self.cmd)
+
+    if self.as_root:
+      with setuserid.PriviledgeGuard():
+        self.proc = sp.Popen(self.cmd, stdin=self.inf, stdout=self.out, stderr=self.err, universal_newlines=self.uni_lines)
+    else:
+      setuserid.assert_unpriviledged_user()
+      self.proc = sp.Popen(self.cmd, stdin=self.inf, stdout=self.out, stderr=self.err, universal_newlines=self.uni_lines)
+
+    assert self.proc.pid
+    logger.debug('Spawned process %d = %r', self.proc.pid, self.cmd)
+    return self.proc
+
+  def __exit__(self, exc_type, exc_val, exc_tb): 
+    killed = False
+    if self.proc != None:
+      if self.proc.poll() == None:
+        self.proc.kill()
+        self.proc.wait()
+        killed = True
+
+      if self.proc.stdin: self.proc.stdin.close()
+      if self.proc.stdout: self.proc.stdout.close()
+      if self.proc.stderr: self.proc.stderr.close()
+
+    if killed:
+      raise Exception("Killed process %r", self.cmd)
+
+### ProcessGuard
 

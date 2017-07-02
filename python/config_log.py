@@ -1,4 +1,5 @@
 import logging.config, json, os
+import setuserid
 
 class ColorFilter (logging.Filter):
   txtrst = '\x1b[0m' # Black
@@ -49,6 +50,7 @@ def find_conf_file ():
   return conf_file
 
 def __init_logging__ ():
+  setuserid.assert_unpriviledged_user()
   try:
     with open(find_conf_file(), 'r') as conf_file:
       conf_dict = json.load(conf_file)

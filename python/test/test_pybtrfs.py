@@ -32,7 +32,7 @@ class TestPyBtrfs (ut.TestCase):
 
   def test_raw_c_btrfs_code(self):
     root_fs = get_conf().test.root_fs
-    call(['bin/btrfs_test', root_fs])
+    call(['./btrfs_test', root_fs], as_root=True)
 
   def test_create_empty_node(self):
     node = pybtrfs.BtrfsNode()
@@ -46,13 +46,15 @@ class TestPyBtrfs (ut.TestCase):
     self.check_empty_subvol(clone)
 
   def test_create_subvol_tree(self):
-    subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
+    with setuserid.PriviledgeGuard():
+      subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
     logger.debug( "subvolume list = %r", subvols )
     self.assertTrue(len(subvols) > 0)
     self.assertTrue(all( n.name for n in subvols ))
 
   def test_check_for_snap_in_tree(self):
-    subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
+    with setuserid.PriviledgeGuard():
+      subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
     is_snap = dict( (n.path, n.is_snapshot()) for n in subvols )
     is_read = dict( (n.path, n.is_readonly()) for n in subvols )
 
@@ -70,7 +72,8 @@ class TestPyBtrfs (ut.TestCase):
     self.assertTrue(all( n.uuid for n in subvols ))
 
   def test_subvol_pickle_with_data(self):
-    subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
+    with setuserid.PriviledgeGuard():
+      subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
     self.assertTrue(len(subvols) > 0)
     for subvol in subvols:
       ser = pickle.dumps(subvol)

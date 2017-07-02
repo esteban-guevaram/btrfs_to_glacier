@@ -33,7 +33,7 @@ class BtrfsCommands (object):
     assert not os.path.exists(full_dest), 'snapshot dir exists : %s' % full_dest
 
     with tx_handler():
-      call('btrfs subvolume snapshot -r %s %s' % (source.path, full_dest))
+      call('btrfs subvolume snapshot -r %s %s' % (source.path, full_dest), as_root=True)
       subvols = self.native_btrfs.get_subvols_from_filesystem(full_dest)
       new_vol = subvols.get_by_path(full_dest)
       assert new_vol
@@ -48,7 +48,7 @@ class BtrfsCommands (object):
     assert subvol.uuid in get_txlog().recorded_snaps
 
     with tx_handler():
-      call('btrfs subvolume delete -C ' + subvol.path)
+      call('btrfs subvolume delete -C ' + subvol.path, as_root=True)
       assert not os.path.exists(subvol.path)
       session.record_subvol_delete(subvol)
 
@@ -57,7 +57,7 @@ class BtrfsCommands (object):
     assert subvol.uuid in get_txlog().recorded_restores
 
     with tx_handler():
-      call('btrfs subvolume delete -C ' + subvol.path)
+      call('btrfs subvolume delete -C ' + subvol.path, as_root=True)
       assert not os.path.exists(subvol.path)
       session.record_subvol_delete(subvol, ancestor_uuid)
 

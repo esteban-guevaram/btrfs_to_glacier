@@ -121,6 +121,10 @@ def get_send_file_and_snap_from (backup_session, puuid):
 # Tests setup
 
 def deco_setup_each_test (klass):
+  user_set_up = None
+  if hasattr(klass, 'setUp'):
+    user_set_up = klass.setUp
+
   def setUp(self):
     logger.info("*** Running : %r", self.id())
     reset_conf()
@@ -129,6 +133,7 @@ def deco_setup_each_test (klass):
     change_timestamp()
     DummySession.behaviour = always_ok_behaviour
     DummySession.blowup_on_fail = True
+    user_set_up and user_set_up(self)
   
   klass.setUp = setUp
   return klass
@@ -143,14 +148,17 @@ def setup_filesystem(extra_options, subvol_paths):
   setup_cmd.extend(subvol_names)
 
   logger.info("Reset filesystem : %r", setup_cmd)
-  sp.check_call( setup_cmd )
+  with ProcessGuard(setup_cmd, stdin=None, stdout=sp.PIPE, stderr=sp.PIPE) as proc:
+    (out, err) = proc.communicate()
+  assert proc.returncode == 0
 
 def clean_send_file_staging ():
   stage_dir = get_conf().app.staging_dir
   # Uncomment to save the staging dirs for each test
   #safe_copy = os.path.dirname(stage_dir) + '/stage_' + uuid.uuid4().hex
   #shutil.move(stage_dir, safe_copy)
-  shutil.rmtree(stage_dir)
+  if os.path.isdir(stage_dir):
+    shutil.rmtree(stage_dir)
   os.mkdir(stage_dir)
 
 def clean_tx_log():
@@ -211,8 +219,11 @@ def add_rand_file_to_dir(path, size_kb=None):
       line = (str(random.randrange(100000000000000, 999999999999999)) + "\n") * 64
       for i in range(size_kb):
         fileobj.write(line)
-    
-    fileseg = Fileseg.build_from_fileout(fileobj.name)
+  return fileobj.name
+
+def add_rand_file_to_staging(size_kb=None):
+  filepath = add_rand_file_to_dir( get_conf().app.staging_dir, size_kb )
+  fileseg = Fileseg.build_from_fileout(filepath)
   return fileseg
 
 def compare_all_in_dir(left, right, depth=0):

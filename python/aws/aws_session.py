@@ -22,7 +22,7 @@ class AwsGlobalSession:
 
   def close_fileseg (self, key, archive_id=None):
     self.filesegs[key].set_done(archive_id)
-    get_txlog().record_fileseg_end(fileseg)
+    get_txlog().record_fileseg_end(archive_id)
 
   def start_fileseg_single_chunk (self, fileseg):
     fileseg.chunks.append( Chunk(fileseg.range_bytes) )
@@ -110,7 +110,7 @@ class AwsGlobalSession:
     interesting_record_types = (Record.AWS_DOWN_INIT, Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_START, Record.CHUNK_END)
 
     for record in get_txlog().reverse_iterate_through_records():
-      assert record.r_type != Record.TXLOG_UPLD, "A txlog record should not be found in a pending session"
+      assert record.r_type != Record.TXLOG_UPLD, "A txlog upload record should not be found in a pending session"
 
       if record.r_type == Record.AWS_END and record.session_type == session_type:
         assert not accumulator, 'Inconsistent session'

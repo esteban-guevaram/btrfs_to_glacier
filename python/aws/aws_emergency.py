@@ -110,7 +110,7 @@ class AwsGlacierEmergencyManager:
     assert int(output['status']) == 200
     logger.info("Writing into %r : %r", fileseg.fileout, output['ResponseMetadata']['HTTPHeaders'])
     body_bytes = job_output['body'].read()
-    self.truncate_and_write_fileseg(fileseg, body_bytes)
+    truncate_and_write_fileseg(fileseg, body_bytes)
   
 ## END AwsGlacierEmergencyManager
 

@@ -16,13 +16,13 @@ class TestAwsS3Manager (ut.TestCase):
   def test_simple_failures(self):
     session = DummySession.create_dummy_session()
     get_conf().aws.chunk_size_in_mb = 1
-    fileseg = add_rand_file_to_dir(get_conf().app.staging_dir, 1055)
+    fileseg = add_rand_file_to_staging(1055)
     s3_mgr = AwsS3Manager(session)
 
     with self.assertRaises(Exception):
       s3_mgr.upload_txlog(fileseg)
 
-    fileseg = add_rand_file_to_dir(get_conf().app.staging_dir, 256)
+    fileseg = add_rand_file_to_staging(256)
     DummySession.behaviour = always_ko_behaviour
     with self.assertRaises(Exception):
       s3_mgr.upload_txlog(fileseg)
@@ -47,7 +47,7 @@ class TestAwsS3Manager (ut.TestCase):
   #@ut.skip("For quick validation")
   def test_upload_txlog_big(self):
     get_conf().aws.chunk_size_in_mb = 1
-    fileseg = add_rand_file_to_dir(get_conf().app.staging_dir, 1024*3)
+    fileseg = add_rand_file_to_staging(1024*3)
     session = boto3.session.Session(profile_name='test_s3')
     s3_mgr = AwsS3Manager(session)
 
@@ -58,7 +58,7 @@ class TestAwsS3Manager (ut.TestCase):
   #@ut.skip("For quick validation")
   def test_upload_txlog(self):
     get_conf().aws.chunk_size_in_mb = 1
-    fileseg = add_rand_file_to_dir(get_conf().app.staging_dir, 256)
+    fileseg = add_rand_file_to_staging(256)
     session = boto3.session.Session(profile_name='test_s3')
     s3_mgr = AwsS3Manager(session)
 
