@@ -12,6 +12,17 @@ class TestTreeHasher (ut.TestCase):
     logger.info("*** Running : %r", self.id())
 
   #@ut.skip("For quick validation")
+  def test_calculate_from_file (self):
+    one_meg_data = b'mrmonkey' * (1024*128)
+    with tempfile.TemporaryFile() as fileobj:
+      for i in range(4):
+        fileobj.write( one_meg_data )
+
+      hasher = TreeHasher()
+      result = hasher.digest_fileobj_as_hexstr(fileobj)
+    self.assertEqual(b'c2192941a2d88e71d6c43ce12fec25005ed8d3ab187023f340a12d87d3a47171', result)
+
+  #@ut.skip("For quick validation")
   def test_odd_number_of_chunks (self):
     one_meg_data = b'mrmonkey' * (1024*128)
 

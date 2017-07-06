@@ -23,7 +23,7 @@ class TestAwsS3Manager (ut.TestCase):
       s3_mgr.upload_txlog(fileseg)
 
     fileseg = add_rand_file_to_staging(256)
-    DummySession.behaviour = always_ko_behaviour
+    DummySession.behaviour = always_ko_behaviour()
     with self.assertRaises(Exception):
       s3_mgr.upload_txlog(fileseg)
 
@@ -117,7 +117,7 @@ class TestAwsS3Manager (ut.TestCase):
     bucket = s3_resource.Bucket(get_conf().aws.s3_bucket)
     bucket.put_object(Key='salut', Body=b'mrmonkey')
 
-    DummySession.behaviour = always_ko_behaviour
+    DummySession.behaviour = always_ko_behaviour()
     with self.assertRaises(Exception):
       s3_mgr.download_most_recent_txlog(txlog_target)
 

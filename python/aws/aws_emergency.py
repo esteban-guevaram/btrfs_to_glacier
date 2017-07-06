@@ -93,8 +93,12 @@ class AwsGlacierEmergencyManager:
 
   def single_shot_download (self, fileseg):
     archive = self.vault.Archive(fileseg.archive_id)
+    jobParameters = {
+      "Type" : "inventory-retrieval",
+      "Description" : "AwsGlacierEmergencyManager",
+    }
     job = retry_operation (
-      lambda : archive.initiate_inventory_retrieval(**kwargs),
+      lambda : archive.initiate_inventory_retrieval(**jobParameters),
       botoex.ClientError
     )
     logger.info("Submitted download job %r", job.id)

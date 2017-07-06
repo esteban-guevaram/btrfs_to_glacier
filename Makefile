@@ -28,16 +28,15 @@ test: bin/python_ts native config
 	cd bin
 	rm -f *.log
 	$(COVRUN) erase --rcfile=coveragerc
-	# HACK we touch this file so that it is not owned by root
 
 	# these need to be run as root since they use the btrfs syscalls
 	#sudo $(COVRUN) run $(COVFLAGS) test_common_routines.py      || exit 1
 	#sudo $(COVRUN) run $(COVFLAGS) test_pybtrfs.py              || exit 1
 	#sudo $(COVRUN) run $(COVFLAGS) test_btrfs_backup_restore.py || exit 1
 
-	$(COVRUN) run $(COVFLAGS) test_tree_hasher.py               || exit 1
-	$(COVRUN) run $(COVFLAGS) test_aws_s3_mgr.py                || exit 1
-	#$(PYTHON) bin/test_aws_glacier_mgr.pyc
+	#$(COVRUN) run $(COVFLAGS) test_tree_hasher.py               || exit 1
+	#$(COVRUN) run $(COVFLAGS) test_aws_s3_mgr.py                || exit 1
+	$(COVRUN) run $(COVFLAGS) test_aws_glacier_mgr.py           || exit 1
 	echo -e "\n\n######################### ALL TESTS OK #########################################\n"
 
 coverage: 

@@ -263,8 +263,17 @@ class TreeHasher:
     result = self.update_chunk(byte_array)
     return convert_bytes_to_hexstr(result)
 
+  def digest_fileobj_as_hexstr (self, fileobj):
+    fileobj.seek(0, os.SEEK_SET)
+    while True:
+      data = fileobj.read(TreeHasher.PART_LEN)
+      if len(data): self.update_chunk(data)
+      if len(data) < TreeHasher.PART_LEN: break
+    return self.digest_all_parts_as_hexstr()
+
   @staticmethod
   def calculate_treehash_from_leaves (hash_leaves):
+    assert len(hash_leaves)
     if len(hash_leaves) == 1:
       return hash_leaves[0]
     

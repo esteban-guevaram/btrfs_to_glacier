@@ -104,6 +104,11 @@ def build_range_from_mime (mimestr):
   assert match, "Invalid mime string '%s'" % mimestr
   return (int(match.group(1)), int(match.group(2)) + 1)
 
+def len_range_from_mime (mimestr):
+  match = _mime_rex.match(mimestr)
+  assert match, "Invalid mime string '%s'" % mimestr
+  return int(match.group(2)) - int(match.group(1)) + 1
+
 def range_bytes_it (full_range, step):
   if full_range[1] <= full_range[0]:
     return []
@@ -178,6 +183,9 @@ def merge_ranges (filesegs):
   # we expect the ranges to form a continuous segment
   sorted_ranges = sorted( fs.range_bytes for fs in filesegs )
   return (sorted_ranges[0][0], sorted_ranges[-1][1])
+
+def is_between(value, low, up):
+  return value >= low and value < up
 
 def range_contains(contained, container):
   return container[0] <= contained[0] and container[1] >= contained[1]

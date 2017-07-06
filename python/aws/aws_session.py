@@ -40,7 +40,7 @@ class AwsGlobalSession:
     chunk = self.filesegs[key].chunks[-1]
     assert not chunk.done
     chunk.done = True
-    get_txlog().record_chunk_end(fileseg)
+    get_txlog().record_chunk_end()
 
   def add_download_job (self, fileseg):
     assert fileseg.aws_id and fileseg.aws_id not in self._submitted_aws_down_jobs
@@ -59,7 +59,7 @@ class AwsGlobalSession:
   def clean_pending_fileseg (self):
     pending = [ fs for fs in self.filesegs.values() if not fs.done ]
     for fs in pending:
-      del self.filesegs[fs.key]
+      del self.filesegs[fs.key()]
 
   def get_pending_glacier_fileseg (self):
     pending = [ fs for fs in self.filesegs.values() if not fs.done ]

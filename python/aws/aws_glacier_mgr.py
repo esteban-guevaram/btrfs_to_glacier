@@ -37,13 +37,11 @@ class AwsGlacierManager:
       assert False, 'Out of session uploads do not support multipart'
     return archive  
 
-  def finish_upload (self, session):
+  def finish_pending_upload (self, session):
     fileseg = session.get_pending_glacier_fileseg()
     logger.debug('Finish uploading : %r', fileseg)
 
     if fileseg.range_bytes[1] <= self.max_chunk_bytes:
-      session.clean_pending_fileseg()
-      fileseg.clean_chunks()
       archive = self.single_shot_upload(session, fileseg)
     else:
       multipart_job = self.attempt_pending_multipart_job_retrieval(fileseg)
@@ -51,7 +49,6 @@ class AwsGlacierManager:
         fileseg.clean_pending_chunk()
         archive = self.finish_multi_part_upload(multipart_job, session, fileseg)
       else:
-        session.clean_pending_fileseg()
         fileseg.clean_chunks()
         archive = self.multi_part_upload(session, fileseg)
     return archive
@@ -87,6 +84,7 @@ class AwsGlacierManager:
     archive = self.vault.Archive(fileseg.archive_id)
     jobParameters = {
       "Type" : "archive-retrieval", # WTF job.action is "ArchiveRetrieval"
+      "Tier" : "Bulk", # cheapest retrieval option
       "Description" : fileseg.fileout,
       "ArchiveId" : archive.id,
       "RetrievalByteRange" : build_arch_retrieve_range(fileseg.range_bytes),
@@ -95,9 +93,10 @@ class AwsGlacierManager:
     logger.info("Submitting job : %r", jobParameters)
     with tx_handler():
       job = retry_operation (
-        lambda : archive.initiate_inventory_retrieval(**kwargs),
+        lambda : archive.initiate_inventory_retrieval(**jobParameters),
         botoex.ClientError
       )
+      assert job.id
       fileseg.aws_id = job.id
       session.add_download_job(fileseg)
     return job
@@ -126,13 +125,15 @@ class AwsGlacierManager:
       'checksum' : TreeHasher().digest_single_shot_as_hexstr(byte_array),
     }
 
-    if session:
+    # do not add a start fileseg to the txlog if we are resumning the download
+    if session and fileseg.key() not in session.filesegs:
       session.start_fileseg_single_chunk(fileseg)
 
     archive = retry_operation (
       lambda : self.vault.upload_archive(**kwargs),
       botoex.ClientError
     )
+    assert archive.id
 
     if session:
       session.close_fileseg_single_chunk(fileseg.key(), archive.id)
@@ -149,8 +150,11 @@ class AwsGlacierManager:
         lambda : self.vault.initiate_multipart_upload(**kwargs),
         botoex.ClientError
       )
+      assert multipart_job.id
       fileseg.aws_id = multipart_job.id
-      session.start_fileseg(fileseg)
+
+      if fileseg.key() not in session.filesegs:
+        session.start_fileseg(fileseg)
 
     hasher = TreeHasher()
     for chunk_range in range_bytes_it(fileseg.range_bytes, self.max_chunk_bytes):
@@ -158,12 +162,13 @@ class AwsGlacierManager:
     
     kwargs = {
       'archiveSize' : str(fileseg.range_bytes[1]),
-      'checksum' : hasher.digest_all_parts_as_hexstr(byte_array),
+      'checksum' : hasher.digest_all_parts_as_hexstr(),
     }
     response = retry_operation (
       lambda : multipart_job.complete(**kwargs),
       botoex.ClientError
     )
+    assert is_between(int(response['ResponseMetadata']['HTTPStatusCode']), 200, 300)
     archive = self.vault.Archive( response['archiveId'] )
 
     session.close_fileseg(fileseg.key(), archive.id)
@@ -186,6 +191,7 @@ class AwsGlacierManager:
       lambda : multipart_job.complete(**kwargs),
       botoex.ClientError
     )
+    assert is_between(int(response['ResponseMetadata']['HTTPStatusCode']), 200, 300)
     archive = self.vault.Archive( response['archiveId'] )
 
     session.close_fileseg(fileseg.key(), archive.id)
@@ -207,6 +213,7 @@ class AwsGlacierManager:
       lambda : multipart_job.upload_part(**kwargs),
       botoex.ClientError
     )
+    assert is_between(int(chunk['ResponseMetadata']['HTTPStatusCode']), 200, 300)
     session.close_chunk(fileseg.key())
     return chunk
 
@@ -219,6 +226,7 @@ class AwsGlacierManager:
       self._build_download_and_check_closure(chunk_range, aws_job),
       (botoex.ClientError, IOError)
     )
+    assert body_bytes
 
     write_fileseg(fileseg, chunk_range, body_bytes)
     session.close_chunk(fskey)
@@ -257,17 +265,17 @@ class AwsGlacierManager:
         lambda : multipart_job.parts(marker=marker),
         botoex.ClientError
       )
+      assert len(response)
 
       if 'Parts' in response and response['Parts']:
-        part_range = build_range_from_mime(response['RangeInBytes'])
         # the only part which is smaller than the chunk size is the last one, but this method should not be called on a fully uploaded fileseg
-        assert part_range[1] - part_range[0] == self.max_chunk_bytes
+        assert int(response['PartSizeInBytes']) == self.max_chunk_bytes
 
         for part in response['Parts']:
           hasher.add_chunk_hash_as_hexstr(part['SHA256TreeHash'])
         uploaded_count += len(response['Parts'])
       
-      if 'Marker' not in response or not response['Marker']:
+      if not response.get('Marker'):
         break
     return uploaded_count
   
