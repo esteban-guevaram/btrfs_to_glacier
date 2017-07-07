@@ -137,7 +137,7 @@ def truncate_and_write_fileseg (fileseg, body_bytes):
     assert fileobj.tell() == fileseg.range_bytes[1]
 
 def write_fileseg (fileseg, chunk_range, data):
-  assert chunk_range[1] - chunk_range[0] == len(data)
+  assert chunk_range[1] - chunk_range[0] == len(data), "%r / %d" % (chunk_range, len(data))
   if not os.path.isfile(fileseg.fileout):
     with open(fileseg.fileout, 'wb'): pass
 

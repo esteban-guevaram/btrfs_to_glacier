@@ -45,7 +45,7 @@ class AwsGlobalSession:
   def add_download_job (self, fileseg):
     assert fileseg.aws_id and fileseg.aws_id not in self._submitted_aws_down_jobs
     self._submitted_aws_down_jobs[fileseg.aws_id] = copy.copy(fileseg)
-    get_txlog().record_aws_down_job_submit(fileseg.fileout, filesegs.aws_id, fileseg.range_bytes)
+    get_txlog().record_aws_down_job_submit(fileseg.fileout, fileseg.aws_id, fileseg.range_bytes)
 
   def close (self):
     assert all( fs.done for fs in self.filesegs.values() )

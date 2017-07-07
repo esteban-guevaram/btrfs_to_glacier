@@ -1,4 +1,4 @@
-import botocore.exceptions as botoex
+import botocore.exceptions as botoex, contextlib
 from common import *
 from file_utils import *
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class AwsGlacierManager:
         archive = self.multi_part_upload(session, fileseg)
     return archive
 
-  def finish_job_ouput_to_fs (self, session, aws_job):
+  def finish_job_output_to_fs (self, session, aws_job):
     pending_fs = session.get_pending_glacier_fileseg()
     pending_fs.clean_pending_chunk()
 
@@ -68,6 +68,7 @@ class AwsGlacierManager:
 
   def get_job_ouput_to_fs (self, session, aws_job, fileseg):
     range_to_download = self.determine_range_to_download(aws_job, fileseg)
+    assert range_to_download[1] - range_to_download[0] > 0
     logger.info("Download %r to fileseg %r", range_to_download, fileseg)
     fileseg.aws_id = aws_job.id
     session.start_fileseg(fileseg)
@@ -79,7 +80,6 @@ class AwsGlacierManager:
     return session.filesegs[fileseg.key()]
 
   def initiate_archive_retrieval (self, session, fileseg):
-    # note that this mutates filesegs_left adding the aws job id
     assert fileseg.archive_id
     archive = self.vault.Archive(fileseg.archive_id)
     jobParameters = {
@@ -93,7 +93,7 @@ class AwsGlacierManager:
     logger.info("Submitting job : %r", jobParameters)
     with tx_handler():
       job = retry_operation (
-        lambda : archive.initiate_inventory_retrieval(**jobParameters),
+        lambda : archive.initiate_archive_retrieval(**jobParameters),
         botoex.ClientError
       )
       assert job.id
@@ -178,9 +178,9 @@ class AwsGlacierManager:
     hasher = TreeHasher()
     uploaded_count = self.load_hasher_with_uploaded_chunks_checksums(multipart_job, hasher)
     assert uploaded_count == len(fileseg.chunks)
-    remaining_range = fileseg.calculate_remaining_range()
+    remain_range = fileseg.calculate_remaining_range()
 
-    for chunk_range in range_bytes_it(remaining_range, self.max_chunk_bytes):
+    for chunk_range in range_bytes_it(remain_range, self.max_chunk_bytes):
       self.upload_chunk(hasher, multipart_job, session, fileseg, chunk_range)
     
     kwargs = {
@@ -217,7 +217,8 @@ class AwsGlacierManager:
     session.close_chunk(fileseg.key())
     return chunk
 
-  def get_output_chunk_and_write_to_fileout (self, chunk_range, aws_job, fskey):
+  def get_output_chunk_and_write_to_fileout (self, session, chunk_range, aws_job, fskey):
+    assert aws_job.completed and aws_job.status_code == 'Succeeded'
     logger.debug("Downloading chunk %r", chunk_range)
     session.start_chunk(fskey, chunk_range)
     fileseg = session.filesegs[fskey]
@@ -233,11 +234,12 @@ class AwsGlacierManager:
 
   def _build_download_and_check_closure (self, chunk_range, aws_job):
     def __closure__():
-      str_range = build_arch_retrieve_range(chunk_range),
+      str_range = build_arch_retrieve_range(chunk_range)
       response = aws_job.get_output(range=str_range)
 
-      body_bytes = response['body'].read()
-      checksum = TreeHasher.digest_single_shot_as_hexstr(body_bytes)
+      with contextlib.closing(response['body']) as stream:
+        body_bytes = stream.read()
+      checksum = TreeHasher().digest_single_shot_as_hexstr(body_bytes)
 
       if checksum != response['checksum']: 
         raise IOError('Checksum mismatch : %s / %s' % (checksum, response['checksum']))
@@ -275,15 +277,16 @@ class AwsGlacierManager:
           hasher.add_chunk_hash_as_hexstr(part['SHA256TreeHash'])
         uploaded_count += len(response['Parts'])
       
-      if not response.get('Marker'):
-        break
+      if not response.get('Marker'): break
+      marker = response['Marker']
     return uploaded_count
   
   def determine_range_to_download (self, aws_job, fileseg):
     job_range = build_range_from_mime(aws_job.retrieval_byte_range)
     remain_range = fileseg.calculate_remaining_range()
-    assert range_contains(remain_range, job_range), "Job retrieval range must contain the fileseg byte range"
-    return remaining_range
+    assert range_contains(remain_range, job_range), \
+      "Job retrieval range must contain the fileseg byte range %r / %r" % (remain_range, job_range)
+    return remain_range
 
 ## END AwsGlacierManager
 

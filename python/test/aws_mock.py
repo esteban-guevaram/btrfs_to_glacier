@@ -1,4 +1,5 @@
 from common import *
+from routines_for_test_base import *
 from file_utils import TreeHasher
 import uuid, tempfile, json
 import boto3
@@ -27,7 +28,7 @@ def build_ok_response (src_type, method_name, answer=None, **kwargs):
     resp['__debug__'] = key
     resp['HTTPStatusCode'] = 200
     resp['ResponseMetadata'] = { 'HTTPStatusCode': 200 }
-  return (True, resp)
+  return [True, resp]
 
 def build_ko_response (src_type, method_name, answer=None, **kwargs):
   key = src_type.__name__ + method_name.__name__
@@ -39,7 +40,7 @@ def build_ko_response (src_type, method_name, answer=None, **kwargs):
   resp['__debug__'] = key
   resp['HTTPStatusCode'] = 400
   resp['ResponseMetadata'] = { 'HTTPStatusCode': 400 }
-  return (False, resp)
+  return [False, resp]
 
 def always_ok_behaviour ():
   def inner_helper (src_type, method_name, answer=None, **kwargs):
@@ -233,11 +234,11 @@ class DummyVault (DummyResource):
 
   def _fail_job (self, job):
     del self.jobs_in_progress[job.name]
-    job.status_code = DummyJob.Failed
+    job._fail()
 
   def _transition_jobs_to_complete (self):
     for k,job in self.jobs_in_progress.all():
-      job.completed = True
+      job._complete()
     self.jobs_in_progress.clear()
 
   def initiate_inventory_retrieval (self, **kwargs):
@@ -245,9 +246,10 @@ class DummyVault (DummyResource):
     jobParameters={'RetrievalByteRange':'0-1048575', "Type":'archive-retrieval', 'ArchiveId': 'S-CStPFbgPAdXh8QVEkd9OKamTIkRdHHshwbiA8O6-84in4SBVj8zHFAxh65mjr3dD_6dRUn1NaCZr9EBuiH8ZuPQ4yqc7qPNA6ZwB8Zq-ofWiat66CCnBWPNiCWAMm0-GeA7f5pzg'}
     {'InventoryDate': '2016-08-21T00:46:31Z', 'ArchiveList': [{'SHA256TreeHash': '1acac939ccb8d55467ecaa6bb413ae59434b6ef5008f45adbf16c397d74da15c', 'ArchiveId': 'T8ecmVSHxb1pcW31Ia0C4Q4mbSb6c3ERw9lm4q-Erhc562Qo9r8XqAa8aFUjoIcrnbL7h58Z_FzxI7lNevXenmR9d3vvXWd5KezsL07Akf6Mt9hVGhhFVaO0GzRxzRGiyP94OXqSqA', 'Size': 71641, 'CreationDate': '2016-01-06T18:42:57Z', 'ArchiveDescription': 'test random file upload'}, {'SHA256TreeHash': '2ecfdbd275e1e00bf050b4954fa6d1467190a6c1719cffaa22d96f0c2e69188b', 'ArchiveId': 'poti53ZqdyE4LYfYUyG7x4Zahb-4Ux6Ry98rma1FZJqcOg2FwrZriGZkNHAZGSYrDI2Al1CZygJj4UqLzJ9B0r2h88UHR5b5Xi_Vi56VtZnkku2FQ0mA3mK16uhVOw3kg9x2vXXizQ', 'Size': 12582912, 'CreationDate': '2016-08-20T13:44:27Z', 'ArchiveDescription': 'to_glacier_single_part_upl'}, {'SHA256TreeHash': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'ArchiveId': 'S-CStPFbgPAdXh8QVEkd9OKamTIkRdHHshwbiA8O6-84in4SBVj8zHFAxh65mjr3dD_6dRUn1NaCZr9EBuiH8ZuPQ4yqc7qPNA6ZwB8Zq-ofWiat66CCnBWPNiCWAMm0-GeA7f5pzg', 'Size': 12582912, 'CreationDate': '2016-08-20T14:44:34Z', 'ArchiveDescription': 'to_glacier_multipart_upl'}], 'VaultARN': 'arn:aws:glacier:eu-west-1:843392324993:vaults/dummy_vault'}
     '''
-    assert 'Type' in kwargs
-    assert 'Tier' in kwargs
-    job = DummyJob('retrieval_job', self, DummyJob.InventoryRetrieval)
+    assert 'Type' in kwargs and 'Tier' in kwargs and 'RetrievalByteRange' in kwargs
+    assert kwargs['Type'] == 'archive-retrieval' # only one supported for the moment
+    job_range = build_range_from_mime(kwargs['RetrievalByteRange'])
+    job = DummyJob('retrieval_job', self, DummyJob.ArchiveRetrieval, job_range[0], job_range[1])
     resp = DummySession.behaviour(type(self), self.initiate_inventory_retrieval, job)
     if resp[0]:
       assert not 'retrieval_job' in self.jobs_in_progress
@@ -258,11 +260,11 @@ class DummyVault (DummyResource):
     assert 'body' in kwargs
     assert 'archiveDescription' in kwargs
     assert 'checksum' in kwargs
-    archive = DummyArchive(kwargs['archiveDescription'], self)
-    resp = DummySession.behaviour(type(self), self.upload_archive, archive)
+    resp = DummySession.behaviour(type(self), self.upload_archive)
     if resp[0]:
-      archive._addPart(kwargs['body'])
-      archive._create()
+      resp[1] = DummyArchive(kwargs['archiveDescription'], self)
+      resp[1]._addPart(kwargs['body'])
+      resp[1]._create()
     return resp[1]
 
   def initiate_multipart_upload (self, **kwargs):
@@ -309,8 +311,8 @@ class DummyMultiPart (DummyResource):
     }
     resp = DummySession.behaviour(type(self), self.complete, ok_resp)
     if resp[0]:
-      self._archive._create()
       del self.parent.multipart_uploads[self.name]
+      self._archive._create()
     return resp[1]
 
   def parts(self):
@@ -350,15 +352,30 @@ class DummyMultiPart (DummyResource):
       self._archive._addPart(kwargs['body'], self.part_size_in_bytes)
     return resp[1]
 
+
+class DummyMultiPartMultiPage ():
+  def parts(self, marker):
+    parts = [{
+      'SHA256TreeHash' : TreeHasher().digest_single_shot_as_hexstr(('monkey_payload %r' % marker).encode('ascii')),
+      'RangeInBytes' : build_mime_range((0, 1024**2)),
+    } for i in range(10 + (marker or 0)) ]
+    resp = {
+      'Parts' : parts,
+      'PartSizeInBytes' : 1024 ** 2,
+      'MultipartUploadId' : 'an_id',
+      'ResponseMetadata' : { 'HTTPStatusCode': 200 },
+    }
+    if not marker: resp['Marker'] = 1
+    elif marker < 4: resp['Marker'] = marker + 1
+    return resp
+
+
 class DummyJob (DummyResource):
   ArchiveRetrieval, InventoryRetrieval = 'ArchiveRetrieval','InventoryRetrieval'
-  Failed = 'Failed'
-  InProgress = 'InProgress'
+  Failed, InProgress, Succeeded = 'Failed', 'InProgress', 'Succeeded'
 
   def __init__ (self, name, parent, action, start=None, end=None):
     super().__init__(name, parent)
-    self._start = start
-    self._end = end
     self.job_id = str(uuid.uuid4())
     self.action = action
     self.job_description = self.name
@@ -371,7 +388,7 @@ class DummyJob (DummyResource):
     self.completion_date = None
     self.inventory_retrieval_parameters = {}
     self.inventory_size_in_bytes = None
-    self.retrieval_byte_range = None
+    self.retrieval_byte_range = build_mime_range((start, end))
     self.sha256_tree_hash = None
 
   @staticmethod
@@ -388,30 +405,46 @@ class DummyJob (DummyResource):
     if a > b: return a
     return b
 
+  # monkey patch me to change hash of the get_output response
+  def calculate_hash(self, fileobj):
+    return TreeHasher().digest_fileobj_as_hexstr(fileobj)
+
+  def _fail(self):
+    self.completed = True
+    self.status_code = DummyJob.Failed
+
+  def _complete (self):
+    self.completion_date = datetime.datetime.now()
+    self.completed = True
+    self.status_code = DummyJob.Succeeded
+
   def get_output(self, **kwargs):
     '''
     {'body': <botocore.response.StreamingBody object at 0x7f57552a3e10>, 'checksum': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'status': 200, 'ResponseMetadata': {'HTTPStatusCode': 200, 'HTTPHeaders': {'content-length': '12582912', 'x-amzn-requestid': '3Rqh31vlsE3a02DI2dCXXblBpgQc-qsVi9LVgaqHy6B0D1Q', 'x-amz-sha256-tree-hash': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'x-amz-archive-description': 'to_glacier_multipart_upl', 'content-type': 'application/octet-stream', 'accept-ranges': 'bytes', 'date': 'Sun, 28 Aug 2016 08:01:31 GMT'}, 'RequestId': '3Rqh31vlsE3a02DI2dCXXblBpgQc-qsVi9LVgaqHy6B0D1Q'}, 'archiveDescription': 'to_glacier_multipart_upl', 'acceptRanges': 'bytes', 'contentType': 'application/octet-stream'}
     '''
     assert self.completed and self.status_code != DummyJob.Failed
-    arg_start = None
-    arg_end = None
+    resp = DummySession.behaviour(type(self), self.get_output)
+    if not resp[0]: return resp[1]
 
+    content = tempfile.TemporaryFile()
+    arg_start, arg_end = build_range_from_mime(self.retrieval_byte_range)
     if 'range' in kwargs:
-      arg_start = int( re.search(r'(\d+)', kwargs['range']).group(1) )
-      arg_end = int( re.search(r'-(\d+)', kwargs['range']).group(1) ) + 1
+      arg_start, arg_end = build_range_from_mime(kwargs['range'])
+      assert range_contains((arg_start, arg_end), build_range_from_mime(self.retrieval_byte_range))
 
-    arg_start = DummyJob.min(self._start, arg_start)
-    arg_end = DummyJob.max(self._end, arg_end)
-
-    if arg_start != None and arg_end != None:
-      response = {'body' : self._archive._chunk(start, end) }
-    else:
-      response = {'body' : self._archive._chunkFull() }
-    return DummySession.behaviour(type(self), self.get_output, response)
+    add_rand_data_to_fileobj_and_rewind(content, (arg_end-arg_start)//1024)
+    checksum = self.calculate_hash(content)
+    content.seek(0, os.SEEK_SET)
+    response = {
+      'body' : content,
+      'checksum' : checksum,
+      'ResponseMetadata' : { 'HTTPStatusCode': 200 },
+    }
+    return response
 
 class DummyArchive (DummyResource):
   def __init__ (self, name, parent):
-    super().__init__( str(uuid.uuid4()) , parent)
+    super().__init__( name , parent)
     self._description = name
     self._content = tempfile.TemporaryFile()
     self._size = 0
@@ -424,6 +457,7 @@ class DummyArchive (DummyResource):
       self._content.close()
 
   def initiate_archive_retrieval (self, **kwargs):
+    self._content.close()
     return self.parent.initiate_inventory_retrieval(**kwargs)
 
   def _chunkFull (self):

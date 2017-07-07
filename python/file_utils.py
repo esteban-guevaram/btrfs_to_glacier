@@ -174,12 +174,12 @@ class Fileseg:
     if not self.chunks:
       return self.range_bytes
     range_bytes = (self.chunks[-1].range_bytes[1], self.range_bytes[1])
-    assert range_bytes[1] - range_bytes[0] > 0
+    assert range_bytes[1] - range_bytes[0] >= 0
     return range_bytes
 
   def clean_pending_chunk (self):
     self.done = False
-    if self.chunks and not self.chunks[1].done:
+    if self.chunks and not self.chunks[-1].done:
       self.chunks.pop()
 
   def clean_chunks (self):
