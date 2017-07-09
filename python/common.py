@@ -55,7 +55,7 @@ def retry_operation (closure, exception):
     except exception as err:
       # exception may also be a tuple
       logger.warning("Attempt %d, operation failed : %r", attempt, err)
-      time.sleep(0.5)
+      time.sleep(get_conf().app.retry_sleep_secs)
   raise Exception('Permanent failure')
 
 def call (cmd, interactive=None, as_root=False):

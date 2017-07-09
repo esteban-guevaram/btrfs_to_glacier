@@ -17,8 +17,8 @@ boto3.setup_default_session(
 
 RESP_VOID = 'RESP_VOID'
 
-def build_ok_response (src_type, method_name, answer=None, **kwargs):
-  key = src_type.__name__ + method_name.__name__
+def build_ok_response (src_type, method, answer=None, **kwargs):
+  key = src_type.__name__ + method.__name__
   resp = None
   if answer:
     resp = answer
@@ -30,8 +30,8 @@ def build_ok_response (src_type, method_name, answer=None, **kwargs):
     resp['ResponseMetadata'] = { 'HTTPStatusCode': 200 }
   return [True, resp]
 
-def build_ko_response (src_type, method_name, answer=None, **kwargs):
-  key = src_type.__name__ + method_name.__name__
+def build_ko_response (src_type, method, answer=None, **kwargs):
+  key = src_type.__name__ + method.__name__
   if DummySession.blowup_on_fail or answer == RESP_VOID:
     raise DummyException(key)
 
@@ -43,53 +43,61 @@ def build_ko_response (src_type, method_name, answer=None, **kwargs):
   return [False, resp]
 
 def always_ok_behaviour ():
-  def inner_helper (src_type, method_name, answer=None, **kwargs):
-    return build_ok_response(src_type, method_name, answer, **kwargs)
+  def inner_helper (src_type, method, answer=None, **kwargs):
+    return build_ok_response(src_type, method, answer, **kwargs)
   return inner_helper
 
 def always_ko_behaviour (white=[], black=[]):
-  def inner_helper (src_type, method_name, answer=None, **kwargs):
-    if decide_if_type_fails(src_type, white, black):
-      return build_ko_response(src_type, method_name, answer, **kwargs)
-    return build_ok_response(src_type, method_name, answer, **kwargs)
+  def inner_helper (src_type, method, answer=None, **kwargs):
+    if decide_if_type_fails(src_type, method, white, black):
+      return build_ko_response(src_type, method, answer, **kwargs)
+    return build_ok_response(src_type, method, answer, **kwargs)
   return inner_helper
 
 def fail_at_random_with_limit (perc_fail, limit, white=[], black=[]):
   streak = {}
-  def inner_helper (src_type, method_name, answer=None, **kwargs):
+  def inner_helper (src_type, method, answer=None, **kwargs):
     chance = random.randrange(100)
-    key = src_type.__name__ + method_name.__name__
+    key = src_type.__name__ + method.__name__
     streak.setdefault(key, 0)
-    if (chance >= perc_fail or streak[key] >= limit) and not decide_if_type_fails(src_type, white, black):
+    if (chance >= perc_fail or streak[key] >= limit) and not decide_if_type_fails(src_type, method, white, black):
       streak[key] = 0
-      return build_ok_response(src_type, method_name, answer, **kwargs)
+      return build_ok_response(src_type, method, answer, **kwargs)
     streak[key] += 1
-    return build_ko_response(src_type, method_name, answer, **kwargs)
+    return build_ko_response(src_type, method, answer, **kwargs)
   return inner_helper
 
 def fail_at_random (perc_fail, white=[], black=[]):
-  def inner_helper (src_type, method_name, answer=None, **kwargs):
+  def inner_helper (src_type, method, answer=None, **kwargs):
     chance = random.randrange(100)
-    if chance >= perc_fail and not decide_if_type_fails(src_type, white, black):
-      return build_ok_response(src_type, method_name, answer, **kwargs)
-    return build_ko_response(src_type, method_name, answer, **kwargs)
+    if chance >= perc_fail and not decide_if_type_fails(src_type, method, white, black):
+      return build_ok_response(src_type, method, answer, **kwargs)
+    return build_ko_response(src_type, method, answer, **kwargs)
   return inner_helper
 
 def fail_at_first_then_ok (fail_count, white=[], black=[]):
   count = {}
-  def inner_helper (src_type, method_name, answer=None, **kwargs):
-    key = src_type.__name__ + method_name.__name__
+  def inner_helper (src_type, method, answer=None, **kwargs):
+    key = src_type.__name__ + method.__name__
     count.setdefault(key, 0)
-    if count[key] < fail_count and decide_if_type_fails(src_type, white, black):
+    if count[key] < fail_count and decide_if_type_fails(src_type, method, white, black):
       count[key] += 1
-      return build_ko_response(src_type, method_name, answer, **kwargs)
-    return build_ok_response(src_type, method_name, answer, **kwargs)
+      return build_ko_response(src_type, method, answer, **kwargs)
+    return build_ok_response(src_type, method, answer, **kwargs)
   return inner_helper
 
-def decide_if_type_fails(src_type, white, black):
+def decide_if_type_fails(src_type, _, white, black):
   if not black: return src_type not in white
   if not white: return src_type in black
   return src_type in black and src_type not in white
+
+def decide_if_type_fails2(src_type, method, white, black):
+  white = [ getattr(w, '__qualname__', w.__name__) for w in white ]
+  black = [ getattr(w, '__qualname__', w.__name__) for w in black ]
+  key = method.__qualname__
+  if not black: return not any( w in key for w in white )
+  if not white: return any( b in key for b in black )
+  return (not any( w in key for w in white )) and any( b in key for b in black )
 
 #####################################################################################
 # Root objects
@@ -139,13 +147,12 @@ class DummyResource:
   
   class ObjWithDict: pass
 
-  def __init__ (self, name, parent):
+  def __init__ (self, parent):
     self._created = False
     meta = DummyResource.ObjWithDict()
     meta.data = DummyResource.ObjWithDict()
     self._attributes = { 'meta' : meta }
-    self.name = name
-    self.id = self.name
+    self.id = str(uuid.uuid4())
     self.parent = parent
   
   def _setattr (self, name, value):
@@ -158,6 +165,7 @@ class DummyResource:
 
   def load (self): pass
   def reload (self): pass
+
   def get_available_subresources():
     return []
 
@@ -189,20 +197,23 @@ class DummyStream:
 class DummyGlacier (DummyResource):
   
   def __init__ (self, name):
-    super().__init__(name, None)
+    super().__init__(None)
+    self.name = name
     self.vaults = DummyCollection()
 
   def Vault (self, account_id, name):
-    vault = self.vaults.get(name)
+    vault = [ v for v in self.vaults.values() if v.name == name ]
+    assert len(vault) < 2
     if vault:
-      return vault
+      return vault[0]
     return DummyVault(name, self)
    
 class DummyVault (DummyResource):
 
   def __init__ (self, name, parent):
-    super().__init__(name, parent)
+    super().__init__(parent)
     self.account_id = '-'
+    self.name = name
     self.vault_name = name
     self._setattr('creation_date', datetime.datetime.now())
     self._setattr('last_inventory_date', datetime.datetime.now())
@@ -210,17 +221,19 @@ class DummyVault (DummyResource):
     self._setattr('size_in_bytes', 0)
     self._setattr('vault_arn', str(uuid.uuid4()) )
     # Collections
-    #self.failed_jobs = DummyCollection()
-    #self.succeeded_jobs = DummyCollection()
-    #self.jobs = DummyCollection()
-    #self.completed_jobs = DummyCollection()
     self.jobs_in_progress = DummyCollection()
+    self.failed_jobs = DummyCollection()
+    self.succeeded_jobs = DummyCollection()
+    self.completed_jobs = self.succeeded_jobs
     self.multipart_uploads = DummyCollection()
     self._archives = DummyCollection()
+    self.jobs = DummyVault.JobIterable(self)
 
   def _clear (self):
     for arch in self._archives.values():
       arch._close()
+    self.failed_jobs = DummyCollection()
+    self.succeeded_jobs = DummyCollection()
     self.jobs_in_progress = DummyCollection()
     self.multipart_uploads = DummyCollection()
     self._archives = DummyCollection()
@@ -230,30 +243,27 @@ class DummyVault (DummyResource):
     {'location': '/843392324993/vaults/dummy_vault', 'ResponseMetadata': {'HTTPStatusCode': 201, 'HTTPHeaders': {'content-length': '2', 'x-amzn-requestid': 'kClaL7QvT4LR_slpdu6rXi0jrBH6XjjUV7tgBA2b_peySko', 'location': '/843392324993/vaults/dummy_vault', 'date': 'Sat, 27 Aug 2016 17:51:31 GMT', 'content-type': 'application/json'}, 'RequestId': 'kClaL7QvT4LR_slpdu6rXi0jrBH6XjjUV7tgBA2b_peySko'}}
     '''
     self._created = True
-    self.parent.vaults[self.name] = self
-
-  def _fail_job (self, job):
-    del self.jobs_in_progress[job.name]
-    job._fail()
-
-  def _transition_jobs_to_complete (self):
-    for k,job in self.jobs_in_progress.all():
-      job._complete()
-    self.jobs_in_progress.clear()
+    self.parent.vaults[self.id] = self
 
   def initiate_inventory_retrieval (self, **kwargs):
     '''
     jobParameters={'RetrievalByteRange':'0-1048575', "Type":'archive-retrieval', 'ArchiveId': 'S-CStPFbgPAdXh8QVEkd9OKamTIkRdHHshwbiA8O6-84in4SBVj8zHFAxh65mjr3dD_6dRUn1NaCZr9EBuiH8ZuPQ4yqc7qPNA6ZwB8Zq-ofWiat66CCnBWPNiCWAMm0-GeA7f5pzg'}
     {'InventoryDate': '2016-08-21T00:46:31Z', 'ArchiveList': [{'SHA256TreeHash': '1acac939ccb8d55467ecaa6bb413ae59434b6ef5008f45adbf16c397d74da15c', 'ArchiveId': 'T8ecmVSHxb1pcW31Ia0C4Q4mbSb6c3ERw9lm4q-Erhc562Qo9r8XqAa8aFUjoIcrnbL7h58Z_FzxI7lNevXenmR9d3vvXWd5KezsL07Akf6Mt9hVGhhFVaO0GzRxzRGiyP94OXqSqA', 'Size': 71641, 'CreationDate': '2016-01-06T18:42:57Z', 'ArchiveDescription': 'test random file upload'}, {'SHA256TreeHash': '2ecfdbd275e1e00bf050b4954fa6d1467190a6c1719cffaa22d96f0c2e69188b', 'ArchiveId': 'poti53ZqdyE4LYfYUyG7x4Zahb-4Ux6Ry98rma1FZJqcOg2FwrZriGZkNHAZGSYrDI2Al1CZygJj4UqLzJ9B0r2h88UHR5b5Xi_Vi56VtZnkku2FQ0mA3mK16uhVOw3kg9x2vXXizQ', 'Size': 12582912, 'CreationDate': '2016-08-20T13:44:27Z', 'ArchiveDescription': 'to_glacier_single_part_upl'}, {'SHA256TreeHash': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'ArchiveId': 'S-CStPFbgPAdXh8QVEkd9OKamTIkRdHHshwbiA8O6-84in4SBVj8zHFAxh65mjr3dD_6dRUn1NaCZr9EBuiH8ZuPQ4yqc7qPNA6ZwB8Zq-ofWiat66CCnBWPNiCWAMm0-GeA7f5pzg', 'Size': 12582912, 'CreationDate': '2016-08-20T14:44:34Z', 'ArchiveDescription': 'to_glacier_multipart_upl'}], 'VaultARN': 'arn:aws:glacier:eu-west-1:843392324993:vaults/dummy_vault'}
     '''
-    assert 'Type' in kwargs and 'Tier' in kwargs and 'RetrievalByteRange' in kwargs
-    assert kwargs['Type'] == 'archive-retrieval' # only one supported for the moment
-    job_range = build_range_from_mime(kwargs['RetrievalByteRange'])
-    job = DummyJob('retrieval_job', self, DummyJob.ArchiveRetrieval, job_range[0], job_range[1])
+    assert 'Type' in kwargs and 'Tier' in kwargs
+    assert kwargs['Type'] in ('inventory-retrieval', 'archive-retrieval')
+
+    if kwargs['Type'] == 'archive-retrieval':
+      assert 'RetrievalByteRange' in kwargs
+      job_range = build_range_from_mime(kwargs['RetrievalByteRange'])
+      job = DummyJob('mock_job', self, DummyJob.ArchiveRetrieval, job_range[0], job_range[1])
+    else:
+      job = DummyJob('mock_job', self, DummyJob.InventoryRetrieval)
+
     resp = DummySession.behaviour(type(self), self.initiate_inventory_retrieval, job)
     if resp[0]:
-      assert not 'retrieval_job' in self.jobs_in_progress
-      self.jobs_in_progress['retrieval_job'] = job
+      assert not job.id in self.jobs_in_progress
+      self.jobs_in_progress[job.id] = job
     return resp[1]
 
   def upload_archive (self, **kwargs):
@@ -262,7 +272,7 @@ class DummyVault (DummyResource):
     assert 'checksum' in kwargs
     resp = DummySession.behaviour(type(self), self.upload_archive)
     if resp[0]:
-      resp[1] = DummyArchive(kwargs['archiveDescription'], self)
+      resp[1] = DummyArchive(self)
       resp[1]._addPart(kwargs['body'])
       resp[1]._create()
     return resp[1]
@@ -270,28 +280,50 @@ class DummyVault (DummyResource):
   def initiate_multipart_upload (self, **kwargs):
     assert 'archiveDescription' in kwargs
     assert 'partSize' in kwargs
-    assert not kwargs['archiveDescription'] in self.multipart_uploads
+    assert all( kwargs['archiveDescription'] != j.archive_description for j in self.multipart_uploads.values())
     job = DummyMultiPart(kwargs['archiveDescription'], self, int(kwargs['partSize']))
     resp = DummySession.behaviour(type(self), self.initiate_multipart_upload, job)
     if resp[0]:
-      self.multipart_uploads[kwargs['archiveDescription']] = job
+      self.multipart_uploads[job.id] = job
     return resp[1]
   
+  def MultipartUpload(self, aws_id):
+    return self.multipart_uploads[aws_id]
+
   def Archive(self, archiveId):
-    return DummyArchive(archiveId, self)
+    return self._archives.get(archiveId, DummyArchive(self))
+
+  class JobIterable:
+    def __init__(self, parent):
+      self.parent = parent
+
+    def all(self):
+      for j in self.parent.jobs_in_progress.values(): yield j
+      for j in self.parent.completed_jobs.values(): yield j
+      for j in self.parent.failed_jobs.values(): yield j
 
 class DummyMultiPart (DummyResource):
   def __init__ (self, name, parent, partSize):
-    super().__init__(name, parent)
-    self._archive = DummyArchive(name, parent)
+    super().__init__(parent)
+    self._archive = DummyArchive(parent)
     self.archive_description = name
     self.creation_date = datetime.datetime.now()
     self.multipart_upload_id = str(uuid.uuid4())
     self.part_size_in_bytes = partSize
     self._parts = []
+    self._expired = False
+
+  def reload (self):
+    if self._expired: raise DummyException('mock expired')
+
+  def load (self):
+    if self._expired: raise DummyException('mock expired')
+
+  def _expire(self):
+    self._expired = True
 
   def abort(self):
-    del self.parent.multipart_uploads[self.name]
+    del self.parent.multipart_uploads[self.id]
 
   def complete(self, **kwargs):
     '''
@@ -299,7 +331,7 @@ class DummyMultiPart (DummyResource):
     '''
     assert 'archiveSize' in kwargs
     assert 'checksum' in kwargs
-    assert self.name in self.parent.multipart_uploads
+    assert self.id in self.parent.multipart_uploads
     assert int(kwargs['archiveSize']) == self._archive._size
     arch_checksum = TreeHasher().digest_fileobj_as_hexstr(self._archive._content)
     assert kwargs['checksum'] == arch_checksum
@@ -311,15 +343,15 @@ class DummyMultiPart (DummyResource):
     }
     resp = DummySession.behaviour(type(self), self.complete, ok_resp)
     if resp[0]:
-      del self.parent.multipart_uploads[self.name]
+      del self.parent.multipart_uploads[self.id]
       self._archive._create()
     return resp[1]
 
-  def parts(self):
+  def parts(self, marker=None):
     '''
     {'ArchiveDescription': 'botoUpload2', 'Parts': [{'RangeInBytes': '0-2097151', 'SHA256TreeHash': '560c2c9333c719cb00cfdffee3ba293db17f58743cdd1f7e4055373ae6300afa'}], 'ResponseMetadata': {'HTTPStatusCode': 200, 'HTTPHeaders': {'content-length': '427', 'x-amzn-requestid': 'MThC24wf2PVcIMid4Zy3ik724FVSb0slbsKljIWWVq4ulik', 'date': 'Sun, 28 Aug 2016 09:01:14 GMT', 'content-type': 'application/json'}, 'RequestId': 'MThC24wf2PVcIMid4Zy3ik724FVSb0slbsKljIWWVq4ulik'}, 'CreationDate': '2016-08-28T09:00:52.061Z', 'PartSizeInBytes': 2097152, 'MultipartUploadId': 'XfiA5PM122LLolN5gu___oRss20GeXhvM0ZFJiAmvBhZXRSN1Py8ZNQHxkeFk24Vm0zOjMUodpYJ02WFJ7Hp7i7EACwF', 'VaultARN': 'arn:aws:glacier:eu-west-1:843392324993:vaults/dummy_vault'}
     '''
-    assert self.name in self.parent.multipart_uploads
+    assert self.id in self.parent.multipart_uploads
     resp = {
       'Parts' : self._parts,
       'PartSizeInBytes' : self.part_size_in_bytes,
@@ -335,18 +367,18 @@ class DummyMultiPart (DummyResource):
     assert 'body' in kwargs
     assert 'range' in kwargs
     assert 'checksum' in kwargs
-    assert self.name in self.parent.multipart_uploads
+    assert self.id in self.parent.multipart_uploads
     size = len_range_from_mime(kwargs['range'])
     assert size == len(kwargs['body']), "size %r != len(boby) %r" % (size, len(kwargs['body']))
 
     ok_resp = {
-      'checksum' : TreeHasher().digest_single_shot_as_hexstr(kwargs['body']),
+      'checksum' : kwargs['checksum'],
       'ResponseMetadata' : { 'HTTPStatusCode': 204 },
     }
     resp = DummySession.behaviour(type(self), self.upload_part, ok_resp)
     if resp[0]:
       self._parts.append({
-        'SHA256TreeHash' : TreeHasher().digest_single_shot_as_hexstr(kwargs['body']),
+        'SHA256TreeHash' : kwargs['checksum'],
         'RangeInBytes' : kwargs['range'],
       })
       self._archive._addPart(kwargs['body'], self.part_size_in_bytes)
@@ -375,10 +407,10 @@ class DummyJob (DummyResource):
   Failed, InProgress, Succeeded = 'Failed', 'InProgress', 'Succeeded'
 
   def __init__ (self, name, parent, action, start=None, end=None):
-    super().__init__(name, parent)
-    self.job_id = str(uuid.uuid4())
+    super().__init__(parent)
+    self.job_id = self.id
     self.action = action
-    self.job_description = self.name
+    self.job_description = name
     self.creation_date = datetime.datetime.now()
     self.archive_id = None
     self.archive_sha256_tree_hash = None
@@ -388,7 +420,8 @@ class DummyJob (DummyResource):
     self.completion_date = None
     self.inventory_retrieval_parameters = {}
     self.inventory_size_in_bytes = None
-    self.retrieval_byte_range = build_mime_range((start, end))
+    if end:
+      self.retrieval_byte_range = build_mime_range((start, end))
     self.sha256_tree_hash = None
 
   @staticmethod
@@ -412,11 +445,15 @@ class DummyJob (DummyResource):
   def _fail(self):
     self.completed = True
     self.status_code = DummyJob.Failed
+    del self.parent.jobs_in_progress[self.id]
+    self.parent.failed_jobs[self.id] = self
 
   def _complete (self):
     self.completion_date = datetime.datetime.now()
     self.completed = True
     self.status_code = DummyJob.Succeeded
+    del self.parent.jobs_in_progress[self.id]
+    self.parent.completed_jobs[self.id] = self
 
   def get_output(self, **kwargs):
     '''
@@ -443,9 +480,8 @@ class DummyJob (DummyResource):
     return response
 
 class DummyArchive (DummyResource):
-  def __init__ (self, name, parent):
-    super().__init__( name , parent)
-    self._description = name
+  def __init__ (self, parent):
+    super().__init__(parent)
     self._content = tempfile.TemporaryFile()
     self._size = 0
 
@@ -482,7 +518,7 @@ class DummyArchive (DummyResource):
 
 class DummyS3 (DummyResource):
   def __init__ (self, name):
-    super().__init__(name, None)
+    super().__init__(None)
     self._created = True
     self.buckets = DummyCollection()
   
@@ -495,7 +531,8 @@ class DummyS3 (DummyResource):
 class DummyBucket (DummyResource):
 
   def __init__ (self, name, parent):
-    super().__init__(name, parent)
+    super().__init__(parent)
+    self.name = name
     self.object_versions = DummyCollection()
     self.objects = DummyCollection()
     self._setattr('creation_date', datetime.datetime.now())
@@ -548,17 +585,17 @@ class DummyBucket (DummyResource):
 
 class DummyLifecycle (DummyResource):
   def __init__ (self, parent):
-    super().__init__(str(uuid.uuid4()), parent)
+    super().__init__(parent)
 
   def put (self, **kwargs):
-    return DummySession.behaviour(type(self), self.put)
+    return DummySession.behaviour(type(self), self.put)[1]
 
 class DummyS3Object (DummyResource):
   def __init__ (self, name, parent):
-    super().__init__(name, parent)
+    super().__init__(parent)
     self._bytes = b''
     self.key = name
-    self.bucket_name =  parent.name
+    self.bucket_name =  self.parent.name
     self.last_modified = datetime.datetime.now()
     self.metadata = {}
     self.version_id = None

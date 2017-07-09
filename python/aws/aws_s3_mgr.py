@@ -90,7 +90,7 @@ class AwsS3Manager:
       lambda : lifecycle.put(LifecycleConfiguration={ 'Rules' : [rule] }),
       botoex.ClientError
     )
-    assert int(response['HTTPStatusCode']) == 200
+    assert int(response['HTTPStatusCode']) == 200, repr(response)
     return bucket
 
 ## END AwsS3Manager

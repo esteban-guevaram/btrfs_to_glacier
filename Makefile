@@ -30,12 +30,12 @@ test: bin/python_ts native config
 	$(COVRUN) erase --rcfile=coveragerc
 
 	# these need to be run as root since they use the btrfs syscalls
-	#sudo $(COVRUN) run $(COVFLAGS) test_common_routines.py      || exit 1
-	#sudo $(COVRUN) run $(COVFLAGS) test_pybtrfs.py              || exit 1
-	#sudo $(COVRUN) run $(COVFLAGS) test_btrfs_backup_restore.py || exit 1
+	sudo $(COVRUN) run $(COVFLAGS) test_common_routines.py      || exit 1
+	sudo $(COVRUN) run $(COVFLAGS) test_pybtrfs.py              || exit 1
+	sudo $(COVRUN) run $(COVFLAGS) test_btrfs_backup_restore.py || exit 1
 
-	#$(COVRUN) run $(COVFLAGS) test_tree_hasher.py               || exit 1
-	#$(COVRUN) run $(COVFLAGS) test_aws_s3_mgr.py                || exit 1
+	$(COVRUN) run $(COVFLAGS) test_tree_hasher.py               || exit 1
+	$(COVRUN) run $(COVFLAGS) test_aws_s3_mgr.py                || exit 1
 	$(COVRUN) run $(COVFLAGS) test_aws_glacier_mgr.py           || exit 1
 	echo -e "\n\n######################### ALL TESTS OK #########################################\n"
 

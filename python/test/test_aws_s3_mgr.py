@@ -44,6 +44,11 @@ class TestAwsS3Manager (ut.TestCase):
     s3_mgr = AwsS3Manager(session)
     self.assertEqual(1, len(s3_res.buckets))
 
+    get_conf().aws.s3_bucket = 'choco_bucket'
+    s3_mgr = AwsS3Manager(session)
+    s3_mgr = AwsS3Manager(session)
+    self.assertEqual(2, len(s3_res.buckets))
+
   #@ut.skip("For quick validation")
   def test_upload_txlog_big(self):
     get_conf().aws.chunk_size_in_mb = 1
@@ -63,7 +68,7 @@ class TestAwsS3Manager (ut.TestCase):
     s3_mgr = AwsS3Manager(session)
 
     s3_object = s3_mgr.upload_txlog(fileseg)
-    assert s3_object.bucket_name == get_conf().aws.s3_bucket
+    assert s3_object.bucket_name == get_conf().aws.s3_bucket, '%r / %r' % (s3_object.bucket_name, get_conf().aws.s3_bucket)
 
   #@ut.skip("For quick validation")
   def test_download_txlog_s3_empty(self):

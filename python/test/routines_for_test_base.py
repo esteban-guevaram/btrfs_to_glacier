@@ -1,3 +1,4 @@
+import uuid, shutil
 from common import *
 from file_utils import *
 
@@ -23,6 +24,11 @@ def add_rand_data_to_fileobj_and_rewind(fileobj, size_kb=None):
       fileobj.write(line.encode('utf8'))
   # rewind so that it can be read from the start
   fileobj.seek(0, os.SEEK_SET)
+
+def get_rand_data(size_kb=None):
+  with tempfile.TemporaryFile(mode='r+b') as fileobj:
+    add_rand_data_to_fileobj_and_rewind(fileobj, size_kb)
+    return fileobj.read()
 
 def add_rand_file_to_dir(path, size_kb=None):
   with tempfile.NamedTemporaryFile(mode='wb', dir=path, delete=False) as fileobj:

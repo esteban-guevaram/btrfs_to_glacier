@@ -45,6 +45,7 @@ def adjust_config_types (final_conf):
   transform_into_float (final_conf.aws,    'glacier_down_bandwith_gb')
   transform_into_float (final_conf.aws,    'glacier_job_timeout_hours')
   transform_into_float (final_conf.aws,    'polling_period_secs')
+  transform_into_float (final_conf.app,    'retry_sleep_secs')
   transform_into_list  (final_conf.rsync,  'exclude')
 
 def transform_into_float (section, prop):

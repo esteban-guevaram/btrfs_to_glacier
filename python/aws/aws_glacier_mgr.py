@@ -185,7 +185,7 @@ class AwsGlacierManager:
     
     kwargs = {
       'archiveSize' : str(fileseg.range_bytes[1]),
-      'checksum' : hasher.digest_all_parts_as_hexstr(byte_array),
+      'checksum' : hasher.digest_all_parts_as_hexstr(),
     }
     response = retry_operation (
       lambda : multipart_job.complete(**kwargs),
@@ -251,11 +251,12 @@ class AwsGlacierManager:
     try:
       # we expect this to raise a client exception if the job is not valid anymore
       multipart_job.load()
-      assert multipart_job.archive_description == fileseg.fileout
-      return multipart_job
     except botoex.ClientError:
       logger.warning('MultipartUpload %r is not valid anymore', fileseg.aws_id)
-    return None
+      multipart_job = None
+    else:
+      assert multipart_job.archive_description == fileseg.fileout
+    return multipart_job
 
   def load_hasher_with_uploaded_chunks_checksums (self, multipart_job, hasher):
     uploaded_count = 0
