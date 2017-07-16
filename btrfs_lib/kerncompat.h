@@ -305,11 +305,6 @@ static inline long IS_ERR(const void *ptr)
 #define container_of(ptr, type, member) ({                      \
         const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
 	        (type *)( (char *)__mptr - offsetof(type,member) );})
-#ifdef __CHECKER__
-#define __bitwise __bitwise__
-#else
-#define __bitwise
-#endif
 
 typedef u16 __bitwise __le16;
 typedef u16 __bitwise __be16;

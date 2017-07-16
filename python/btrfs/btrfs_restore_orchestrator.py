@@ -47,10 +47,7 @@ class BtrfsRestoreOrchestrator :
         receive_filepath = os.path.join( get_conf().app.staging_dir, record.fileout )
         info = RestoreInfo(record.subvol, receive_filepath, record.hashstr)
 
-        if record.subvol.puuid not in puuid_to_restore_info:
-          puuid_to_restore_info[record.subvol.puuid] = [ info ]
-        else:
-          puuid_to_restore_info[record.subvol.puuid].append(info)  
+        puuid_to_restore_info.setdefault(record.subvol.puuid, []).append(info)  
 
       elif record.r_type == Record.FILESEG_START:
         fs_fileouts.add( record.fileout )
@@ -65,8 +62,8 @@ class BtrfsRestoreOrchestrator :
     return puuid_to_restore_info
 
   def clean_snaps_outside_window(self, session, src_subvol):
-    if src_subvol.puuid not in  session.child_subvols:
-      logger.debug('There are no child subvols for %r', src_subvol)
+    if src_subvol.puuid not in session.child_subvols:
+      logger.warning('Subvol %r is not in session %r', src_subvol, session)
       return
 
     window = get_conf().btrfs.restore_clean_window

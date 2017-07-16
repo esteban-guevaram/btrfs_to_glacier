@@ -2,7 +2,7 @@
 branch = True
 cover_pylib = False
 data_file = coverage
-omit = test_*.py
+omit = *test*.py, *mock*.py, main.py
 source = ./
 
 [html]

@@ -1,4 +1,5 @@
-import uuid, shutil
+import uuid, shutil, contextlib
+import unittest.mock as mock
 from routines_for_test_base import *
 from common import *
 from aws_session import *
@@ -8,6 +9,7 @@ from btrfs_commands import *
 from btrfs_subvol_list import *
 from btrfs_backup_orchestrator import *
 from btrfs_restore_orchestrator import *
+import btrfs_restore_orchestrator
 from transaction_log import *
 from txlog_consistency import *
 logger = logging.getLogger(__name__)
@@ -113,6 +115,9 @@ def calculate_record_type_count():
 def pull_last_childs_from_session (session):
   return { k:v[-1] for k,v in session.child_subvols.items() }
 
+def all_child_sv_in_session (session):
+  return [ sv for sv_list in session.child_subvols.values() for sv in sv_list ]
+
 def get_send_file_and_snap_from (backup_session, puuid):
   fileout = backup_session.btrfs_sv_files[puuid][-1]
   snap = backup_session.child_subvols[puuid][-1]
@@ -128,7 +133,7 @@ def deco_setup_each_test (klass):
 
   def setUp(self):
     logger.info("*** Running : %r", self.id())
-    reset_conf()
+    reset_conf() # this has to come first, before restoring other components
     clean_tx_log()
     clean_send_file_staging()
     change_timestamp()
@@ -161,6 +166,13 @@ def clean_send_file_staging ():
   if os.path.isdir(stage_dir):
     shutil.rmtree(stage_dir)
   os.mkdir(stage_dir)
+
+def restore_txlog_from_file(backup_path):
+  # we delete both the in memory txlog and its file backed copy
+  if os.path.isfile(get_conf().app.transaction_log):
+    os.remove(get_conf().app.transaction_log)
+  reset_txlog()
+  TransactionLog.restore_from_crypted_file(backup_path)
 
 def clean_tx_log():
   if os.path.isfile(get_conf().app.transaction_log):
@@ -196,4 +208,15 @@ def avoid_shoot_in_the_foot ():
 
   assert dev_size * 512 < 8 * 1024**3 and 7 * 1024**3 < dev_size * 512
   assert dev_removable == 1
+
+#################################################################################
+# Mocks setup
+
+@contextlib.contextmanager
+def use_mock_logger_on_module(module):
+  real_logger = module.logger
+  mock_logger = mock.Mock()
+  module.logger = mock_logger
+  yield mock_logger
+  module.logger = real_logger
 

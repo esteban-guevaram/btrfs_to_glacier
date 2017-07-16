@@ -4,7 +4,7 @@
 CC := gcc
 COVRUN := coverage3
 PYTHON := python3
-PYTHON_INCL := /usr/include/python3.4m
+PYTHON_INCL := /usr/include/python3.6m
 #CPPFLAGS := -D_XOPEN_SOURCE=700 -DTRACING=1 -I$(PYTHON_INCL)
 CPPFLAGS := -D_XOPEN_SOURCE=700 -I$(PYTHON_INCL)
 #CFLAGS := -fPIC -Ibtrfs_lib -std=gnu99 -Wall -O0 -ggdb

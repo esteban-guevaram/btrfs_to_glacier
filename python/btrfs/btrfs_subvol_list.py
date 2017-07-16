@@ -20,6 +20,9 @@ class BtrfsSubvolList (list):
   def get_by_ruuid(self, ruuid):
     return next((n for n in self if n.ruuid == ruuid), None)
 
+  def get_by_puuid(self, puuid):
+    return next((n for n in self if n.puuid == puuid), None)
+
   def get_by_uuid(self, uuid):
     return next((n for n in self if n.uuid == uuid), None)
 

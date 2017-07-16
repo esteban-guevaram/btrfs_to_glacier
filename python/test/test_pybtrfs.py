@@ -71,6 +71,21 @@ class TestPyBtrfs (ut.TestCase):
     self.assertTrue(len(subvols) > 0)
     self.assertTrue(all( n.uuid for n in subvols ))
 
+  def test_subvol_list_wrapper_getters(self):
+    subvols = BtrfsSubvolList.get_subvols_from_filesystem( get_conf().test.root_fs )
+    main_sv = subvols.get_by_path( get_conf().btrfs.target_subvols[0] )
+    child_sv = subvols.get_snap_childs(main_sv)[0]
+
+    self.assertFalse( subvols.get_by_uuid('chocolat') )
+    self.assertFalse( subvols.get_by_ruuid('chocolat') )
+    self.assertFalse( subvols.get_by_puuid('chocolat') )
+    self.assertFalse( subvols.get_by_path('chocolat') )
+
+    self.assertTrue( subvols.get_by_uuid(main_sv.uuid) )
+    self.assertTrue( subvols.get_by_puuid(main_sv.uuid) )
+    self.assertTrue( subvols.get_by_ruuid(child_sv.uuid) )
+    self.assertTrue( len(get_conf().btrfs.target_subvols) <= len(subvols.get_readonly_subvols()) )
+
   def test_subvol_pickle_with_data(self):
     with setuserid.PriviledgeGuard():
       subvols = pybtrfs.build_subvol_list( get_conf().test.root_fs )
