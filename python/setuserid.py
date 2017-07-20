@@ -59,8 +59,8 @@ def assert_unpriviledged_user():
 @contextlib.contextmanager
 def PriviledgeGuard():
   pop_unpriviledged_user()
-  yield
-  push_unpriviledged_user()
+  try: yield
+  finally: push_unpriviledged_user()
 
 set_unpriviledged_user()
 

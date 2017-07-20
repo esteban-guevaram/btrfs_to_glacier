@@ -31,7 +31,7 @@ class DummyBtrfsNode (object):
     dummy = DummyBtrfsNode()
     volid = uuid.uuid4()
     dummy.name = volid.hex
-    dummy.path = '/root/' + volid.hex
+    dummy.path = '/unexisting_dir/' + volid.hex
     dummy.uuid = volid.bytes
     dummy.creation_utc = datetime.datetime.now()
     return dummy
@@ -60,16 +60,17 @@ class DummyBtrfsNode (object):
 # Transaction log
 
 def fake_backup_file_tx (snap, predecessor):
-  fileout = "/root/sendfile/" + snap.name
+  fileout = get_conf().app.staging_dir + "/" + snap.name
   hashstr = uuid.uuid4().hex
   get_txlog().record_snap_to_file(fileout, hashstr, snap, predecessor)
 
-def add_fake_backup_to_txlog ():
+def add_fake_backup_to_txlog (with_session=False):
   vol1 = DummyBtrfsNode.build()
   vol2 = DummyBtrfsNode.build()
   snap1 = DummyBtrfsNode.snap(vol1)
   snap2 = DummyBtrfsNode.snap(vol2)
 
+  if with_session: get_txlog().record_backup_start()
   get_txlog().record_snap_creation(snap1)
   fake_backup_file_tx(snap1, None)
   get_txlog().record_snap_creation(snap2)
@@ -84,9 +85,9 @@ def add_fake_backup_to_txlog ():
 
   get_txlog().record_subvol_delete(snap1)
   get_txlog().record_subvol_delete(snap2)
-  #get_txlog().record_txlog_to_file()
+  if with_session: get_txlog().record_backup_end()
 
-def add_fake_restore_to_txlog ():
+def add_fake_restore_to_txlog (with_session=False):
   vol1 = DummyBtrfsNode.build()
   vol2 = DummyBtrfsNode.build()
   rest1 = DummyBtrfsNode.receive(vol1, None)
@@ -94,12 +95,29 @@ def add_fake_restore_to_txlog ():
   rest12 = DummyBtrfsNode.receive(vol1, rest1)
   rest22 = DummyBtrfsNode.receive(vol2, rest2)
 
-  get_txlog().record_file_to_snap('/root/sendfile/' + rest1.name, rest1, vol1.uuid)
-  get_txlog().record_file_to_snap('/root/sendfile/' + rest2.name, rest2, vol2.uuid)
-  get_txlog().record_file_to_snap('/root/sendfile/' + rest12.name, rest12, vol1.uuid)
-  get_txlog().record_file_to_snap('/root/sendfile/' + rest22.name, rest22, vol2.uuid)
+  if with_session: get_txlog().record_restore_start()
+  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/' + rest1.name, rest1, vol1.uuid)
+  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/' + rest2.name, rest2, vol2.uuid)
+  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/' + rest12.name, rest12, vol1.uuid)
+  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/' + rest22.name, rest22, vol2.uuid)
   get_txlog().record_subvol_delete(rest1)
   get_txlog().record_subvol_delete(rest2)
+  if with_session: get_txlog().record_restore_end()
+
+def add_fake_upload_to_txlog (with_session=False):
+  fs1 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs1', (0,2048))
+  fs1.aws_id = 'multipart_upload_id1'
+  fs2 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs2', (0,1024))
+  fs2.aws_id = 'multipart_upload_id2'
+
+  if with_session: get_txlog().record_aws_session_start(Record.SESSION_UPLD)
+  get_txlog().record_fileseg_start(fs1)
+  get_txlog().record_chunk_end([0,1024])
+  get_txlog().record_chunk_end([1024,2048])
+  get_txlog().record_fileseg_end('archive_id_1')
+  get_txlog().record_fileseg_start(fs2)
+  get_txlog().record_fileseg_end('archive_id_2')
+  if with_session: get_txlog().record_aws_session_end(Record.SESSION_UPLD)
 
 def calculate_record_type_count():
   record_type_count = {}
@@ -217,6 +235,6 @@ def use_mock_logger_on_module(module):
   real_logger = module.logger
   mock_logger = mock.Mock()
   module.logger = mock_logger
-  yield mock_logger
-  module.logger = real_logger
+  try: yield mock_logger
+  finally: module.logger = real_logger
 

@@ -13,18 +13,18 @@ class TxLogConsistencyChecker (object):
     pending_up_session = False
 
     for record in tx_list:
-      if record.r_type in alpha_omega and record.session_type == Record.SESSION_UP:
-        pending_up_session = record.r_type == Record.AWS_END
+      if record.r_type in alpha_omega:
+        assert record.session_type == Record.SESSION_UPLD, "Overlapping upload and download sessions"
+        pending_up_session = (record.r_type == Record.AWS_START)
 
       if record.r_type == Record.BACK_END:
-        complete_up_sessions += 1
+        complete_bak_sessions += 1
         assert not pending_up_session, 'Overlapping backup and upload session'
       if record.r_type == Record.BACK_START:
-        start_up_sessions += 1
+        start_bak_sessions += 1
         assert not pending_up_session, 'Overlapping backup and upload session'
 
     assert start_bak_sessions == complete_bak_sessions, 'All backup sessions have completed'
-    assert complete_bak_sessions, 'At least one completed backup session'    
 
   @staticmethod
   def check_log_for_download(tx_list):
@@ -34,13 +34,13 @@ class TxLogConsistencyChecker (object):
     pending_down_session = False
 
     for record in tx_list:
-      if record.r_type in alpha_omega and record.session_type == Record.SESSION_UP:
+      if record.r_type in alpha_omega and record.session_type == Record.SESSION_UPLD:
         complete_up_sessions += record.r_type == Record.AWS_END
         start_up_sessions += record.r_type == Record.AWS_START
       if record.r_type == Record.AWS_START and record.session_type == Record.SESSION_DOWN:
         pending_down_session = True
 
-      if record.r_type in alpha_omega and record.session_type == Record.SESSION_UP:
+      if record.r_type in alpha_omega and record.session_type == Record.SESSION_UPLD:
         assert not pending_down_session, 'no overlapping download/restore session'
       if record.r_type == Record.AWS_END and record.session_type == Record.SESSION_DOWN:
         assert False, 'Previous download session finished (glacier is expensive!)'
@@ -50,29 +50,17 @@ class TxLogConsistencyChecker (object):
 
   @staticmethod
   def check_log_for_restore(tx_list):
-    pending_down_session = False
     complete_down_session = True
-    glacier_filepaths = {}
 
     for record in tx_list:
       if record.r_type == Record.AWS_START and record.session_type == Record.SESSION_DOWN:
-        pending_down_session = True
         complete_down_session = False
       if record.r_type == Record.AWS_END and record.session_type == Record.SESSION_DOWN:
-        pending_down_session = False
         complete_down_session = True
 
-      if record.r_type == Record.FILESEG_START:
-        if record.fileout not in glacier_filepaths:
-          glacier_filepaths[record.fileout] = 1
-        else:
-          glacier_filepaths[record.fileout] += 1
-      assert record.r_type != Record.REST_START, 'No pending restore session allowed'
-
-    assert all( v == 2 for k,v in glacier_filepaths.items() if k in total_filepaths ), \
-      'Expecting each fileseg to be both uploaded and downloaded'
-    assert (not pending_down_session) or complete_down_session, \
-      'Either there is not download session, or it has finished'
+      assert record.r_type not in (Record.FILE_TO_SNAP, Record.REST_END, Record.REST_START), \
+        'No pending restore session allowed'
+    assert complete_down_session, 'Either there is not download session, or it has finished'
 
   @staticmethod
   def check_log_for_backup(tx_list):
@@ -84,6 +72,9 @@ class TxLogConsistencyChecker (object):
       if record.r_type == Record.BACK_START: complete_bak_session = False
       if record.r_type == Record.BACK_END:   complete_bak_session = True
 
+      if record.r_type in (Record.DEL_SNAP, Record.SNAP_TO_FILE, Record.NEW_SNAP):
+        assert not complete_bak_session, "Backup operations outside a session"
+
       if record.r_type == Record.NEW_SNAP:
         if record.subvol.puuid not in parent_to_childs: 
           parent_to_childs[record.subvol.puuid] = set()
@@ -93,7 +84,7 @@ class TxLogConsistencyChecker (object):
       if record.r_type == Record.DEL_SNAP:
         parent_to_deleted[record.subvol.puuid].add( record.subvol.uuid )
         assert record.subvol.uuid in parent_to_childs[record.subvol.puuid], \
-          'All deleted snaps mst have been created previously'
+          'All deleted snaps must have been created previously'
 
       if record.r_type == Record.SNAP_TO_FILE:
         assert record.subvol.uuid in parent_to_childs[record.subvol.puuid], \
@@ -131,9 +122,8 @@ class TxLogConsistencyChecker (object):
         data = logfile.read(segment[1]-segment[0])
         hasher.update(data)
         real_hash = hasher.digest()
-        #logger.debug("Validate %d, %r", len(data), data)
-        logger.debug("%r ?= %r", real_hash, record.hashstr)
-        assert real_hash == record.hashstr, "%r != %r" % (real_hash, record.hashstr)
+        logger.debug("@%r : %r != %r", segment, real_hash, record.hashstr)
+        assert real_hash == record.hashstr, "@%r : %r != %r" % (segment, real_hash, record.hashstr)
 
 ### END TxLogConsistencyChecker
 
