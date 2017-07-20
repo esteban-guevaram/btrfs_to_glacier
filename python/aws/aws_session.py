@@ -32,15 +32,11 @@ class AwsGlobalSession:
     self.filesegs[key].chunks[0].done = True
     self.close_fileseg(key, archive_id)
 
-  def start_chunk (self, key, chunk_range):
-    self.filesegs[key].chunks.append( Chunk(chunk_range) ) 
-    get_txlog().record_chunk_start(chunk_range)
-
-  def close_chunk (self, key):
-    chunk = self.filesegs[key].chunks[-1]
-    assert not chunk.done
+  def close_chunk (self, key, chunk_range):
+    chunk = Chunk(chunk_range) 
     chunk.done = True
-    get_txlog().record_chunk_end()
+    self.filesegs[key].chunks.append( chunk ) 
+    get_txlog().record_chunk_end(chunk_range)
 
   def add_download_job (self, fileseg):
     assert fileseg.aws_id and fileseg.aws_id not in self._submitted_aws_down_jobs
@@ -50,11 +46,6 @@ class AwsGlobalSession:
   def close (self):
     assert all( fs.done for fs in self.filesegs.values() )
     get_txlog().record_aws_session_end()
-
-  def signal_txlog_upload_after_close (self, fileseg):
-    # This is not needed but we put it in the txlog anyway for accountability
-    assert self.done
-    get_txlog().record_txlog_upload(fileseg)
 
   def clean_pending_fileseg (self):
     pending = [ fs for fs in self.filesegs.values() if not fs.done ]
@@ -107,7 +98,7 @@ class AwsGlobalSession:
   @staticmethod
   def collect_records_from_pending_session (session_type):
     accumulator = []
-    interesting_record_types = (Record.AWS_DOWN_INIT, Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_START, Record.CHUNK_END)
+    interesting_record_types = (Record.AWS_DOWN_INIT, Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_END)
 
     for record in get_txlog().reverse_iterate_through_records():
       assert record.r_type != Record.TXLOG_UPLD, "A txlog upload record should not be found in a pending session"
@@ -175,14 +166,12 @@ class RestoreFilesegState:
     elif record.r_type == Record.FILESEG_END:
       assert self.fileseg and self.chunk and self.chunk.done, 'Empty or pending chunk when ending fileseg'
       self.fileseg.set_done(record.archive_id)
-    elif record.r_type == Record.CHUNK_START:
-      assert self.fileseg, 'No fileseg for chunk'
-      assert not self.chunk or self.chunk == record.range_bytes, 'Chunk range bytes is not consistent'
-      self.chunk = Chunk(record.range_bytes)
     elif record.r_type == Record.CHUNK_END:
       assert self.chunk and not self.chunk.done, 'No valid chunk to end'
+      assert self.fileseg, 'No fileseg for chunk'
+      assert self.chunk == record.range_bytes, 'Chunk range bytes is not consistent'
+      self.chunk = Chunk(record.range_bytes)
       self.chunk.done = True
-      # we only add chunks if they were finished
       self.fileseg.add_chunk(self.chunk)
       self.chunk = None
     else:

@@ -208,19 +208,17 @@ class AwsGlacierManager:
       'checksum' : hasher.digest_chunk_as_hexstr(),
     }
 
-    session.start_chunk(fileseg.key(), chunk_range)
     chunk = retry_operation (
       lambda : multipart_job.upload_part(**kwargs),
       botoex.ClientError
     )
     assert is_between(int(chunk['ResponseMetadata']['HTTPStatusCode']), 200, 300)
-    session.close_chunk(fileseg.key())
+    session.close_chunk(fileseg.key(), chunk_range)
     return chunk
 
   def get_output_chunk_and_write_to_fileout (self, session, chunk_range, aws_job, fskey):
     assert aws_job.completed and aws_job.status_code == 'Succeeded'
     logger.debug("Downloading chunk %r", chunk_range)
-    session.start_chunk(fskey, chunk_range)
     fileseg = session.filesegs[fskey]
 
     body_bytes = retry_operation (
@@ -230,7 +228,7 @@ class AwsGlacierManager:
     assert body_bytes
 
     write_fileseg(fileseg, chunk_range, body_bytes)
-    session.close_chunk(fskey)
+    session.close_chunk(fskey, chunk_range)
 
   def _build_download_and_check_closure (self, chunk_range, aws_job):
     def __closure__():

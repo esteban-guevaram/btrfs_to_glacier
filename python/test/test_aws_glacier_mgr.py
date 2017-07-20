@@ -195,32 +195,7 @@ class TestAwsGlacierMgr (ut.TestCase):
     )
     
     self.up_session.start_fileseg(fileseg)
-    self.up_session.start_chunk(fileseg.key(), (0,len(first_chunk)))
-    self.up_session.close_chunk(fileseg.key())
-
-    archive = self.glacier_mgr.finish_pending_upload(self.up_session)
-    archive._close()
-
-    assert len(self.vault._archives) == 1, repr(self.vault._archives)
-    assert len(self.up_session.filesegs) == 1
-    count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.FILESEG_START] == 1, repr(count_per_type)
-    assert count_per_type[Record.FILESEG_END] == 1, repr(count_per_type)
-    assert count_per_type[Record.CHUNK_END] == 3, repr(count_per_type)
-
-  #@ut.skip("For quick validation")
-  def test_multipart_upload_resume_no_chunk_end(self):
-    size_kb = 2048 + 256
-    fileseg = add_rand_file_to_staging(size_kb)
-
-    job = self.vault.initiate_multipart_upload(
-      archiveDescription=fileseg.fileout,
-      partSize=1024**2,
-    )
-    fileseg.aws_id = job.id
-
-    self.up_session.start_fileseg(fileseg)
-    self.up_session.start_chunk(fileseg.key(), (0,1024**2))
+    self.up_session.close_chunk(fileseg.key(), (0,len(first_chunk)))
 
     archive = self.glacier_mgr.finish_pending_upload(self.up_session)
     archive._close()
@@ -297,8 +272,7 @@ class TestAwsGlacierMgr (ut.TestCase):
     job._expire()
     
     self.up_session.start_fileseg(fileseg)
-    self.up_session.start_chunk(fileseg.key(), (0,len(first_chunk)))
-    self.up_session.close_chunk(fileseg.key())
+    self.up_session.close_chunk(fileseg.key(), (0,len(first_chunk)))
 
     archive = self.glacier_mgr.finish_pending_upload(self.up_session)
     archive._close()
@@ -326,8 +300,7 @@ class TestAwsGlacierMgr (ut.TestCase):
     )
     
     self.up_session.start_fileseg(fileseg)
-    self.up_session.start_chunk(fileseg.key(), (0,len(first_chunk)))
-    self.up_session.close_chunk(fileseg.key())
+    self.up_session.close_chunk(fileseg.key(), (0,len(first_chunk)))
 
     with self.assertRaises(Exception):
       archive = self.glacier_mgr.finish_pending_upload(self.up_session)
@@ -352,8 +325,7 @@ class TestAwsGlacierMgr (ut.TestCase):
     )
     
     self.up_session.start_fileseg(fileseg)
-    self.up_session.start_chunk(fileseg.key(), (0,len(first_chunk)))
-    self.up_session.close_chunk(fileseg.key())
+    self.up_session.close_chunk(fileseg.key(), (0,len(first_chunk)))
 
     DummySession.behaviour = always_ko_behaviour()
     with self.assertRaises(Exception):
@@ -552,10 +524,8 @@ class TestAwsGlacierMgr (ut.TestCase):
     
     self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
-    self.down_session.start_chunk(fileseg.key(), (0,1024**2))
-    self.down_session.close_chunk(fileseg.key())
-    self.down_session.start_chunk(fileseg.key(), (1024**2, 2*1024**2))
-    self.down_session.close_chunk(fileseg.key())
+    self.down_session.close_chunk(fileseg.key(), (0,1024**2))
+    self.down_session.close_chunk(fileseg.key(), (1024**2, 2*1024**2))
     assert len(fileseg.chunks) == 2
 
     job = DummyJob('retrieval_job', self.vault, DummyJob.ArchiveRetrieval, 0, 4096*1024)
@@ -599,10 +569,8 @@ class TestAwsGlacierMgr (ut.TestCase):
     
     self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
-    self.down_session.start_chunk(fileseg.key(), (0,1024**2))
-    self.down_session.close_chunk(fileseg.key())
-    self.down_session.start_chunk(fileseg.key(), (1024**2, 2*1024**2))
-    self.down_session.close_chunk(fileseg.key())
+    self.down_session.close_chunk(fileseg.key(), (0,1024**2))
+    self.down_session.close_chunk(fileseg.key(), (1024**2, 2*1024**2))
 
     job = DummyJob('retrieval_job', self.vault, DummyJob.ArchiveRetrieval, 0, size_kb*1024)
     self.vault.jobs_in_progress[job.id] = job
@@ -634,8 +602,7 @@ class TestAwsGlacierMgr (ut.TestCase):
     
     self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
-    self.down_session.start_chunk(fileseg.key(), (0,1024**2))
-    self.down_session.close_chunk(fileseg.key())
+    self.down_session.close_chunk(fileseg.key(), (0,1024**2))
 
     job = DummyJob('retrieval_job', self.vault, DummyJob.ArchiveRetrieval, 0, size_kb*1024)
     self.vault.jobs_in_progress[job.id] = job
@@ -654,8 +621,7 @@ class TestAwsGlacierMgr (ut.TestCase):
     
     self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
-    self.down_session.start_chunk(fileseg.key(), (0,1024**2))
-    #self.down_session.close_chunk(fileseg.key())
+    self.down_session.close_chunk(fileseg.key(), (0,1024**2))
 
     job = DummyJob('retrieval_job', self.vault, DummyJob.ArchiveRetrieval, 0, size_kb*1024)
     self.vault.jobs_in_progress[job.id] = job

@@ -8,14 +8,12 @@ class TransactionLog (object):
   HEADER_LEN = 512
   HEADER_STRUCT = "<II32s472x"
 
-  def __init__(self, name=None):
+  def __init__(self):
     self.pickle_proto = get_conf().app.pickle_proto
-    self.logfile = name
+    self.logfile = get_conf().app.transaction_log
     self.recorded_snaps = set()
     self.recorded_restores = set()
 
-    if not name:
-      self.logfile = get_conf().app.transaction_log
     self.tx_list = self.load_from_file_and_check_hash()
 
     if self.tx_list:
@@ -26,11 +24,10 @@ class TransactionLog (object):
   def load_from_file_and_check_hash(self):
     logger.info("Loading tx log from %s", self.logfile)
     if not os.path.exists(self.logfile):
-      self.save_txlog_header(0, b"\0"*32)
+      self._save_txlog_header(0, b"\0"*32)
       return []
 
     tx_list = []
-    hasher = hashlib.sha256()
     with open(self.logfile, 'rb') as logfile:
       filehash, hash_domain_upper = TransactionLog.parse_header_and_advance_file(logfile)
       logger.info("Txlog header : hash_domain_upper=%d, hash=%r", hash_domain_upper, filehash)
@@ -46,18 +43,17 @@ class TransactionLog (object):
         pass
     
     assert len(self.recorded_snaps) >= len(self.recorded_restores)
-    self.validate_main_hash(filehash, hash_domain_upper)
+    self._validate_main_hash_or_die(filehash, hash_domain_upper)
     return tx_list
 
   def backup_to_crypted_file(self):
     logfile = self.logfile
-    hashstr = self.calculate_and_store_txlog_main_hash()
-    self.record_txlog_to_file(hashstr)
+    hashstr = self._calculate_and_store_txlog_hash()
 
     back_logfile = FileUtils.compress_crypt_file(logfile)
     return back_logfile    
 
-  def save_txlog_header (self, hash_domain_upper, filehash):
+  def _save_txlog_header (self, hash_domain_upper, filehash):
     if not os.path.exists(self.logfile):
       with open(self.logfile, 'wb') as logfile: pass
       
@@ -142,20 +138,9 @@ class TransactionLog (object):
     record.archive_id = archive_id
     self.add_and_flush_record(record)
 
-  def record_chunk_start(self, range_bytes):
-    record = Record(Record.CHUNK_START, self.new_uid())
-    record.range_bytes = range_bytes
-    self.add_and_flush_record(record)
-
-  def record_chunk_end(self):
+  def record_chunk_end(self, range_bytes):
     record = Record(Record.CHUNK_END, self.new_uid())
-    self.add_and_flush_record(record)
-
-  def record_txlog_upload(self, fileseg):
-    record = Record(Record.TXLOG_UPLD, self.new_uid())
-    record.fileout = os.path.basename( fileseg.fileout )
-    record.archive_id = fileseg.archive_id
-    record.range_bytes = fileseg.range_bytes
+    record.range_bytes = range_bytes
     self.add_and_flush_record(record)
 
   def record_snap_creation(self, snap):
@@ -169,11 +154,6 @@ class TransactionLog (object):
     record.subvol = subvol
     self.add_and_flush_record(record)
   
-  def record_txlog_to_file(self, hashstr):
-    record = Record(Record.TXLOG_TO_FILE, self.new_uid())
-    record.hashstr = hashstr
-    self.add_and_flush_record(record)
-
   def record_snap_to_file(self, fileout, hashstr, snap, pre_uuid=None):
     assert fileout and hashstr
     record = Record(Record.SNAP_TO_FILE, self.new_uid())
@@ -191,17 +171,28 @@ class TransactionLog (object):
     self.recorded_restores.add(subvol.uuid)
     self.add_and_flush_record(record)
 
-  def calculate_and_store_txlog_main_hash (self):
+  # We update the hash contained in the txlog header but also append a txlog_to_file record to the end of the txlog
+  # Useful in case of problems to detect which part of teh log got corrupted
+  def _calculate_and_store_txlog_hash (self):
     with open(self.logfile, 'rb') as logfile:
       TransactionLog.parse_header_and_advance_file(logfile)
       data = logfile.read()
+
     hash_domain_upper = len(data)
     assert hash_domain_upper > 0
     real_hash = hashlib.sha256(data).digest()
-    self.save_txlog_header(hash_domain_upper, real_hash) 
+
+    self._save_txlog_header(hash_domain_upper, real_hash) 
+    self._record_txlog_to_file(real_hash)
     return real_hash
 
-  def validate_main_hash(self, filehash, hash_domain_upper):
+  def _record_txlog_to_file(self, hashstr):
+    record = Record(Record.TXLOG_TO_FILE, self.new_uid())
+    record.hashstr = hashstr
+    self.add_and_flush_record(record)
+
+  # The main hash is the one contained in the header
+  def _validate_main_hash_or_die(self, filehash, hash_domain_upper):
     if not hash_domain_upper: return 
 
     with open(self.logfile, 'rb') as logfile:
@@ -231,6 +222,8 @@ class TransactionLog (object):
     return len(self.tx_list)
 
   def __repr__(self):
+    if not self.tx_list:
+      return '[]'
     return "\n".join(repr(r) for r in self.tx_list)
 
 ### END TransactionLog
@@ -247,8 +240,8 @@ class Record (object):
   REST_START,   REST_END,   FILE_TO_SNAP   = \
   'REST_START', 'REST_END', 'FILE_TO_SNAP'
 
-  AWS_START,   AWS_END,   AWS_DOWN_INIT,    FILESEG_START,   FILESEG_END,   CHUNK_START,    CHUNK_END   = \
-  'AWS_START', 'AWS_END', 'AWS_DOWN_INIT', 'FILESEG_START', 'FILESEG_END', 'CHUNK_START',  'CHUNK_END'
+  AWS_START,   AWS_END,   AWS_DOWN_INIT,    FILESEG_START,   FILESEG_END,   CHUNK_END   = \
+  'AWS_START', 'AWS_END', 'AWS_DOWN_INIT', 'FILESEG_START', 'FILESEG_END', 'CHUNK_END'
 
   def __init__(self, r_type, uid):
     self.r_type = r_type

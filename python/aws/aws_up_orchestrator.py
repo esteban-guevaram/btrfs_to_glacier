@@ -49,7 +49,6 @@ class AwsUploadOrchestrator:
     # we drop the aws_id and archive_id from glacier
     fileseg = Fileseg.build_from_fileout(backup_fileseg.fileout, backup_fileseg.range_bytes)
     self.s3_mgr.upload_txlog(fileseg)
-    session.signal_txlog_upload_after_close(fileseg)
     return fileseg
 
   def collect_files_to_upload_since_last_session (self):

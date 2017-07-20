@@ -28,8 +28,6 @@ class AwsS3Manager:
       botoex.ClientError
     )
     assert int(response['HTTPStatusCode']) == 200
-
-    fileseg.archive_id = s3_object.key
     return s3_object  
 
   def download_most_recent_txlog (self, back_logfile):
