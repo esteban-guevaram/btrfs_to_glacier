@@ -59,8 +59,8 @@ class DummyBtrfsNode (object):
 #################################################################################
 # Transaction log
 
-def fake_backup_file_tx (snap, predecessor):
-  fileout = get_conf().app.staging_dir + "/" + snap.name
+def fake_backup_file_tx (fileout, snap, predecessor=None):
+  fileout = get_conf().app.staging_dir + "/" + fileout
   hashstr = uuid.uuid4().hex
   get_txlog().record_snap_to_file(fileout, hashstr, snap, predecessor)
 
@@ -72,16 +72,16 @@ def add_fake_backup_to_txlog (with_session=False):
 
   if with_session: get_txlog().record_backup_start()
   get_txlog().record_snap_creation(snap1)
-  fake_backup_file_tx(snap1, None)
+  fake_backup_file_tx('fs1', snap1)
   get_txlog().record_snap_creation(snap2)
-  fake_backup_file_tx(snap2, None)
+  fake_backup_file_tx('fs2', snap2)
 
   snap12 = DummyBtrfsNode.snap(vol1)
   snap22 = DummyBtrfsNode.snap(vol2)
   get_txlog().record_snap_creation(snap12)
-  fake_backup_file_tx(snap12, snap1)
+  fake_backup_file_tx('fs12', snap12, snap1)
   get_txlog().record_snap_creation(snap22)
-  fake_backup_file_tx(snap22, snap2)
+  fake_backup_file_tx('fs22', snap22, snap2)
 
   get_txlog().record_subvol_delete(snap1)
   get_txlog().record_subvol_delete(snap2)
@@ -96,10 +96,10 @@ def add_fake_restore_to_txlog (with_session=False):
   rest22 = DummyBtrfsNode.receive(vol2, rest2)
 
   if with_session: get_txlog().record_restore_start()
-  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/' + rest1.name, rest1, vol1.uuid)
-  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/' + rest2.name, rest2, vol2.uuid)
-  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/' + rest12.name, rest12, vol1.uuid)
-  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/' + rest22.name, rest22, vol2.uuid)
+  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/fs1', rest1, vol1.uuid)
+  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/fs2', rest2, vol2.uuid)
+  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/fs12', rest12, vol1.uuid)
+  get_txlog().record_file_to_snap(get_conf().app.staging_dir + '/fs22', rest22, vol2.uuid)
   get_txlog().record_subvol_delete(rest1)
   get_txlog().record_subvol_delete(rest2)
   if with_session: get_txlog().record_restore_end()

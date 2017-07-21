@@ -89,7 +89,7 @@ class TestTxLogChecker (ut.TestCase):
     # Operation on a snapshot whose parent is not known
     clean_tx_log()
     get_txlog().record_backup_start()
-    fake_backup_file_tx(snap11, vol1)
+    fake_backup_file_tx('fs1', snap11, vol1)
     get_txlog().record_backup_end()
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_backup(get_txlog().iterate_through_records())
@@ -97,10 +97,9 @@ class TestTxLogChecker (ut.TestCase):
     # Send file from a snapshot outside session
     clean_tx_log()
     get_txlog().record_backup_start()
-    add_fake_backup_to_txlog(with_session=False)
     # we create record snap1 to add vol1 in the list of subvolumes checked
     get_txlog().record_snap_creation(snap1)
-    fake_backup_file_tx(snap11, vol1)
+    fake_backup_file_tx('fs12', snap11, vol1)
     get_txlog().record_backup_end()
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_backup(get_txlog().iterate_through_records())
@@ -108,10 +107,15 @@ class TestTxLogChecker (ut.TestCase):
     # Deleted snapshot outside of session
     clean_tx_log()
     get_txlog().record_backup_start()
-    add_fake_backup_to_txlog(with_session=False)
-    # we create record snap1 to add vol1 in the list of subvolumes checked
-    get_txlog().record_snap_creation(snap1)
     get_txlog().record_subvol_delete(snap11)
+    get_txlog().record_backup_end()
+    with self.assertRaises(Exception):
+      TxLogConsistencyChecker.check_log_for_backup(get_txlog().iterate_through_records())
+
+    # Snap created but not saved to a file
+    clean_tx_log()
+    get_txlog().record_backup_start()
+    get_txlog().record_snap_creation(snap1)
     get_txlog().record_backup_end()
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_backup(get_txlog().iterate_through_records())
@@ -121,21 +125,18 @@ class TestTxLogChecker (ut.TestCase):
     get_txlog().record_backup_start()
     get_txlog().record_snap_creation(snap1)
     get_txlog().record_subvol_delete(snap1)
-    fake_backup_file_tx(snap11, vol1)
+    fake_backup_file_tx('fs12', snap11, vol1)
     get_txlog().record_backup_end()
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_backup(get_txlog().iterate_through_records())
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_check_log_for_restore (self):
     # Empty txlog nothing to restore = ok
     TxLogConsistencyChecker.check_log_for_restore(get_txlog().iterate_through_records())
 
-    # No Completed download session previously
-    get_txlog().record_backup_start()
-    TxLogConsistencyChecker.check_log_for_restore(get_txlog().iterate_through_records())
-
     # Completed download session previously
+    clean_tx_log()
     get_txlog().record_aws_session_start(Record.SESSION_DOWN)
     get_txlog().record_aws_session_end(Record.SESSION_DOWN)
     TxLogConsistencyChecker.check_log_for_restore(get_txlog().iterate_through_records())
@@ -156,10 +157,12 @@ class TestTxLogChecker (ut.TestCase):
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_restore(get_txlog().iterate_through_records())
 
-  #@ut.skip("For quick validation")
+  @ut.skip("For quick validation")
   def test_check_log_for_upload (self):
     fs1 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs1', (0,2048))
     fs1.aws_id = 'multipart_upload_id1'
+    fs2 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs2', (0,1024))
+    fs2.aws_id = 'multipart_upload_id2'
 
     # Empty txlog nothing to upload = ok
     TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
@@ -168,7 +171,14 @@ class TestTxLogChecker (ut.TestCase):
     add_fake_backup_to_txlog(with_session=True)
     TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
 
-    # Previous upload session completed = ok
+    # Previous upload session completed but no previous backup = ok
+    clean_tx_log()
+    add_fake_upload_to_txlog(with_session=True)
+    TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
+
+    # Previous upload session completed with some snaps from previous backup = ok
+    clean_tx_log()
+    add_fake_backup_to_txlog(with_session=True)
     add_fake_upload_to_txlog(with_session=True)
     TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
 
@@ -210,6 +220,12 @@ class TestTxLogChecker (ut.TestCase):
     get_txlog().record_chunk_end([1024,2048])
     TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
 
+    # Operations outside of session boundary
+    clean_tx_log()
+    get_txlog().record_fileseg_end('surprise_mf')
+    with self.assertRaises(Exception):
+      TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
+
     # Pending backup session
     clean_tx_log()
     add_fake_backup_to_txlog(with_session=True)
@@ -219,18 +235,40 @@ class TestTxLogChecker (ut.TestCase):
 
     # Overlapping backup and upload sessions
     clean_tx_log()
-    add_fake_backup_to_txlog(with_session=False)
     get_txlog().record_aws_session_start(Record.SESSION_UPLD)
     get_txlog().record_backup_end()
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
 
-    # Overlapping download and upload sessions
+    # Past send file was not uploaded
     clean_tx_log()
-    get_txlog().record_aws_session_start(Record.SESSION_DOWN)
+    add_fake_backup_to_txlog(with_session=True)
+    get_txlog().record_aws_session_start(Record.SESSION_UPLD)
+    get_txlog().record_fileseg_start(fs2)
+    get_txlog().record_fileseg_end('archive_id_2')
+    get_txlog().record_aws_session_end(Record.SESSION_UPLD)
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
 
+
+  @ut.skip("For quick validation")
+  def test_check_log_for_download (self):
+    fs1 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs1', (0,2048))
+    fs1.aws_id = 'multipart_upload_id1'
+
+    # Empty txlog nothing to download = ok
+    TxLogConsistencyChecker.check_log_for_download(get_txlog().iterate_through_records())
+
+    # Previous upload session completed = ok
+    clean_tx_log()
+    add_fake_upload_to_txlog(with_session=True)
+    TxLogConsistencyChecker.check_log_for_download(get_txlog().iterate_through_records())
+
+    # Operations outside of session boundary
+    clean_tx_log()
+    get_txlog().record_fileseg_end('surprise_mf')
+    with self.assertRaises(Exception):
+      TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
 
   @ut.skip("For quick validation")
   def test_per_restore_batch_hash_protection (self):

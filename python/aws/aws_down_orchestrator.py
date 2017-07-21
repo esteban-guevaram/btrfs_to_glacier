@@ -227,6 +227,7 @@ class AwsDowloadOrchestrator:
         fileseg = None
 
       # since you can only download files once we stop at the beginning of the download session
+      assert False, 'make sure this takes into account previous download sessions'
       if record.r_type == Record.AWS_START and record.session_type == Record.SESSION_DOWN:
         break
         
