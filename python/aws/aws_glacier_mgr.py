@@ -71,7 +71,6 @@ class AwsGlacierManager:
     assert range_to_download[1] - range_to_download[0] > 0
     logger.info("Download %r to fileseg %r", range_to_download, fileseg)
     fileseg.aws_id = aws_job.id
-    session.start_fileseg(fileseg)
 
     for chunk_range in range_bytes_it(range_to_download, self.max_chunk_bytes):
       self.get_output_chunk_and_write_to_fileout(session, chunk_range, aws_job, fileseg.key())
@@ -98,7 +97,8 @@ class AwsGlacierManager:
       )
       assert job.id
       fileseg.aws_id = job.id
-      session.add_download_job(fileseg)
+      # we can add duplicate filesegs in case job expires
+      session.start_fileseg(fileseg)
     return job
 
   def get_all_down_jobs_in_vault_by_stx (self):
@@ -153,8 +153,8 @@ class AwsGlacierManager:
       assert multipart_job.id
       fileseg.aws_id = multipart_job.id
 
-      if fileseg.key() not in session.filesegs:
-        session.start_fileseg(fileseg)
+      # we can add duplicate filesegs in case job expires
+      session.start_fileseg(fileseg)
 
     hasher = TreeHasher()
     for chunk_range in range_bytes_it(fileseg.range_bytes, self.max_chunk_bytes):

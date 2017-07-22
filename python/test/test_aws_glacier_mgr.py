@@ -248,7 +248,8 @@ class TestAwsGlacierMgr (ut.TestCase):
     assert len(self.vault._archives) == 1, repr(self.vault._archives)
     assert len(self.up_session.filesegs) == 1
     count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.FILESEG_START] == 1, repr(count_per_type)
+    # since we have 2 upload jobs there will be 2 fileseg starts
+    assert count_per_type[Record.FILESEG_START] == 2, repr(count_per_type)
     assert count_per_type[Record.FILESEG_END] == 1, repr(count_per_type)
     assert count_per_type[Record.CHUNK_END] == 2, repr(count_per_type)
 
@@ -362,7 +363,7 @@ class TestAwsGlacierMgr (ut.TestCase):
 
     meta_job = self.vault.initiate_inventory_retrieval(
       Type = 'inventory-retrieval',
-      Tier='bnana',
+      Tier='banana',
     )
 
     job_stx = self.glacier_mgr.get_all_down_jobs_in_vault_by_stx()
@@ -408,7 +409,6 @@ class TestAwsGlacierMgr (ut.TestCase):
     assert fileseg.done and all( c.done for c in fileseg.chunks )
 
     count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.AWS_DOWN_INIT] == 1, repr(count_per_type)
     assert count_per_type[Record.FILESEG_START] == 1, repr(count_per_type)
     assert count_per_type[Record.FILESEG_END] == 1, repr(count_per_type)
     assert count_per_type[Record.CHUNK_END] == 4, repr(count_per_type)
@@ -432,7 +432,8 @@ class TestAwsGlacierMgr (ut.TestCase):
 
     job = self.glacier_mgr.initiate_archive_retrieval(self.down_session, fileseg)
     count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.AWS_DOWN_INIT] == 1, repr(count_per_type)
+    assert count_per_type[Record.FILESEG_START] == 1, repr(count_per_type)
+    assert next(r for r in get_txlog().reverse_iterate_through_records() if r.r_type == Record.FILESEG_START).aws_id == job.id
 
   #@ut.skip("For quick validation")
   def test_simple_job_download_all_fail(self):
@@ -447,7 +448,6 @@ class TestAwsGlacierMgr (ut.TestCase):
       self.glacier_mgr.get_job_ouput_to_fs(self.down_session, job, fileseg)
 
     count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.AWS_DOWN_INIT] == 1, repr(count_per_type)
     assert count_per_type[Record.FILESEG_START] == 1, repr(count_per_type)
 
     DummySession.blowup_on_fail = False
@@ -455,7 +455,6 @@ class TestAwsGlacierMgr (ut.TestCase):
       self.glacier_mgr.get_job_ouput_to_fs(self.down_session, job, fileseg)
 
     count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.AWS_DOWN_INIT] == 1, repr(count_per_type)
     assert count_per_type[Record.FILESEG_START] == 1, repr(count_per_type)
 
   #@ut.skip("For quick validation")
@@ -470,7 +469,6 @@ class TestAwsGlacierMgr (ut.TestCase):
     self.glacier_mgr.get_job_ouput_to_fs(self.down_session, job, fileseg)
 
     count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.AWS_DOWN_INIT] == 1, repr(count_per_type)
     assert count_per_type[Record.FILESEG_END] == 1, repr(count_per_type)
 
     DummySession.blowup_on_fail = False
@@ -478,7 +476,6 @@ class TestAwsGlacierMgr (ut.TestCase):
       self.glacier_mgr.get_job_ouput_to_fs(self.down_session, job, fileseg)
 
     count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.AWS_DOWN_INIT] == 1, repr(count_per_type)
     assert count_per_type[Record.FILESEG_START] == 1, repr(count_per_type)
 
   #@ut.skip("For quick validation")
@@ -503,7 +500,6 @@ class TestAwsGlacierMgr (ut.TestCase):
       self.glacier_mgr.get_job_ouput_to_fs(self.down_session, job, fileseg)
 
     count_per_type = calculate_record_type_count()
-    assert count_per_type[Record.AWS_DOWN_INIT] == 1, repr(count_per_type)
     assert not count_per_type.get(Record.FILESEG_END), repr(count_per_type)
 
   #@ut.skip("For quick validation")
@@ -522,7 +518,6 @@ class TestAwsGlacierMgr (ut.TestCase):
     fileseg.archive_id = 'lskdjflsdkf'
     fileseg.aws_id = 'lskdjflsdkf'
     
-    self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
     self.down_session.close_chunk(fileseg.key(), (0,1024**2))
     self.down_session.close_chunk(fileseg.key(), (1024**2, 2*1024**2))
@@ -546,7 +541,6 @@ class TestAwsGlacierMgr (ut.TestCase):
     fileseg.archive_id = 'lskdjflsdkf'
     fileseg.aws_id = 'lskdjflsdkf'
     
-    self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
 
     job = DummyJob('retrieval_job', self.vault, DummyJob.ArchiveRetrieval, 0, size_kb*1024)
@@ -567,7 +561,6 @@ class TestAwsGlacierMgr (ut.TestCase):
     fileseg.archive_id = 'lskdjflsdkf'
     fileseg.aws_id = 'lskdjflsdkf'
     
-    self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
     self.down_session.close_chunk(fileseg.key(), (0,1024**2))
     self.down_session.close_chunk(fileseg.key(), (1024**2, 2*1024**2))
@@ -590,7 +583,6 @@ class TestAwsGlacierMgr (ut.TestCase):
       self.glacier_mgr.finish_job_output_to_fs(self.down_session, job)
 
     count_per_type = calculate_record_type_count()
-    assert not count_per_type.get(Record.AWS_DOWN_INIT), repr(count_per_type)
     assert not count_per_type.get(Record.FILESEG_END), repr(count_per_type)
 
   #@ut.skip("For quick validation")
@@ -600,7 +592,6 @@ class TestAwsGlacierMgr (ut.TestCase):
     fileseg.archive_id = 'lskdjflsdkf'
     fileseg.aws_id = 'lskdjflsdkf'
     
-    self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
     self.down_session.close_chunk(fileseg.key(), (0,1024**2))
 
@@ -619,7 +610,6 @@ class TestAwsGlacierMgr (ut.TestCase):
     fileseg.archive_id = 'lskdjflsdkf'
     fileseg.aws_id = 'lskdjflsdkf'
     
-    self.down_session.add_download_job(fileseg)
     self.down_session.start_fileseg(fileseg)
     self.down_session.close_chunk(fileseg.key(), (0,1024**2))
 

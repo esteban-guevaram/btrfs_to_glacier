@@ -6,11 +6,11 @@ logger = logging.getLogger(__name__)
 class AwsGlobalSession:
 
   def __init__ (self, session_type):
-    # INVARIANT : len(filesegs) <= len(_submitted_aws_down_jobs) for down sessions
+    # INVARIANT : len(filesegs) <= len(_submitted_aws_jobs) for down sessions
     # => if a fileseg download is started, there must already be a aws job
     self.session_type = session_type
     self.filesegs = {}
-    self._submitted_aws_down_jobs = {}
+    self._submitted_aws_jobs = {}
     self.done = False
 
   def iterate (self):
@@ -38,11 +38,6 @@ class AwsGlobalSession:
     self.filesegs[key].chunks.append( chunk ) 
     get_txlog().record_chunk_end(chunk_range)
 
-  def add_download_job (self, fileseg):
-    assert fileseg.aws_id and fileseg.aws_id not in self._submitted_aws_down_jobs
-    self._submitted_aws_down_jobs[fileseg.aws_id] = copy.copy(fileseg)
-    get_txlog().record_aws_down_job_submit(fileseg.fileout, fileseg.aws_id, fileseg.range_bytes)
-
   def close (self):
     assert all( fs.done for fs in self.filesegs.values() )
     get_txlog().record_aws_session_end()
@@ -58,12 +53,12 @@ class AwsGlobalSession:
     return pending and pending[0]
 
   def view_fskey_with_submitted_job (self):
-    return set( fs.key() for fs in self._submitted_aws_down_jobs.items() )
+    return set( fs.key() for fs in self._submitted_aws_jobs.items() )
 
   def view_fs_with_submitted_job (self):
     # the view will filter failed job that have been resubmitted
     view = []
-    for aws_id,fs in self._submitted_aws_down_jobs.items():
+    for aws_id,fs in self._submitted_aws_jobs.items():
       if fs.key() in self.filesegs and aws_id == self.filesegs[fs.key()].aws_id:
         view.append(self.filesegs[fs.key()])
       else:
@@ -92,13 +87,13 @@ class AwsGlobalSession:
       logger.debug('No previous session found')
       return None
     
-    session = AwsGlobalSession.build_glacier_session_from_records(session_type, accumulator)
+    session = AwsGlobalSession.build_glacier_session_from_records(accumulator)
     return session
 
   @staticmethod
   def collect_records_from_pending_session (session_type):
     accumulator = []
-    interesting_record_types = (Record.AWS_DOWN_INIT, Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_END)
+    interesting_record_types = (Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_END)
 
     for record in get_txlog().reverse_iterate_through_records():
       assert record.r_type != Record.TXLOG_UPLD, "A txlog upload record should not be found in a pending session"
@@ -116,15 +111,11 @@ class AwsGlobalSession:
     return None    
   
   @staticmethod
-  def build_glacier_session_from_records (session_type, accumulator):
+  def build_glacier_session_from_records (accumulator):
     session = AwsGlobalSession()
     state = RestoreFilesegState()
 
     for record in accumulator:
-      if record.r_type == Record.AWS_DOWN_INIT:
-        assert session_type == Record.SESSION_DOWN
-        session._add_down_job_from_record(record)
-
       state.push(record)
       fileseg = state.flush_fileseg_if_done()
       if fileseg:
@@ -135,21 +126,16 @@ class AwsGlobalSession:
       session._add_fileseg(state.fileseg)
     return session
 
-  def _add_down_job_from_record (self, record):
-    assert record.aws_id not in self._submitted_aws_down_jobs
-    fileseg = Fileseg.build_from_record(record)
-    self._submitted_aws_down_jobs[record.aws_id] = fileseg
-
   def _add_fileseg (self, fileseg):
-    assert fileseg.key() not in self.filesegs
+    if fileseg.key() in self.filesegs:
+      logger.warn("%r already added to session, probably a job expired ?", fileseg)
+    assert fileseg.aws_id not in self._submitted_aws_jobs
     self.filesegs[fileseg.key()] = copy.copy(fileseg)
+    self._submitted_aws_jobs[fileseg.aws_id] = fileseg
 
-  def print_download_summary (self):
-    return 'submitted_jobs=%d, fileseg_len=%d' % (len(self._submitted_aws_down_jobs), len(self.filesegs))
+  def print_summary (self):
+    return 'session_done=%r, submitted_jobs=%d, fileseg_len=%d' % (self.done, len(self._submitted_aws_jobs), len(self.filesegs))
 
-  def print_upload_summary (self):
-    return 'session_done=%r, fileseg_len=%r' % (self.done, len(self.filesegs))
-  
   def print_glacier_summary (self):
     lines = [ repr(fs) for fs in self.filesegs.values() ]
     return "\n".join(lines)

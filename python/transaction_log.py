@@ -113,13 +113,6 @@ class TransactionLog (object):
     record.session_type = session_type
     self.add_and_flush_record(record)
 
-  def record_aws_down_job_submit(self, fileout, aws_id, range_bytes):
-    record = Record(Record.AWS_DOWN_INIT, self.new_uid())
-    record.fileout = os.path.basename( fileout )
-    record.aws_id = aws_id
-    record.range_bytes = range_bytes
-    self.add_and_flush_record(record)
-
   def record_fileseg_start(self, fileseg):
     # single upload : fileout, range_bytes
     # multipart upload : fileout, aws_id, range_bytes
@@ -172,7 +165,7 @@ class TransactionLog (object):
     self.add_and_flush_record(record)
 
   # We update the hash contained in the txlog header but also append a txlog_to_file record to the end of the txlog
-  # Useful in case of problems to detect which part of teh log got corrupted
+  # Useful in case of problems to detect which part of the log got corrupted
   def _calculate_and_store_txlog_hash (self):
     with open(self.logfile, 'rb') as logfile:
       TransactionLog.parse_header_and_advance_file(logfile)
@@ -240,8 +233,8 @@ class Record (object):
   REST_START,   REST_END,   FILE_TO_SNAP   = \
   'REST_START', 'REST_END', 'FILE_TO_SNAP'
 
-  AWS_START,   AWS_END,   AWS_DOWN_INIT,    FILESEG_START,   FILESEG_END,   CHUNK_END   = \
-  'AWS_START', 'AWS_END', 'AWS_DOWN_INIT', 'FILESEG_START', 'FILESEG_END', 'CHUNK_END'
+  AWS_START,   AWS_END,   FILESEG_START,   FILESEG_END,   CHUNK_END   = \
+  'AWS_START', 'AWS_END', 'FILESEG_START', 'FILESEG_END', 'CHUNK_END'
 
   def __init__(self, r_type, uid):
     self.r_type = r_type

@@ -178,7 +178,7 @@ class AwsDowloadOrchestrator:
     already_done_ids = set( fs.aws_id for fs in session.iterate()
                             if fs.key() in bandwith_quota.submitted_fileseg_keys 
                                and fs.done )
-    jobs_ready = [ job for job in all_jobs['InProgress'] 
+    jobs_ready = [ job for job in all_jobs['Succeeded'] 
                    if job.id not in already_done_ids ]
     return jobs_ready
 
@@ -194,7 +194,7 @@ class AwsDowloadOrchestrator:
 
   def look_for_fs_with_expired_job_in_quota (self, session, bandwith_quota, filesegs_left, all_jobs):
     failed_ids = set( job.id for job in all_jobs['Failed'] )
-    current_ids = set( job.id for job in flatten_dict(all_jobs, 'Succeded', 'InProgress') )
+    current_ids = set( job.id for job in flatten_dict(all_jobs, 'Succeeded', 'InProgress') )
     expired_fs = []
     expired_id = []
 

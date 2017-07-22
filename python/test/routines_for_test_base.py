@@ -80,13 +80,17 @@ def compare_text_files(left, right):
         return 0
       return 1  
 
-def modify_random_byte_in_file (filein, min_offset=0):
+def modify_random_byte_in_file (filein, min_offset=0, max_offset=0):
   size = os.path.getsize(filein)
-  assert size > min_offset
-  offset = random.randint(min_offset, size-1)
+  if not max_offset:
+    max_offset = size-1
+  assert min_offset < max_offset
+  offset = random.randint(min_offset, max_offset)
+
   fileout = get_conf().app.staging_dir + '/' + uuid.uuid4().hex
   assert not os.path.exists(fileout)
   shutil.copyfile(filein, fileout)
+
   with open(fileout, 'r+b') as fileobj:
     fileobj.seek(offset, os.SEEK_SET) 
     data = fileobj.read(1)[0]

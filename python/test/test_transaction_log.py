@@ -44,9 +44,12 @@ class TestBackupFiles (ut.TestCase):
     add_fake_restore_to_txlog()
     get_txlog()._calculate_and_store_txlog_hash()
     filein = get_conf().app.transaction_log
+    with open(filein, 'rb') as fileobj:
+      main_hash, hash_domain_upper = TransactionLog.parse_header_and_advance_file(fileobj)
+    modif_range = (TransactionLog.HEADER_LEN, TransactionLog.HEADER_LEN + hash_domain_upper)
 
     for i in range(10):
-      corrupt_file = modify_random_byte_in_file(filein, TransactionLog.HEADER_LEN)
+      corrupt_file = modify_random_byte_in_file(filein, modif_range[0], modif_range[1])
       get_conf().app.transaction_log = corrupt_file
       reset_txlog()
       with self.assertRaises(Exception):
