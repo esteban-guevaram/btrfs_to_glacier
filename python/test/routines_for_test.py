@@ -119,6 +119,21 @@ def add_fake_upload_to_txlog (with_session=False):
   get_txlog().record_fileseg_end('archive_id_2')
   if with_session: get_txlog().record_aws_session_end(Record.SESSION_UPLD)
 
+def add_fake_download_to_txlog (with_session=False):
+  fs1 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs1', (0,2048))
+  fs1.aws_id = 'download_id1'
+  fs2 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs2', (0,1024))
+  fs2.aws_id = 'download_id2'
+
+  if with_session: get_txlog().record_aws_session_start(Record.SESSION_DOWN)
+  get_txlog().record_fileseg_start(fs1)
+  get_txlog().record_chunk_end([0,1024])
+  get_txlog().record_chunk_end([1024,2048])
+  get_txlog().record_fileseg_end()
+  get_txlog().record_fileseg_start(fs2)
+  get_txlog().record_fileseg_end()
+  if with_session: get_txlog().record_aws_session_end(Record.SESSION_DOWN)
+
 def calculate_record_type_count():
   record_type_count = {}
   for record in get_txlog().iterate_through_records():

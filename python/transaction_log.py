@@ -131,7 +131,7 @@ class TransactionLog (object):
     record.range_bytes = fileseg.range_bytes
     self.add_and_flush_record(record)
 
-  def record_fileseg_end(self, archive_id):
+  def record_fileseg_end(self, archive_id=None):
     # upload : archive_id
     # download : None
     record = Record(Record.FILESEG_END, self.new_uid())

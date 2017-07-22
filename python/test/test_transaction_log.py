@@ -5,19 +5,24 @@ from routines_for_test import *
 @deco_setup_each_test
 class TestBackupFiles (ut.TestCase):
   
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_silly_coverage_cases (self):
     assert get_txlog().is_empty()
     # the hash validation should not fail for an empty file
     get_txlog()._validate_main_hash_or_die(b'', 0)
     self.assertTrue( repr(get_txlog()) )
     self.assertEqual( 0, len(get_txlog()) )
+    self.assertEqual( sum(1 for i in get_txlog().iterate_through_records()), 
+                      sum(1 for i in get_txlog().reverse_iterate_through_records()) )
 
     add_fake_backup_to_txlog()
     self.assertTrue( repr(get_txlog()) )
     self.assertTrue( len(get_txlog()) > 0 )
+    self.assertTrue( len(get_txlog()) > 0 )
+    self.assertEqual( sum(1 for i in get_txlog().iterate_through_records()), 
+                      sum(1 for i in get_txlog().reverse_iterate_through_records()) )
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_txlog_unencrypted_backup_restore (self):
     add_fake_backup_to_txlog()
     fileout = get_txlog().backup_to_crypted_file()
@@ -28,12 +33,12 @@ class TestBackupFiles (ut.TestCase):
     self.assertEqual(4, record_type_count[Record.SNAP_TO_FILE])
     self.assertEqual(2, record_type_count[Record.DEL_SNAP])
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_txlog_encrypted_backup_restore (self):
     get_conf().app.encrypt = True
     self.test_txlog_unencrypted_backup_restore()
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_main_hash_protection (self):
     add_fake_backup_to_txlog()
     add_fake_restore_to_txlog()
@@ -47,7 +52,7 @@ class TestBackupFiles (ut.TestCase):
       with self.assertRaises(Exception):
         logger.warning("Loaded a corrupt tx log = %r", get_txlog())
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_recorded_snaps_and_restores (self):
     self.assertEqual(0, len(get_txlog().recorded_snaps))
     self.assertEqual(0, len(get_txlog().recorded_restores))
@@ -61,7 +66,41 @@ class TestBackupFiles (ut.TestCase):
 @deco_setup_each_test
 class TestTxLogChecker (ut.TestCase):
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
+  def test_overlap_check (self):
+    ov_check = OverlapChecker()
+    self.assertTrue(not ov_check.pending_back_session and ov_check.complete_back_session == 0)
+    self.assertTrue(not ov_check.pending_upld_session and ov_check.complete_upld_session == 0)
+    self.assertTrue(not ov_check.pending_down_session and ov_check.complete_down_session == 0)
+    self.assertTrue(not ov_check.pending_rest_session and ov_check.complete_rest_session == 0)
+
+    ov_check = OverlapChecker()
+    add_fake_backup_to_txlog  (with_session=True)
+    add_fake_upload_to_txlog  (with_session=True)
+    add_fake_download_to_txlog(with_session=True)
+    add_fake_restore_to_txlog (with_session=True)
+
+    for r in get_txlog().iterate_through_records():
+      ov_check.next_record(r)
+    self.assertTrue(not ov_check.pending_back_session and ov_check.complete_back_session == 1)
+    self.assertTrue(not ov_check.pending_upld_session and ov_check.complete_upld_session == 1)
+    self.assertTrue(not ov_check.pending_down_session and ov_check.complete_down_session == 1)
+    self.assertTrue(not ov_check.pending_rest_session and ov_check.complete_rest_session == 1)
+
+    ov_check = OverlapChecker()
+    with self.assertRaises(Exception):
+      for r in get_txlog().reverse_iterate_through_records():
+        ov_check.next_record(r)
+
+    clean_tx_log()
+    ov_check = OverlapChecker()
+    get_txlog().record_aws_session_start(Record.SESSION_DOWN)
+    get_txlog().record_backup_start()
+    with self.assertRaises(Exception):
+      for r in get_txlog().iterate_through_records():
+        ov_check.next_record(r)
+
+  #@ut.skip("For quick validation")
   def test_check_log_for_backup (self):
     vol1 = DummyBtrfsNode.build()
     snap1 = DummyBtrfsNode.snap(vol1)
@@ -157,7 +196,7 @@ class TestTxLogChecker (ut.TestCase):
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_restore(get_txlog().iterate_through_records())
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_check_log_for_upload (self):
     fs1 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs1', (0,2048))
     fs1.aws_id = 'multipart_upload_id1'
@@ -251,7 +290,7 @@ class TestTxLogChecker (ut.TestCase):
       TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
 
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_check_log_for_download (self):
     fs1 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs1', (0,2048))
     fs1.aws_id = 'multipart_upload_id1'
@@ -270,7 +309,7 @@ class TestTxLogChecker (ut.TestCase):
     with self.assertRaises(Exception):
       TxLogConsistencyChecker.check_log_for_upload(get_txlog().iterate_through_records())
 
-  @ut.skip("For quick validation")
+  #@ut.skip("For quick validation")
   def test_per_restore_batch_hash_protection (self):
     for i in range(3):
       add_fake_backup_to_txlog()
