@@ -23,7 +23,7 @@ class AwsUploadOrchestrator:
     session.close()
     # txlog uploads are not in session so that they have a consistent sequence of records
     backup_fileseg = self.backup_and_upload_txlog_to_glacier()
-    self.upload_txlog_to_s3(session, backup_fileseg)
+    self.upload_txlog_to_s3(backup_fileseg)
 
     logger.info("Upload finished :\n%r", session.print_upload_summary())
     return session
@@ -45,7 +45,7 @@ class AwsUploadOrchestrator:
     self.glacier_mgr.upload_out_of_session(backup_fileseg)
     return backup_fileseg
 
-  def upload_txlog_to_s3 (self, session, backup_fileseg):
+  def upload_txlog_to_s3 (self, backup_fileseg):
     # we drop the aws_id and archive_id from glacier
     fileseg = Fileseg.build_from_fileout(backup_fileseg.fileout, backup_fileseg.range_bytes)
     self.s3_mgr.upload_txlog(fileseg)

@@ -4,7 +4,7 @@ from file_utils import *
 from txlog_consistency import *
 from aws_s3_mgr import *
 from aws_glacier_mgr import *
-from aws_emergency import *
+from aws_glacier_txlog import *
 from aws_up_orchestrator import *
 from aws_down_orchestrator import *
 from btrfs_backup_orchestrator import *

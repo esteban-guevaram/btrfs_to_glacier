@@ -1,6 +1,6 @@
 from config import get_conf, conf_for_test, reset_conf
 import logging, config_log, random, setuserid
-import sys, os, re, stat, datetime, copy, tempfile, binascii, base64, json, time, itertools, signal, hashlib
+import sys, os, re, stat, datetime, copy, tempfile, binascii, base64, json, time, itertools, signal, hashlib, dateutil
 import subprocess as sp
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ def calculate_md5_base64_encoded (byte_array):
 def truncate_and_write_fileseg (fileseg, body_bytes):
   with open(fileseg.fileout, 'wb') as fileobj:
     fileobj.write(body_bytes)
-    assert fileobj.tell() == fileseg.range_bytes[1]
+    assert fileobj.tell() == fileseg.range_bytes[1], '%r / %r' % (fileobj.tell(), fileseg.range_bytes)
 
 def write_fileseg (fileseg, chunk_range, data):
   assert chunk_range[1] - chunk_range[0] == len(data), "%r / %d" % (chunk_range, len(data))
@@ -163,7 +163,13 @@ def parse_json_date (dct):
   return dct
 
 def convert_json_bytes_to_dict (byte_array):
-  return json.loads(byte_array.decode('utf-8'), object_hook=parse_json_date)
+  decoded = None
+  try:
+    decoded = byte_array.decode('utf-8')
+    return json.loads(decoded, object_hook=parse_json_date)
+  except:
+    logger.exception("Invalid message : %s", decoded[:4096])
+    raise
   
 def wait_for_polling_period ():
   secs = get_conf().aws.polling_period_secs

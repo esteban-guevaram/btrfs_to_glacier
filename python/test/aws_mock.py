@@ -206,7 +206,9 @@ class DummyGlacier (DummyResource):
     assert len(vault) < 2
     if vault:
       return vault[0]
-    return DummyVault(name, self)
+    new_vault = DummyVault(name, self)
+    self.vaults[new_vault.id] = new_vault
+    return new_vault
    
 class DummyVault (DummyResource):
 
@@ -248,22 +250,26 @@ class DummyVault (DummyResource):
   def initiate_inventory_retrieval (self, **kwargs):
     '''
     jobParameters={'RetrievalByteRange':'0-1048575', "Type":'archive-retrieval', 'ArchiveId': 'S-CStPFbgPAdXh8QVEkd9OKamTIkRdHHshwbiA8O6-84in4SBVj8zHFAxh65mjr3dD_6dRUn1NaCZr9EBuiH8ZuPQ4yqc7qPNA6ZwB8Zq-ofWiat66CCnBWPNiCWAMm0-GeA7f5pzg'}
-    {'InventoryDate': '2016-08-21T00:46:31Z', 'ArchiveList': [{'SHA256TreeHash': '1acac939ccb8d55467ecaa6bb413ae59434b6ef5008f45adbf16c397d74da15c', 'ArchiveId': 'T8ecmVSHxb1pcW31Ia0C4Q4mbSb6c3ERw9lm4q-Erhc562Qo9r8XqAa8aFUjoIcrnbL7h58Z_FzxI7lNevXenmR9d3vvXWd5KezsL07Akf6Mt9hVGhhFVaO0GzRxzRGiyP94OXqSqA', 'Size': 71641, 'CreationDate': '2016-01-06T18:42:57Z', 'ArchiveDescription': 'test random file upload'}, {'SHA256TreeHash': '2ecfdbd275e1e00bf050b4954fa6d1467190a6c1719cffaa22d96f0c2e69188b', 'ArchiveId': 'poti53ZqdyE4LYfYUyG7x4Zahb-4Ux6Ry98rma1FZJqcOg2FwrZriGZkNHAZGSYrDI2Al1CZygJj4UqLzJ9B0r2h88UHR5b5Xi_Vi56VtZnkku2FQ0mA3mK16uhVOw3kg9x2vXXizQ', 'Size': 12582912, 'CreationDate': '2016-08-20T13:44:27Z', 'ArchiveDescription': 'to_glacier_single_part_upl'}, {'SHA256TreeHash': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'ArchiveId': 'S-CStPFbgPAdXh8QVEkd9OKamTIkRdHHshwbiA8O6-84in4SBVj8zHFAxh65mjr3dD_6dRUn1NaCZr9EBuiH8ZuPQ4yqc7qPNA6ZwB8Zq-ofWiat66CCnBWPNiCWAMm0-GeA7f5pzg', 'Size': 12582912, 'CreationDate': '2016-08-20T14:44:34Z', 'ArchiveDescription': 'to_glacier_multipart_upl'}], 'VaultARN': 'arn:aws:glacier:eu-west-1:843392324993:vaults/dummy_vault'}
     '''
-    assert 'Type' in kwargs and 'Tier' in kwargs
-    assert kwargs['Type'] in ('inventory-retrieval', 'archive-retrieval')
+    assert kwargs.get('Type') in ('inventory-retrieval', 'archive-retrieval'), repr(kwargs)
+    assert 'Tier' in kwargs or kwargs.get('Type') == 'inventory-retrieval', repr(kwargs)
 
     if kwargs['Type'] == 'archive-retrieval':
       assert 'RetrievalByteRange' in kwargs
+      assert 'ArchiveId' in kwargs
       job_range = build_range_from_mime(kwargs['RetrievalByteRange'])
-      job = DummyJob('mock_job', self, DummyJob.ArchiveRetrieval, job_range[0], job_range[1])
+      job = DummyJob('mock_job', self, DummyJob.ArchiveRetrieval, job_range[0], job_range[1], kwargs['ArchiveId'])
     else:
       job = DummyJob('mock_job', self, DummyJob.InventoryRetrieval)
 
     resp = DummySession.behaviour(type(self), self.initiate_inventory_retrieval, job)
     if resp[0]:
-      assert not job.id in self.jobs_in_progress
-      self.jobs_in_progress[job.id] = job
+      if DummyJob.CompleteAsSoonAsCreated:
+        assert not job.id in self.succeeded_jobs
+        self.succeeded_jobs[job.id] = job
+      else:
+        assert not job.id in self.jobs_in_progress
+        self.jobs_in_progress[job.id] = job
     return resp[1]
 
   def upload_archive (self, **kwargs):
@@ -291,7 +297,10 @@ class DummyVault (DummyResource):
     return self.multipart_uploads[aws_id]
 
   def Archive(self, archiveId):
-    return self._archives.get(archiveId, DummyArchive(self))
+    archive = self._archives.get(archiveId)
+    if not archive:
+      archive = self._archives.setdefault(archiveId, DummyArchive(self))
+    return archive
 
   class JobIterable:
     def __init__(self, parent):
@@ -299,7 +308,7 @@ class DummyVault (DummyResource):
 
     def all(self):
       for j in self.parent.jobs_in_progress.values(): yield j
-      for j in self.parent.completed_jobs.values(): yield j
+      for j in self.parent.succeeded_jobs.values(): yield j
       for j in self.parent.failed_jobs.values(): yield j
 
 class DummyMultiPart (DummyResource):
@@ -405,24 +414,30 @@ class DummyMultiPartMultiPage ():
 class DummyJob (DummyResource):
   ArchiveRetrieval, InventoryRetrieval = 'ArchiveRetrieval','InventoryRetrieval'
   Failed, InProgress, Succeeded = 'Failed', 'InProgress', 'Succeeded'
+  CompleteAsSoonAsCreated = False
 
-  def __init__ (self, name, parent, action, start=None, end=None):
+  def __init__ (self, name, parent, action, start=None, end=None, archive_id=None):
     super().__init__(parent)
     self.job_id = self.id
     self.action = action
     self.job_description = name
     self.creation_date = datetime.datetime.now()
-    self.archive_id = None
+    self.archive_id = archive_id
     self.archive_sha256_tree_hash = None
+    self.sha256_tree_hash = None
     self.archive_size_in_bytes = None
-    self.completed = False
-    self.status_code = DummyJob.InProgress
-    self.completion_date = None
-    self.inventory_retrieval_parameters = {}
     self.inventory_size_in_bytes = None
+    self.inventory_retrieval_parameters = {}
     if end:
       self.retrieval_byte_range = build_mime_range((start, end))
-    self.sha256_tree_hash = None
+    if DummyJob.CompleteAsSoonAsCreated:
+      self.completed = True
+      self.status_code = DummyJob.Succeeded
+      self.completion_date = self.creation_date
+    else:
+      self.completed = False
+      self.status_code = DummyJob.InProgress
+      self.completion_date = None
 
   @staticmethod
   def min (a,b):
@@ -439,30 +454,40 @@ class DummyJob (DummyResource):
     return b
 
   # monkey patch me to change hash of the get_output response
-  def calculate_hash(self, fileobj):
-    return TreeHasher().digest_fileobj_as_hexstr(fileobj)
+  def calculate_hash_and_rewind(self, fileobj):
+    hashstr = TreeHasher().digest_fileobj_as_hexstr(fileobj)
+    fileobj.seek(0, os.SEEK_SET)
+    return hashstr
 
-  def _fail(self):
+  def _fail (self):
+    self.completion_date = datetime.datetime.now()
     self.completed = True
     self.status_code = DummyJob.Failed
-    del self.parent.jobs_in_progress[self.id]
     self.parent.failed_jobs[self.id] = self
+    self.parent.jobs_in_progress.pop(self.id, None)
+    self.parent.succeeded_jobs.pop(self.id, None)
 
   def _complete (self):
     self.completion_date = datetime.datetime.now()
     self.completed = True
     self.status_code = DummyJob.Succeeded
-    del self.parent.jobs_in_progress[self.id]
-    self.parent.completed_jobs[self.id] = self
+    self.parent.succeeded_jobs[self.id] = self
+    self.parent.jobs_in_progress.pop(self.id, None)
 
   def get_output(self, **kwargs):
-    '''
-    {'body': <botocore.response.StreamingBody object at 0x7f57552a3e10>, 'checksum': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'status': 200, 'ResponseMetadata': {'HTTPStatusCode': 200, 'HTTPHeaders': {'content-length': '12582912', 'x-amzn-requestid': '3Rqh31vlsE3a02DI2dCXXblBpgQc-qsVi9LVgaqHy6B0D1Q', 'x-amz-sha256-tree-hash': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'x-amz-archive-description': 'to_glacier_multipart_upl', 'content-type': 'application/octet-stream', 'accept-ranges': 'bytes', 'date': 'Sun, 28 Aug 2016 08:01:31 GMT'}, 'RequestId': '3Rqh31vlsE3a02DI2dCXXblBpgQc-qsVi9LVgaqHy6B0D1Q'}, 'archiveDescription': 'to_glacier_multipart_upl', 'acceptRanges': 'bytes', 'contentType': 'application/octet-stream'}
-    '''
     assert self.completed and self.status_code != DummyJob.Failed
     resp = DummySession.behaviour(type(self), self.get_output)
     if not resp[0]: return resp[1]
 
+    if self.action == DummyJob.ArchiveRetrieval:
+      return self._get_output_archive_retrieval(**kwargs)
+    else:
+      return self._get_output_inventory_retrieval(**kwargs)
+
+  def _get_output_archive_retrieval(self, **kwargs):
+    '''
+    {'body': <botocore.response.StreamingBody object at 0x7f57552a3e10>, 'checksum': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'status': 200, 'ResponseMetadata': {'HTTPStatusCode': 200, 'HTTPHeaders': {'content-length': '12582912', 'x-amzn-requestid': '3Rqh31vlsE3a02DI2dCXXblBpgQc-qsVi9LVgaqHy6B0D1Q', 'x-amz-sha256-tree-hash': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'x-amz-archive-description': 'to_glacier_multipart_upl', 'content-type': 'application/octet-stream', 'accept-ranges': 'bytes', 'date': 'Sun, 28 Aug 2016 08:01:31 GMT'}, 'RequestId': '3Rqh31vlsE3a02DI2dCXXblBpgQc-qsVi9LVgaqHy6B0D1Q'}, 'archiveDescription': 'to_glacier_multipart_upl', 'acceptRanges': 'bytes', 'contentType': 'application/octet-stream'}
+    '''
     content = tempfile.TemporaryFile()
     arg_start, arg_end = build_range_from_mime(self.retrieval_byte_range)
     if 'range' in kwargs:
@@ -470,22 +495,67 @@ class DummyJob (DummyResource):
       assert range_contains((arg_start, arg_end), build_range_from_mime(self.retrieval_byte_range))
 
     add_rand_data_to_fileobj_and_rewind(content, (arg_end-arg_start)//1024)
-    checksum = self.calculate_hash(content)
-    content.seek(0, os.SEEK_SET)
+    checksum = self.calculate_hash_and_rewind(content)
     response = {
       'body' : content,
       'checksum' : checksum,
+      'status' : 200,
       'ResponseMetadata' : { 'HTTPStatusCode': 200 },
     }
     return response
 
+  def _get_output_inventory_retrieval(self, **kwargs):
+    '''
+    {'body': <botocore.response.StreamingBody object at 0x7f57553c1dd8>, 'acceptRanges': 'bytes', 'status': 200, 'contentType': 'application/json', 'ResponseMetadata': {'HTTPStatusCode': 200, 'HTTPHeaders': {'accept-ranges': 'bytes', 'content-length': '1148', 'x-amzn-requestid': 'lD5UzEvtCTaEQRUFkPYLwsY2mU84w7Afc4ZK7Ab8pRZU-Vo', 'date': 'Sun, 28 Aug 2016 08:16:02 GMT', 'content-type': 'application/json'}, 'RequestId': 'lD5UzEvtCTaEQRUFkPYLwsY2mU84w7Afc4ZK7Ab8pRZU-Vo'}}
+
+    {'InventoryDate': '2016-08-21T00:46:31Z', 'ArchiveList': [{'SHA256TreeHash': '1acac939ccb8d55467ecaa6bb413ae59434b6ef5008f45adbf16c397d74da15c', 'ArchiveId': 'T8ecmVSHxb1pcW31Ia0C4Q4mbSb6c3ERw9lm4q-Erhc562Qo9r8XqAa8aFUjoIcrnbL7h58Z_FzxI7lNevXenmR9d3vvXWd5KezsL07Akf6Mt9hVGhhFVaO0GzRxzRGiyP94OXqSqA', 'Size': 71641, 'CreationDate': '2016-01-06T18:42:57Z', 'ArchiveDescription': 'test random file upload'}, {'SHA256TreeHash': '2ecfdbd275e1e00bf050b4954fa6d1467190a6c1719cffaa22d96f0c2e69188b', 'ArchiveId': 'poti53ZqdyE4LYfYUyG7x4Zahb-4Ux6Ry98rma1FZJqcOg2FwrZriGZkNHAZGSYrDI2Al1CZygJj4UqLzJ9B0r2h88UHR5b5Xi_Vi56VtZnkku2FQ0mA3mK16uhVOw3kg9x2vXXizQ', 'Size': 12582912, 'CreationDate': '2016-08-20T13:44:27Z', 'ArchiveDescription': 'to_glacier_single_part_upl'}, {'SHA256TreeHash': '4d4d2e2dea23db2978753ff4c522d52f52a7ca78f4c0b2acc8b446caccc3a3b3', 'ArchiveId': 'S-CStPFbgPAdXh8QVEkd9OKamTIkRdHHshwbiA8O6-84in4SBVj8zHFAxh65mjr3dD_6dRUn1NaCZr9EBuiH8ZuPQ4yqc7qPNA6ZwB8Zq-ofWiat66CCnBWPNiCWAMm0-GeA7f5pzg', 'Size': 12582912, 'CreationDate': '2016-08-20T14:44:34Z', 'ArchiveDescription': 'to_glacier_multipart_upl'}], 'VaultARN': 'arn:aws:glacier:eu-west-1:843392324993:vaults/dummy_vault'}
+    '''
+    archives = map(lambda a: {
+        'SHA256TreeHash': self.calculate_hash_and_rewind(a._content).decode('utf8'),
+        'ArchiveId': a.id,
+        'Size': a._size,
+        'ArchiveDescription': a.description,
+        'CreationDate': a._creation_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
+      }, 
+      self.parent._archives.values()
+    )
+    resp_json = {
+      'InventoryDate': datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+      'ArchiveList': list(archives),
+      'VaultARN': self.parent.id,
+    }
+    content = tempfile.TemporaryFile()
+    content.write( json.dumps(resp_json).encode('utf8') )
+    content.seek(0, os.SEEK_SET)
+    response = {
+      'body' : content,
+      'status' : 200,
+      'ResponseMetadata' : { 'HTTPStatusCode': 200 },
+    }
+    return response
+
+### END DummyJob
+
 class DummyArchive (DummyResource):
-  def __init__ (self, parent):
+  def __init__ (self, parent, archiveDesc=None):
     super().__init__(parent)
     self._content = tempfile.TemporaryFile()
     self._size = 0
+    self.description = archiveDesc
+    self._creation_date = datetime.datetime.now()
+
+  @staticmethod
+  def create_archive_with_random_data(vault, archiveDesc, size_kb, sec_offset=0):
+    arch = DummyArchive(vault, archiveDesc)
+    part = get_rand_data(size_kb)
+    arch._addPart(part)
+    arch._create()
+    if sec_offset:
+      arch._creation_date -= datetime.timedelta(seconds=sec_offset)
+    return arch
 
   def _create (self):
+    self._created = True
     self.parent._archives[self.id] = self
 
   def _close(self):
@@ -493,7 +563,6 @@ class DummyArchive (DummyResource):
       self._content.close()
 
   def initiate_archive_retrieval (self, **kwargs):
-    self._content.close()
     return self.parent.initiate_inventory_retrieval(**kwargs)
 
   def _chunkFull (self):
@@ -527,6 +596,9 @@ class DummyS3 (DummyResource):
     if bucket:
       return bucket
     return DummyBucket(name, self)
+
+  def _clear(self):
+    pass
 
 class DummyBucket (DummyResource):
 

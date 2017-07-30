@@ -22,6 +22,9 @@ class TestAwsGlacierMgr (ut.TestCase):
     self.down_session = AwsGlobalSession(Record.SESSION_DOWN)
     self.vault = self.glacier_res.Vault('', get_conf().aws.glacier_vault)
 
+  def tearDown(self):
+    if self.vault: self.vault._clear()
+
   #@ut.skip("For quick validation")
   def test_single_shoot_upload(self):
     fileseg = add_rand_file_to_staging(256)
@@ -347,6 +350,7 @@ class TestAwsGlacierMgr (ut.TestCase):
 
   #@ut.skip("For quick validation")
   def test_get_all_down_jobs_in_vault_by_stx(self):
+    DummyJob.CompleteAsSoonAsCreated = False
     size_kb = 1024 + 71
     fileseg = add_rand_file_to_staging(size_kb)
     fileseg.archive_id = 'lskdjflsdkf'
@@ -375,6 +379,7 @@ class TestAwsGlacierMgr (ut.TestCase):
 
   #@ut.skip("For quick validation")
   def test_get_all_down_jobs_in_vault_more_than_max(self):
+    DummyJob.CompleteAsSoonAsCreated = False
     get_conf().aws.glacier_max_jobs_in_flight = 2
     size_kb = 1024 + 71
     fileseg = add_rand_file_to_staging(size_kb)
@@ -386,7 +391,7 @@ class TestAwsGlacierMgr (ut.TestCase):
 
     job_stx = self.glacier_mgr.get_all_down_jobs_in_vault_by_stx()
     count_per_type = { s:len(l) for s,l in job_stx.items() }
-    assert count_per_type[DummyJob.InProgress] == 3, repr(count_per_type)
+    assert count_per_type.get(DummyJob.InProgress) == 3, repr(count_per_type)
     assert sum( c for c in count_per_type.values() ) == 3
 
   #@ut.skip("For quick validation")
@@ -480,6 +485,7 @@ class TestAwsGlacierMgr (ut.TestCase):
 
   #@ut.skip("For quick validation")
   def test_start_before_job_complete(self):
+    DummyJob.CompleteAsSoonAsCreated = False
     fileseg = add_rand_file_to_staging(4096)
     fileseg.archive_id = 'lskdjflsdkf'
     job = self.glacier_mgr.initiate_archive_retrieval(self.down_session, fileseg)
@@ -493,7 +499,7 @@ class TestAwsGlacierMgr (ut.TestCase):
     fileseg = add_rand_file_to_staging(4096)
     fileseg.archive_id = 'lskdjflsdkf'
     job = self.glacier_mgr.initiate_archive_retrieval(self.down_session, fileseg)
-    job.calculate_hash = lambda f : 'coucou'
+    job.calculate_hash_and_rewind = lambda f : 'coucou'
     job._complete()
 
     with self.assertRaises(Exception):

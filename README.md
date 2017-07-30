@@ -16,6 +16,7 @@ The goal of this project is to make periodic snapshots of my btrfs volumes and u
 ## Dependencies
 
 * btrfs
+* python module dateutil
 * AWS boto3
 * Coverage.py
 * Moto aws mock server

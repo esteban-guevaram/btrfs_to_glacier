@@ -166,7 +166,8 @@ class Fileseg:
       size = os.stat(fileout).st_size
       self.range_bytes = (0, size)
     else:
-      self.range_bytes = range_bytes
+      # we make sure range is read only
+      self.range_bytes = tuple(range_bytes)
     assert self.fileout and self.range_bytes
     assert os.path.dirname(fileout) == get_conf().app.staging_dir, '%r, %r' % (os.path.dirname(fileout), get_conf().app.staging_dir)
   

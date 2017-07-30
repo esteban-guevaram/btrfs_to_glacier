@@ -66,6 +66,7 @@ class AwsDowloadOrchestrator:
       wait_for_polling_period()
 
     logger.info("Download finished :\n%r", session.print_glacier_summary())
+    # we only check chunk hashes, the global hash should be checked when decrypting/decompressing file
     assert sum_fs_size(session.iterate()) == total_download_size
     return session
 
@@ -322,6 +323,7 @@ class AwsDowloadOrchestrator:
       else:  
         yield left_key_fs[key]
     
+
   def print_download_status (self, session, bandwith_quota, filesegs_left):
     lines = [ " - %r, done=%r" % (k, k in session.filesegs and session.filesegs[k].done)
               for k in bandwith_quota.submitted_fileseg_keys ]

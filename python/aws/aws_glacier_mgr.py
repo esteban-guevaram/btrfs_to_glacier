@@ -75,6 +75,7 @@ class AwsGlacierManager:
     for chunk_range in range_bytes_it(range_to_download, self.max_chunk_bytes):
       self.get_output_chunk_and_write_to_fileout(session, chunk_range, aws_job, fileseg.key())
 
+    # we only check chunk hashes, the global hash should be checked when decrypting/decompressing file
     session.close_fileseg(fileseg.key())
     return session.filesegs[fileseg.key()]
 
@@ -104,6 +105,8 @@ class AwsGlacierManager:
   def get_all_down_jobs_in_vault_by_stx (self):
     max_jobs = get_conf().aws.glacier_max_jobs_in_flight
     result = {}
+    # calling all on a collection should send a request to aws to get the latest status
+    # cf : http://boto3.readthedocs.io/en/latest/guide/collections.html#when-collections-make-requests
     for job in self.vault.jobs.all():
       if job.action != 'ArchiveRetrieval': continue
       if job.status_code not in result:

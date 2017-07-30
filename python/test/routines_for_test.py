@@ -172,6 +172,7 @@ def deco_setup_each_test (klass):
     change_timestamp()
     DummySession.behaviour = always_ok_behaviour()
     DummySession.blowup_on_fail = True
+    DummyJob.CompleteAsSoonAsCreated = True
     user_set_up and user_set_up(self)
   
   klass.setUp = setUp

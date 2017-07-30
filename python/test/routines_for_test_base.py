@@ -9,7 +9,8 @@ def add_rand_file_to_all_targets(targets):
   for target in targets:
     add_rand_file_to_dir(target.path)
 
-def give_stage_filepath(path):
+def give_stage_filepath():
+  path = get_conf().app.staging_dir
   with tempfile.NamedTemporaryFile(mode='w', dir=path, delete=True) as fileobj:
     return fileobj.name
 
@@ -17,7 +18,7 @@ def add_rand_data_to_fileobj_and_rewind(fileobj, size_kb=None):
   assert not size_kb or size_kb < 256 * 1024, "%d bytes is a bit too much" % (size_kb * 1024)
   if not size_kb: # random length
     for i in range(1024):
-      fileobj.write("%d\n" % random.randint(0,1024*1024*1024))
+      fileobj.write(b"%d\n" % random.randint(0,1024*1024*1024))
   else:
     line = (str(random.randrange(100000000000000, 999999999999999)) + "\n") * 64
     for i in range(size_kb):

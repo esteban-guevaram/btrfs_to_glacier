@@ -12,12 +12,19 @@ class TestAwsS3Manager (ut.TestCase):
   def setUpClass(klass):
     pass
 
+  def setUp(self):
+    self.session = boto3.session.Session(profile_name='test_s3')
+
+  def tearDown(self):
+    s3_session = self.session.resource('s3')
+    if s3_session:
+      s3_session._clear()
+
   #@ut.skip("For quick validation")
   def test_simple_failures(self):
-    session = DummySession.create_dummy_session()
     get_conf().aws.chunk_size_in_mb = 1
     fileseg = add_rand_file_to_staging(1055)
-    s3_mgr = AwsS3Manager(session)
+    s3_mgr = AwsS3Manager(self.session)
 
     with self.assertRaises(Exception):
       s3_mgr.upload_txlog(fileseg)
@@ -38,23 +45,21 @@ class TestAwsS3Manager (ut.TestCase):
 
   #@ut.skip("For quick validation")
   def test_idempotent_bucket_creation(self):
-    session = DummySession.create_dummy_session()
-    s3_res = session.resource('s3')
-    s3_mgr = AwsS3Manager(session)
-    s3_mgr = AwsS3Manager(session)
+    s3_res = self.session.resource('s3')
+    s3_mgr = AwsS3Manager(self.session)
+    s3_mgr = AwsS3Manager(self.session)
     self.assertEqual(1, len(s3_res.buckets))
 
     get_conf().aws.s3_bucket = 'choco_bucket'
-    s3_mgr = AwsS3Manager(session)
-    s3_mgr = AwsS3Manager(session)
+    s3_mgr = AwsS3Manager(self.session)
+    s3_mgr = AwsS3Manager(self.session)
     self.assertEqual(2, len(s3_res.buckets))
 
   #@ut.skip("For quick validation")
   def test_upload_txlog_big(self):
     get_conf().aws.chunk_size_in_mb = 1
     fileseg = add_rand_file_to_staging(1024*3)
-    session = boto3.session.Session(profile_name='test_s3')
-    s3_mgr = AwsS3Manager(session)
+    s3_mgr = AwsS3Manager(self.session)
 
     # too big to be written to s3
     with self.assertRaises(Exception):
@@ -64,8 +69,7 @@ class TestAwsS3Manager (ut.TestCase):
   def test_upload_txlog(self):
     get_conf().aws.chunk_size_in_mb = 1
     fileseg = add_rand_file_to_staging(256)
-    session = boto3.session.Session(profile_name='test_s3')
-    s3_mgr = AwsS3Manager(session)
+    s3_mgr = AwsS3Manager(self.session)
 
     s3_object = s3_mgr.upload_txlog(fileseg)
     assert s3_object.bucket_name == get_conf().aws.s3_bucket, '%r / %r' % (s3_object.bucket_name, get_conf().aws.s3_bucket)
@@ -73,9 +77,8 @@ class TestAwsS3Manager (ut.TestCase):
   #@ut.skip("For quick validation")
   def test_download_txlog_s3_empty(self):
     get_conf().aws.chunk_size_in_mb = 1
-    txlog_target = give_stage_filepath(get_conf().app.staging_dir)
-    session = boto3.session.Session(profile_name='test_s3')
-    s3_mgr = AwsS3Manager(session)
+    txlog_target = give_stage_filepath()
+    s3_mgr = AwsS3Manager(self.session)
 
     fileseg = s3_mgr.download_most_recent_txlog(txlog_target)
     assert not fileseg
@@ -83,11 +86,10 @@ class TestAwsS3Manager (ut.TestCase):
   #@ut.skip("For quick validation")
   def test_download_txlog(self):
     get_conf().aws.chunk_size_in_mb = 1
-    txlog_target = give_stage_filepath(get_conf().app.staging_dir)
-    session = boto3.session.Session(profile_name='test_s3')
-    s3_mgr = AwsS3Manager(session)
+    txlog_target = give_stage_filepath()
+    s3_mgr = AwsS3Manager(self.session)
 
-    s3_resource = session.resource('s3')
+    s3_resource = self.session.resource('s3')
     bucket = s3_resource.Bucket(get_conf().aws.s3_bucket)
     bucket.put_object(Key='salut', Body=b'mrmonkey')
 
@@ -99,11 +101,10 @@ class TestAwsS3Manager (ut.TestCase):
   #@ut.skip("For quick validation")
   def test_download_txlog_multi_candidate(self):
     get_conf().aws.chunk_size_in_mb = 1
-    txlog_target = give_stage_filepath(get_conf().app.staging_dir)
-    session = boto3.session.Session(profile_name='test_s3')
-    s3_mgr = AwsS3Manager(session)
+    txlog_target = give_stage_filepath()
+    s3_mgr = AwsS3Manager(self.session)
 
-    s3_resource = session.resource('s3')
+    s3_resource = self.session.resource('s3')
     bucket = s3_resource.Bucket(get_conf().aws.s3_bucket)
     bucket.put_object(Key='salut', Body=b'mrmonkey')
     bucket.put_object(Key='oldie', Body=b'oops')
@@ -114,11 +115,10 @@ class TestAwsS3Manager (ut.TestCase):
 
   #@ut.skip("For quick validation")
   def test_download_txlog_failures(self):
-    txlog_target = give_stage_filepath(get_conf().app.staging_dir)
-    session = boto3.session.Session(profile_name='test_s3')
-    s3_mgr = AwsS3Manager(session)
+    txlog_target = give_stage_filepath()
+    s3_mgr = AwsS3Manager(self.session)
 
-    s3_resource = session.resource('s3')
+    s3_resource = self.session.resource('s3')
     bucket = s3_resource.Bucket(get_conf().aws.s3_bucket)
     bucket.put_object(Key='salut', Body=b'mrmonkey')
 
