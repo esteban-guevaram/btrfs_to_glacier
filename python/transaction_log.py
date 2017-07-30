@@ -8,9 +8,9 @@ class TransactionLog (object):
   HEADER_LEN = 512
   HEADER_STRUCT = "<II32s472x"
 
-  def __init__(self):
+  def __init__(self, logfile=None):
     self.pickle_proto = get_conf().app.pickle_proto
-    self.logfile = get_conf().app.transaction_log
+    self.logfile = logfile or get_conf().app.transaction_log
     self.recorded_snaps = set()
     self.recorded_restores = set()
 
@@ -48,7 +48,9 @@ class TransactionLog (object):
 
   def backup_to_crypted_file(self):
     logfile = self.logfile
-    hashstr = self._calculate_and_store_txlog_hash()
+    main_hash = self.calculate_and_store_txlog_hash()
+    # Append a txlog_to_file record to the end of the txlog. Useful in case of problems to detect which part of the log got corrupted
+    self._record_txlog_to_file(main_hash)
 
     back_logfile = FileUtils.compress_crypt_file(logfile)
     return back_logfile    
@@ -83,9 +85,16 @@ class TransactionLog (object):
 
   @tx_handler.wrap
   def add_and_flush_record(self, record):
-    self.tx_list.append( record )
     with open(self.logfile, 'ab') as logfile:
       pickle.dump(record, logfile, self.pickle_proto)
+    self.tx_list.append( record )
+
+  @tx_handler.wrap
+  def __add_and_flush_many_record__(self, records):
+    with open(self.logfile, 'ab') as logfile:
+      for record in records:
+        pickle.dump(record, logfile, self.pickle_proto)
+    self.tx_list.extend( records )
 
   def record_backup_start(self):
     record = Record(Record.BACK_START, self.new_uid())
@@ -164,9 +173,8 @@ class TransactionLog (object):
     self.recorded_restores.add(subvol.uuid)
     self.add_and_flush_record(record)
 
-  # We update the hash contained in the txlog header but also append a txlog_to_file record to the end of the txlog
-  # Useful in case of problems to detect which part of the log got corrupted
-  def _calculate_and_store_txlog_hash (self):
+  # We update the hash contained in the txlog header
+  def calculate_and_store_txlog_hash (self):
     with open(self.logfile, 'rb') as logfile:
       TransactionLog.parse_header_and_advance_file(logfile)
       data = logfile.read()
@@ -176,7 +184,6 @@ class TransactionLog (object):
     real_hash = hashlib.sha256(data).digest()
 
     self._save_txlog_header(hash_domain_upper, real_hash) 
-    self._record_txlog_to_file(real_hash)
     return real_hash
 
   def _record_txlog_to_file(self, hashstr):

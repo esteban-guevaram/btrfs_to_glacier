@@ -134,9 +134,10 @@ def add_fake_download_to_txlog (with_session=False):
   get_txlog().record_fileseg_end()
   if with_session: get_txlog().record_aws_session_end(Record.SESSION_DOWN)
 
-def calculate_record_type_count():
+def calculate_record_type_count(txlog=None):
+  txlog = txlog or get_txlog()
   record_type_count = {}
-  for record in get_txlog().iterate_through_records():
+  for record in txlog.iterate_through_records():
     if record.r_type not in record_type_count:
       record_type_count[record.r_type] = 0
     record_type_count[record.r_type] += 1

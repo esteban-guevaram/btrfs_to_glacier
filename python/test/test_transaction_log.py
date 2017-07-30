@@ -1,6 +1,10 @@
 import unittest as ut
 from common import *
 from routines_for_test import *
+from transaction_log import *
+from txlog_consistency import *
+from txlog_manipulation import *
+logger = logging.getLogger(__name__)
 
 @deco_setup_each_test
 class TestBackupFiles (ut.TestCase):
@@ -42,7 +46,7 @@ class TestBackupFiles (ut.TestCase):
   def test_main_hash_protection (self):
     add_fake_backup_to_txlog()
     add_fake_restore_to_txlog()
-    get_txlog()._calculate_and_store_txlog_hash()
+    get_txlog().calculate_and_store_txlog_hash()
     filein = get_conf().app.transaction_log
     with open(filein, 'rb') as fileobj:
       main_hash, hash_domain_upper = TransactionLog.parse_header_and_advance_file(fileobj)
@@ -316,7 +320,8 @@ class TestTxLogChecker (ut.TestCase):
   def test_per_restore_batch_hash_protection (self):
     for i in range(3):
       add_fake_backup_to_txlog()
-      get_txlog()._calculate_and_store_txlog_hash()
+      hashstr = get_txlog().calculate_and_store_txlog_hash()
+      get_txlog()._record_txlog_to_file(hashstr)
     TxLogConsistencyChecker._validate_all_individual_batch_hashes(get_txlog().logfile)
     
     for j in range(3):
@@ -325,7 +330,8 @@ class TestTxLogChecker (ut.TestCase):
 
       for i in range(3):
         add_fake_backup_to_txlog()
-        hashstr = get_txlog()._calculate_and_store_txlog_hash()
+        hashstr = get_txlog().calculate_and_store_txlog_hash()
+        get_txlog()._record_txlog_to_file(hashstr)
         if i == j:
           get_txlog()._record_txlog_to_file(hashstr + b"|oops")
         else:
@@ -335,6 +341,123 @@ class TestTxLogChecker (ut.TestCase):
         TxLogConsistencyChecker._validate_all_individual_batch_hashes(get_txlog().logfile)
 
 ### END TestTxLogChecker
+
+@deco_setup_each_test
+class TestTxManipulation (ut.TestCase):
+
+  #@ut.skip("For quick validation")
+  def test_avoid_overwrite (self):
+    add_fake_backup_to_txlog(with_session=True)
+    src_txlog_path = get_conf().app.transaction_log
+    dest_txlog_path = give_stage_filepath()
+
+    dest_txlog = TxLogManipulation.remove_upload_sessions(src_txlog_path, dest_txlog_path)
+    with self.assertRaises(Exception):
+      TxLogManipulation.remove_upload_sessions(src_txlog_path, dest_txlog_path)
+
+  #@ut.skip("For quick validation")
+  def test_remove_intermediate_hashes (self):
+    add_fake_backup_to_txlog(with_session=True)
+    get_txlog().backup_to_crypted_file()
+    add_fake_backup_to_txlog(with_session=True)
+    get_txlog().backup_to_crypted_file()
+    src_txlog_path = get_conf().app.transaction_log
+    dest_txlog_path = give_stage_filepath()
+
+    dest_txlog = TxLogManipulation.remove_upload_sessions(src_txlog_path, dest_txlog_path)
+    self.assertEqual( len(get_txlog()) - 2, len(dest_txlog) )
+
+  #@ut.skip("For quick validation")
+  def test_manipulate_empty_txlog (self):
+    src_txlog_path = get_conf().app.transaction_log
+    dest_txlog_path = give_stage_filepath()
+
+    with self.assertRaises(Exception):
+      dest_txlog = TxLogManipulation.remove_upload_sessions(src_txlog_path, dest_txlog_path)
+
+  #@ut.skip("For quick validation")
+  def test_remove_upload_sessions (self):
+    add_fake_backup_to_txlog(with_session=True)
+
+    src_txlog_path = get_conf().app.transaction_log
+    dest_txlog_path = give_stage_filepath()
+
+    dest_txlog = TxLogManipulation.remove_upload_sessions(src_txlog_path, dest_txlog_path)
+    self.assertEqual( len(get_txlog()), len(dest_txlog) )
+
+    add_fake_upload_to_txlog(with_session=True)
+    add_fake_download_to_txlog(with_session=True)
+    add_fake_upload_to_txlog(with_session=True)
+    get_txlog().record_aws_session_start(Record.SESSION_UPLD)
+    add_fake_upload_to_txlog(with_session=False)
+    dest_txlog_path = give_stage_filepath()
+    dest_txlog = TxLogManipulation.remove_upload_sessions(src_txlog_path, dest_txlog_path)
+
+    record_type_count = calculate_record_type_count(dest_txlog)
+    self.assertEqual( len(get_txlog()) - 2*8 - 7, len(dest_txlog) )
+    self.assertEqual(1, record_type_count.get(Record.AWS_START, 0) )
+    self.assertEqual(2, record_type_count.get(Record.FILESEG_START, 0) )
+
+  #@ut.skip("For quick validation")
+  def test_remove_restore_sessions (self):
+    # there is an assertion on txlog checking we do nto restore more than we backup
+    add_fake_backup_to_txlog(with_session=True)
+    add_fake_backup_to_txlog(with_session=True)
+    add_fake_backup_to_txlog(with_session=True)
+
+    src_txlog_path = get_conf().app.transaction_log
+    dest_txlog_path = give_stage_filepath()
+
+    dest_txlog = TxLogManipulation.remove_restore_sessions(src_txlog_path, dest_txlog_path)
+    self.assertEqual( len(get_txlog()), len(dest_txlog) )
+
+    add_fake_upload_to_txlog(with_session=True)
+    add_fake_download_to_txlog(with_session=True)
+    add_fake_restore_to_txlog(with_session=True)
+    get_txlog().record_restore_start()
+    add_fake_restore_to_txlog(with_session=False)
+    dest_txlog_path = give_stage_filepath()
+    dest_txlog = TxLogManipulation.remove_restore_sessions(src_txlog_path, dest_txlog_path)
+
+    record_type_count = calculate_record_type_count(dest_txlog)
+    self.assertEqual( len(get_txlog()) - 8 - 7, len(dest_txlog), "\n%r\n\n%r" % (get_txlog(), dest_txlog) )
+    self.assertEqual(0, record_type_count.get(Record.REST_START, 0) )
+    self.assertEqual(0, record_type_count.get(Record.FILE_TO_SNAP, 0) )
+
+  #@ut.skip("For quick validation")
+  def test_remove_download_sessions (self):
+    add_fake_backup_to_txlog(with_session=True)
+
+    src_txlog_path = get_conf().app.transaction_log
+    dest_txlog_path = give_stage_filepath()
+
+    dest_txlog = TxLogManipulation.remove_download_sessions(src_txlog_path, dest_txlog_path)
+    self.assertEqual( len(get_txlog()), len(dest_txlog) )
+
+    add_fake_download_to_txlog(with_session=True)
+    add_fake_backup_to_txlog(with_session=True)
+    add_fake_download_to_txlog(with_session=True)
+    get_txlog().record_aws_session_start(Record.SESSION_DOWN)
+    add_fake_download_to_txlog(with_session=False)
+    dest_txlog_path = give_stage_filepath()
+    dest_txlog = TxLogManipulation.remove_download_sessions(src_txlog_path, dest_txlog_path)
+
+    record_type_count = calculate_record_type_count(dest_txlog)
+    self.assertEqual( len(get_txlog()) - 2*8 - 7, len(dest_txlog) )
+    self.assertEqual(0, record_type_count.get(Record.AWS_START, 0) )
+    self.assertEqual(0, record_type_count.get(Record.FILESEG_START, 0) )
+
+  #@ut.skip("For quick validation")
+  def test_remove_all_records (self):
+    add_fake_download_to_txlog(with_session=True)
+
+    src_txlog_path = get_conf().app.transaction_log
+    dest_txlog_path = give_stage_filepath()
+
+    dest_txlog = TxLogManipulation.remove_download_sessions(src_txlog_path, dest_txlog_path)
+    self.assertEqual( 0, len(dest_txlog) )
+
+### END TestTxManipulation
 
 if __name__ == "__main__":
   conf_for_test()
