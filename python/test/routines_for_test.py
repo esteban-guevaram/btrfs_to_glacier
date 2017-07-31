@@ -57,35 +57,74 @@ class DummyBtrfsNode (object):
   def is_readonly (self): return self.is_read   
 
 #################################################################################
+# Staging files
+
+def fake_backup_file_tx (prefix_file):
+  fileout = get_conf().app.staging_dir + "/" + prefix_file
+  hashstr = uuid.uuid4().hex
+  fileseg = Fileseg(fileout, None, None, (0,666))
+  return fileseg, hashstr
+
+def bake_gaussian_file_builder(avg_size_kb, deviation_kb):
+  bell = [ -4, -3, -2, -1, 0, 1, 2, 3, 4 ]
+
+  def builder(prefix_file):
+    size_kb = avg_size_kb + random.choice(bell) * deviation_kb
+    fileseg = add_rand_file_to_staging(size_kb)
+    hashstr = uuid.uuid4().hex
+    return fileseg, hashstr
+
+  return builder
+
+#################################################################################
 # Transaction log
 
-def fake_backup_file_tx (fileout, snap, predecessor=None):
-  fileout = get_conf().app.staging_dir + "/" + fileout
-  hashstr = uuid.uuid4().hex
-  get_txlog().record_snap_to_file(fileout, hashstr, snap, predecessor)
+def add_chunks_from_fileseg_to_txlog (fileseg, stopat=0):
+  chunk_len = get_conf().aws.chunk_size_in_mb * 1024**2
+  if not stopat:
+    stopat = fileseg.range_bytes[1] // chunk_len + 1
+  for range_bytes in zip( range(stopat), range_bytes_it(fileseg.range_bytes, chunk_len) ):
+    get_txlog().record_chunk_end(range_bytes)
 
-def add_fake_backup_to_txlog (with_session=False):
+def add_fake_backup_to_txlog_mini (with_session=False, backup_file_builder=fake_backup_file_tx):
+  vol1 = DummyBtrfsNode.build()
+  snap1 = DummyBtrfsNode.snap(vol1)
+  fs1, hash1 = backup_file_builder('fs1')
+
+  if with_session: get_txlog().record_backup_start()
+  get_txlog().record_snap_creation(snap1)
+  get_txlog().record_snap_to_file(fs1.fileout, hash1, snap1, None)
+  if with_session: get_txlog().record_backup_end()
+  return [fs1]
+
+def add_fake_backup_to_txlog (with_session=False, backup_file_builder=fake_backup_file_tx):
   vol1 = DummyBtrfsNode.build()
   vol2 = DummyBtrfsNode.build()
   snap1 = DummyBtrfsNode.snap(vol1)
   snap2 = DummyBtrfsNode.snap(vol2)
+  snap12 = DummyBtrfsNode.snap(vol1)
+  snap22 = DummyBtrfsNode.snap(vol2)
+
+  fs1, hash1 = backup_file_builder('fs1')
+  fs2, hash2 = backup_file_builder('fs2')
+  fs12, hash12 = backup_file_builder('fs12')
+  fs22, hash22 = backup_file_builder('fs22')
 
   if with_session: get_txlog().record_backup_start()
   get_txlog().record_snap_creation(snap1)
-  fake_backup_file_tx('fs1', snap1)
+  get_txlog().record_snap_to_file(fs1.fileout, hash1, snap1, None)
   get_txlog().record_snap_creation(snap2)
-  fake_backup_file_tx('fs2', snap2)
+  get_txlog().record_snap_to_file(fs2.fileout, hash2, snap2, None)
 
-  snap12 = DummyBtrfsNode.snap(vol1)
-  snap22 = DummyBtrfsNode.snap(vol2)
   get_txlog().record_snap_creation(snap12)
-  fake_backup_file_tx('fs12', snap12, snap1)
+  get_txlog().record_snap_to_file(fs12.fileout, hash12, snap12, snap1)
   get_txlog().record_snap_creation(snap22)
-  fake_backup_file_tx('fs22', snap22, snap2)
+  get_txlog().record_snap_to_file(fs22.fileout, hash22, snap22, snap2)
 
   get_txlog().record_subvol_delete(snap1)
   get_txlog().record_subvol_delete(snap2)
   if with_session: get_txlog().record_backup_end()
+  return [fs1, fs2, fs12, fs22]
 
 def add_fake_restore_to_txlog (with_session=False):
   vol1 = DummyBtrfsNode.build()
@@ -118,6 +157,19 @@ def add_fake_upload_to_txlog (with_session=False):
   get_txlog().record_fileseg_start(fs2)
   get_txlog().record_fileseg_end('archive_id_2')
   if with_session: get_txlog().record_aws_session_end(Record.SESSION_UPLD)
+
+def add_fake_upload_to_txlog_matching_backup (backup_filesegs, with_session=False):
+  clone_filesegs = [ copy.copy(fs) for fs in backup_filesegs ]
+  for fs in clone_filesegs: fs.aws_id = uuid.uuid4().hex
+
+  if with_session: get_txlog().record_aws_session_start(Record.SESSION_UPLD)
+  for fs in clone_filesegs:
+    fs.aws_id = uuid.uuid4().hex
+    get_txlog().record_fileseg_start(fs)
+    fs.archive_id = uuid.uuid4().hex
+    get_txlog().record_fileseg_end(fs.archive_id)
+  if with_session: get_txlog().record_aws_session_end(Record.SESSION_UPLD)
+  return clone_filesegs
 
 def add_fake_download_to_txlog (with_session=False):
   fs1 = Fileseg.build_from_fileout(get_conf().app.staging_dir + '/fs1', (0,2048))

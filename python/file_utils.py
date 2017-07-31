@@ -124,10 +124,10 @@ class Fileseg:
   __slots__ = ['aws_id', 'archive_id', 'fileout', 'range_bytes', 'chunks', 'done']
 
   @staticmethod
-  def build_from_record (fileout, record):
+  def build_from_record (record):
     fileout = os.path.join( get_conf().app.staging_dir, record.fileout )
     aws_id, archive_id = None, None
-    if hasattr(record, 'aws_id'):     awd_id = record.awd_is
+    if hasattr(record, 'aws_id'):     aws_id = record.aws_id
     if hasattr(record, 'archive_id'): archive_id = record.archive_id
     fileseg = Fileseg(fileout, aws_id, archive_id, record.range_bytes)
     return fileseg
@@ -167,7 +167,7 @@ class Fileseg:
       self.range_bytes = (0, size)
     else:
       # we make sure range is read only
-      self.range_bytes = tuple(range_bytes)
+      self.range_bytes = range_bytes and tuple(range_bytes)
     assert self.fileout and self.range_bytes
     assert os.path.dirname(fileout) == get_conf().app.staging_dir, '%r, %r' % (os.path.dirname(fileout), get_conf().app.staging_dir)
   
@@ -199,7 +199,8 @@ class Fileseg:
     self.done = True
 
   def add_chunk (self, chunk):
-    assert not self.chunks or self.chunks[-1][1] == chunk[0], 'Uncontinous chunk added to fileseg'
+    assert not self.chunks or self.chunks[-1].range_bytes[1] == chunk.range_bytes[0], \
+      'Uncontinous chunk added to fileseg'
     self.chunks.append(chunk)
 
   def get_aws_arch_description(self):
@@ -220,7 +221,7 @@ class Chunk:
   __slots__ = ['range_bytes', 'done']
   def __init__ (self, range_bytes):
     assert not range_bytes or range_bytes[0] < range_bytes[1]
-    self.range_bytes = range_bytes
+    self.range_bytes = tuple(range_bytes)
     self.done = False
 
   def __repr__ (self):

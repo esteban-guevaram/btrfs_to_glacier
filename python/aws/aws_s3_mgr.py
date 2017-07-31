@@ -10,8 +10,8 @@ class AwsS3Manager:
     self.s3_object_ttl_days = get_conf().aws.s3_object_ttl_days
     self.bucket = self._idenpotent_bucket_creation(boto_session)
 
-  def upload_txlog (self, fileseg):
-    logger.debug('Uploading into s3: %r', fileseg)
+  def upload_fileseg (self, fileseg):
+    logger.debug('Uploading into s3 %s: %r', self.bucket.name, fileseg)
     assert fileseg.range_bytes[1] <= self.max_s3_size, 'Filesize too big %r' % (fileseg.range_bytes,)
 
     obj_name = os.path.basename(fileseg.fileout)
@@ -30,17 +30,16 @@ class AwsS3Manager:
     assert int(response['HTTPStatusCode']) == 200
     return s3_object  
 
-  def download_most_recent_txlog (self, back_logfile):
+  def download_most_recent_item_in_bucket (self, back_logfile):
     fileseg = None
     obj_summaries = retry_operation (
       lambda : list( self.bucket.objects.all() ),
       botoex.ClientError
     )
     logger.info('Found %d objects in %s', len(obj_summaries), self.bucket.name)
-    obj_summaries.sort( key=lambda x:x.last_modified )
+    last_txlog = max(obj_summaries, key=lambda x:x.last_modified, default=None )
 
-    if obj_summaries and len(obj_summaries):
-      last_txlog = obj_summaries[-1]
+    if last_txlog:
       logger.debug('Retrieving %s modified %r', last_txlog.key, last_txlog.last_modified)
 
       retry_operation (

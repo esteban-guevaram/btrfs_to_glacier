@@ -42,7 +42,7 @@ class AwsDowloadOrchestrator:
 
     logger.info("Remote txlog will be used, downloading it")
     back_logfile = '%s/backup_%s_%s' % (get_conf().app.staging_dir, get_conf().app.transaction_log, timestamp.new())
-    fileseg = self.s3_mgr.download_most_recent_txlog(back_logfile)
+    fileseg = self.s3_mgr.download_most_recent_item_in_bucket(back_logfile)
 
     if not fileseg:
       logger.warning("No local or s3 txlog, last chance is to look in glacier !")

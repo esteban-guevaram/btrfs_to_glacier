@@ -100,6 +100,7 @@ class TestBtrfsBackupRestore (ut.TestCase):
     restore_result = rest_orch.restore_subvols_from_received_files()
     subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
 
+    self.assertTrue( restore_result.done )
     self.assertTrue(TestBtrfsBackupRestore.sv_count, len(restore_result.child_subvols))
     self.assertTrue(TestBtrfsBackupRestore.sv_count, len(restore_result.btrfs_sv_files))
     self.assertTrue(all( len(restore_result.child_subvols[v.uuid]) == 1 for v in targets ))
@@ -241,6 +242,7 @@ class TestBtrfsBackupRestore (ut.TestCase):
     subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     send_files = [ f for l in backup_result.btrfs_sv_files.values() for f in l ] 
 
+    self.assertTrue( backup_result.done )
     self.assertTrue(send_files and all( os.path.isfile(f) for f in send_files ))
     self.assertTrue(targets and all( subvols.get_snap_childs(v) for v in targets ))
     self.assertTrue(all( len(backup_result.child_subvols[v.uuid]) == 1 for v in targets ))
@@ -258,6 +260,7 @@ class TestBtrfsBackupRestore (ut.TestCase):
     backup_result = back_orch.snap_backup_clean_all_targets()
     subvols = BtrfsSubvolList.get_subvols_from_filesystem(get_conf().test.root_fs)
     send_files = [ f for l in backup_result.btrfs_sv_files.values() for f in l ] 
+    self.assertTrue( backup_result.done )
     self.assertTrue(all( os.path.isfile(f) for f in send_files ))
     self.assertTrue(all( subvols.get_snap_childs(v) for v in targets ))
 

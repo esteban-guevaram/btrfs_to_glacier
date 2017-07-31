@@ -111,6 +111,10 @@ class DummySession:
     self.glacier = DummyGlacier( str(uuid.uuid4()) )
     self.s3 = DummyS3( str(uuid.uuid4()) )
 
+  def _clear(self):
+    self.glacier._clear()
+    self.s3._clear()
+
   def session (self, *args, **kwargs):
     return DummySession.create_dummy_resource(*args, **kwargs)
 
@@ -207,13 +211,16 @@ class DummyGlacier (DummyResource):
     if vault:
       return vault[0]
     new_vault = DummyVault(name, self)
-    self.vaults[new_vault.id] = new_vault
     return new_vault
+
+  def _clear(self):
+    for vault in self.vaults.values(): vault._clear()
    
 class DummyVault (DummyResource):
 
   def __init__ (self, name, parent):
     super().__init__(parent)
+    parent.vaults[self.id] = self
     self.account_id = '-'
     self.name = name
     self.vault_name = name
@@ -321,6 +328,7 @@ class DummyMultiPart (DummyResource):
     self.part_size_in_bytes = partSize
     self._parts = []
     self._expired = False
+    self._completed = False
 
   def reload (self):
     if self._expired: raise DummyException('mock expired')
@@ -330,9 +338,10 @@ class DummyMultiPart (DummyResource):
 
   def _expire(self):
     self._expired = True
+    self._completed = True
 
   def abort(self):
-    del self.parent.multipart_uploads[self.id]
+    raise Exception('not implemented')
 
   def complete(self, **kwargs):
     '''
@@ -340,7 +349,7 @@ class DummyMultiPart (DummyResource):
     '''
     assert 'archiveSize' in kwargs
     assert 'checksum' in kwargs
-    assert self.id in self.parent.multipart_uploads
+    assert not self._completed and self.id in self.parent.multipart_uploads
     assert int(kwargs['archiveSize']) == self._archive._size
     arch_checksum = TreeHasher().digest_fileobj_as_hexstr(self._archive._content)
     assert kwargs['checksum'] == arch_checksum
@@ -352,7 +361,6 @@ class DummyMultiPart (DummyResource):
     }
     resp = DummySession.behaviour(type(self), self.complete, ok_resp)
     if resp[0]:
-      del self.parent.multipart_uploads[self.id]
       self._archive._create()
     return resp[1]
 
@@ -376,7 +384,7 @@ class DummyMultiPart (DummyResource):
     assert 'body' in kwargs
     assert 'range' in kwargs
     assert 'checksum' in kwargs
-    assert self.id in self.parent.multipart_uploads
+    assert not self._completed and self.id in self.parent.multipart_uploads
     size = len_range_from_mime(kwargs['range'])
     assert size == len(kwargs['body']), "size %r != len(boby) %r" % (size, len(kwargs['body']))
 
@@ -584,7 +592,6 @@ class DummyArchive (DummyResource):
   
 ###################################################################################################################
 
-
 class DummyS3 (DummyResource):
   def __init__ (self, name):
     super().__init__(None)
@@ -598,17 +605,22 @@ class DummyS3 (DummyResource):
     return DummyBucket(name, self)
 
   def _clear(self):
-    pass
+    for bucket in self.buckets.values(): bucket._clear()
 
 class DummyBucket (DummyResource):
 
   def __init__ (self, name, parent):
     super().__init__(parent)
+    parent.buckets[self.id] = self
     self.name = name
     self.object_versions = DummyCollection()
     self.objects = DummyCollection()
     self._setattr('creation_date', datetime.datetime.now())
 
+  def _clear(self):
+    self.object_versions = DummyCollection()
+    self.objects = DummyCollection()
+    
   def create (self, **kwargs):
     '''
     botocore.exceptions.ClientError: An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation: 
@@ -638,8 +650,9 @@ class DummyBucket (DummyResource):
     obj = self.objects.get(kwargs['Key'])
     if not obj:
       obj = DummyS3Object(kwargs['Key'], self)
-      self.objects[ kwargs['Key']] = obj 
-    obj._bytes = kwargs['Body']
+      obj.put(**kwargs)
+    else:
+      obj._bytes = kwargs['Body']
 
   def upload_file (self, filename, key):
     obj = self.objects.get(key)
@@ -697,6 +710,7 @@ class DummyS3Object (DummyResource):
     resp = DummySession.behaviour(type(self), self.put)
     if not resp[0]: return resp[1]
     self._bytes = kwargs['Body']
+    self.parent.objects[ self.key ] = self 
     return resp[1]
 
   def upload_file (self, filename):

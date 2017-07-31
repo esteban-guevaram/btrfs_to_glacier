@@ -27,21 +27,21 @@ class TestAwsS3Manager (ut.TestCase):
     s3_mgr = AwsS3Manager(self.session)
 
     with self.assertRaises(Exception):
-      s3_mgr.upload_txlog(fileseg)
+      s3_mgr.upload_fileseg(fileseg)
 
     fileseg = add_rand_file_to_staging(256)
     DummySession.behaviour = always_ko_behaviour()
     with self.assertRaises(Exception):
-      s3_mgr.upload_txlog(fileseg)
+      s3_mgr.upload_fileseg(fileseg)
 
     DummySession.behaviour = fail_at_first_then_ok(1)
-    s3_mgr.upload_txlog(fileseg)
+    s3_mgr.upload_fileseg(fileseg)
 
     # We will not retry in case we have a valid HTTP response but an error code
     DummySession.blowup_on_fail = False
     DummySession.behaviour = fail_at_first_then_ok(1)
     with self.assertRaises(Exception):
-      s3_mgr.upload_txlog(fileseg)
+      s3_mgr.upload_fileseg(fileseg)
 
   #@ut.skip("For quick validation")
   def test_idempotent_bucket_creation(self):
@@ -63,15 +63,15 @@ class TestAwsS3Manager (ut.TestCase):
 
     # too big to be written to s3
     with self.assertRaises(Exception):
-      s3_object = s3_mgr.upload_txlog(fileseg)
+      s3_object = s3_mgr.upload_fileseg(fileseg)
 
   #@ut.skip("For quick validation")
-  def test_upload_txlog(self):
+  def test_upload_fileseg(self):
     get_conf().aws.chunk_size_in_mb = 1
     fileseg = add_rand_file_to_staging(256)
     s3_mgr = AwsS3Manager(self.session)
 
-    s3_object = s3_mgr.upload_txlog(fileseg)
+    s3_object = s3_mgr.upload_fileseg(fileseg)
     assert s3_object.bucket_name == get_conf().aws.s3_bucket, '%r / %r' % (s3_object.bucket_name, get_conf().aws.s3_bucket)
 
   #@ut.skip("For quick validation")
@@ -80,7 +80,7 @@ class TestAwsS3Manager (ut.TestCase):
     txlog_target = give_stage_filepath()
     s3_mgr = AwsS3Manager(self.session)
 
-    fileseg = s3_mgr.download_most_recent_txlog(txlog_target)
+    fileseg = s3_mgr.download_most_recent_item_in_bucket(txlog_target)
     assert not fileseg
 
   #@ut.skip("For quick validation")
@@ -93,7 +93,7 @@ class TestAwsS3Manager (ut.TestCase):
     bucket = s3_resource.Bucket(get_conf().aws.s3_bucket)
     bucket.put_object(Key='salut', Body=b'mrmonkey')
 
-    fileseg = s3_mgr.download_most_recent_txlog(txlog_target)
+    fileseg = s3_mgr.download_most_recent_item_in_bucket(txlog_target)
     assert fileseg.fileout == txlog_target
     assert fileseg.range_bytes[0] == 0
     assert fileseg.range_bytes[1] == len('mrmonkey')
@@ -110,7 +110,7 @@ class TestAwsS3Manager (ut.TestCase):
     bucket.put_object(Key='oldie', Body=b'oops')
     bucket.objects['oldie'].last_modified = datetime.datetime(2001, 1, 1)
 
-    fileseg = s3_mgr.download_most_recent_txlog(txlog_target)
+    fileseg = s3_mgr.download_most_recent_item_in_bucket(txlog_target)
     assert fileseg.range_bytes[1] == len('mrmonkey')
 
   #@ut.skip("For quick validation")
@@ -124,10 +124,10 @@ class TestAwsS3Manager (ut.TestCase):
 
     DummySession.behaviour = always_ko_behaviour()
     with self.assertRaises(Exception):
-      s3_mgr.download_most_recent_txlog(txlog_target)
+      s3_mgr.download_most_recent_item_in_bucket(txlog_target)
 
     DummySession.behaviour = fail_at_first_then_ok(1)
-    s3_mgr.download_most_recent_txlog(txlog_target)
+    s3_mgr.download_most_recent_item_in_bucket(txlog_target)
 
 ### END TestAwsS3Manager
 

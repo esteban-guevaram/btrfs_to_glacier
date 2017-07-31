@@ -17,6 +17,7 @@ class AwsGlobalSession:
     return self.filesegs.values()
 
   def start_fileseg (self, fileseg):
+    assert not self.done
     self._add_fileseg(fileseg)
     get_txlog().record_fileseg_start(fileseg)
 
@@ -40,7 +41,8 @@ class AwsGlobalSession:
 
   def close (self):
     assert all( fs.done for fs in self.filesegs.values() )
-    get_txlog().record_aws_session_end()
+    get_txlog().record_aws_session_end(self.session_type)
+    self.done = True
 
   def clean_pending_fileseg (self):
     pending = [ fs for fs in self.filesegs.values() if not fs.done ]
@@ -78,16 +80,16 @@ class AwsGlobalSession:
   def start_new (session_type):
     logger.info('Creating new aws session')
     get_txlog().record_aws_session_start(session_type)
-    return AwsGlobalSession()
+    return AwsGlobalSession(session_type)
 
   @staticmethod
   def rebuild_from_txlog_or_new_session (session_type):
     accumulator = AwsGlobalSession.collect_records_from_pending_session(session_type)
-    if accumulator != None:
+    if not accumulator:
       logger.debug('No previous session found')
       return None
     
-    session = AwsGlobalSession.build_glacier_session_from_records(accumulator)
+    session = AwsGlobalSession.build_glacier_session_from_records(session_type, accumulator)
     return session
 
   @staticmethod
@@ -96,8 +98,6 @@ class AwsGlobalSession:
     interesting_record_types = (Record.FILESEG_START, Record.FILESEG_END, Record.CHUNK_END)
 
     for record in get_txlog().reverse_iterate_through_records():
-      assert record.r_type != Record.TXLOG_UPLD, "A txlog upload record should not be found in a pending session"
-
       if record.r_type == Record.AWS_END and record.session_type == session_type:
         assert not accumulator, 'Inconsistent session'
         return None # the last session is complete, start a new one
@@ -111,8 +111,8 @@ class AwsGlobalSession:
     return None    
   
   @staticmethod
-  def build_glacier_session_from_records (accumulator):
-    session = AwsGlobalSession()
+  def build_glacier_session_from_records (session_type, accumulator):
+    session = AwsGlobalSession(session_type)
     state = RestoreFilesegState()
 
     for record in accumulator:
@@ -122,16 +122,18 @@ class AwsGlobalSession:
         session._add_fileseg(fileseg)
 
     if state.fileseg:
-      fileseg.assert_in_valid_pending_state()
+      state.fileseg.assert_in_valid_pending_state()
       session._add_fileseg(state.fileseg)
     return session
 
   def _add_fileseg (self, fileseg):
     if fileseg.key() in self.filesegs:
       logger.warn("%r already added to session, probably a job expired ?", fileseg)
-    assert fileseg.aws_id not in self._submitted_aws_jobs
-    self.filesegs[fileseg.key()] = copy.copy(fileseg)
-    self._submitted_aws_jobs[fileseg.aws_id] = fileseg
+    clone_fileseg = copy.copy(fileseg)
+    self.filesegs[fileseg.key()] = clone_fileseg
+    if fileseg.aws_id:
+      assert fileseg.aws_id not in self._submitted_aws_jobs, repr(self._submitted_aws_jobs)
+      self._submitted_aws_jobs[fileseg.aws_id] = clone_fileseg
 
   def print_summary (self):
     return 'session_done=%r, submitted_jobs=%d, fileseg_len=%d' % (self.done, len(self._submitted_aws_jobs), len(self.filesegs))
@@ -145,17 +147,20 @@ class AwsGlobalSession:
 class RestoreFilesegState:
   __slots__ = ['fileseg', 'chunk']
 
+  def __init__ (self):
+    self.fileseg = None
+    self.chunk = None
+
   def push (self, record):
     if record.r_type == Record.FILESEG_START:
       assert not self.fileseg, 'Cannot have 2 pending filesegs'
       self.fileseg = Fileseg.build_from_record(record)
     elif record.r_type == Record.FILESEG_END:
-      assert self.fileseg and self.chunk and self.chunk.done, 'Empty or pending chunk when ending fileseg'
+      assert not self.fileseg.chunks or self.filesegs.chunks[-1].range_bytes[1] == self.fileseg.range_bytes
       self.fileseg.set_done(record.archive_id)
     elif record.r_type == Record.CHUNK_END:
-      assert self.chunk and not self.chunk.done, 'No valid chunk to end'
-      assert self.fileseg, 'No fileseg for chunk'
-      assert self.chunk == record.range_bytes, 'Chunk range bytes is not consistent'
+      assert not self.chunk and self.fileseg, 'No fileseg or there is already a chunk'
+      assert range_contains(record.range_bytes, self.fileseg.range_bytes), 'Chunk range bytes is not consistent'
       self.chunk = Chunk(record.range_bytes)
       self.chunk.done = True
       self.fileseg.add_chunk(self.chunk)
@@ -163,7 +168,7 @@ class RestoreFilesegState:
     else:
       logger.debug("Ignoring record %r", record)
   
-  def flush_fileseg_if_done (self, record):
+  def flush_fileseg_if_done (self):
     fileseg = None
     if self.fileseg and self.fileseg.done:
       fileseg = self.fileseg
