@@ -44,8 +44,9 @@ bin/btrfs-progs/install_root: bin/btrfs-progs
 clean:
 	rm -rf bin/*
 
-fs_init: config
-	echo bash setup_test_drive.sh -d /dev/sdb -o
+fs_init:
+	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
+	bash etc/setup_test_drive.sh -d "2018-08-18-15-33-20-00" -p btrfs_test_partition -s
 
 tags:
 	ctags *.h *.c
