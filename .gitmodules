@@ -1,0 +1,3 @@
+[submodule "btrfs-progs"]
+	path = btrfs-progs
+	url = git://git.kernel.org/pub/scm/linux/kernel/git/kdave/btrfs-progs.git
