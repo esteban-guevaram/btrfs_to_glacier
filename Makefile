@@ -1,9 +1,11 @@
 .ONESHELL:
 .SECONDARY:
-.PHONY: all clean dbg opt test
+.PHONY: all bin clean dbg opt test
 
+include test_fs.include
 STAGE_PATH := /tmp/bin_btrfs_to_glacier
-BTRFS_INSTALL := $(STAGE_PATH)/btrfs-progs/install_root
+BTRFS_GIT     := $(STAGE_PATH)/btrfs-progs
+BTRFS_INSTALL := $(BTRFS_GIT)/install_root
 BTRFS_LIB     := $(BTRFS_INSTALL)/lib
 BTRFS_INCLUDE := $(BTRFS_INSTALL)/include
 
@@ -21,24 +23,27 @@ LDLIBS   :=
 
 headers = $(wildcard include/*.h)
 
-all: bin/btrfs-progs/install_root dbg;
+all: $(BTRFS_INSTALL) dbg;
 opt dbg: bin/test_btrfs_prog_integration;
 
 bin/test_btrfs_prog_integration: LDLIBS := $(BTRFS_LIB)/libbtrfsutil.a
-bin/test_btrfs_prog_integration: bin/common.o bin/test_btrfs_prog_integration.o
+bin/test_btrfs_prog_integration: bin/common.o bin/test_btrfs_prog_integration.o \
+                                 | $(BTRFS_INSTALL)
 
 test: all
-	bin/test_btrfs_prog_integration /tmp/btrfs_test_part_src/asubvol
+	bin/test_btrfs_prog_integration "$(SUBVOL_PATH)"
 
 bin:
 	[[ -d $(STAGE_PATH) ]] || mkdir $(STAGE_PATH)
-	ln -s $(STAGE_PATH) bin
+	[[ -L bin ]] || ln -s $(STAGE_PATH) bin
 
-bin/btrfs-progs: bin
-	cp -r btrfs-progs $(STAGE_PATH)
+$(BTRFS_GIT): bin
+	git submodule init
+	git submodule update
+	cp -r "btrfs-progs" "$(STAGE_PATH)"
 
-bin/btrfs-progs/install_root: bin/btrfs-progs
-	pushd $(STAGE_PATH)/btrfs-progs
+$(BTRFS_INSTALL): $(BTRFS_GIT)
+	pushd "$(BTRFS_GIT)"
 	[[ -d "$(BTRFS_INSTALL)" ]] || mkdir "$(BTRFS_INSTALL)"
 	bash autogen.sh
 	CC="$(CC)" CFLAGS="$(CFLAGS_BTRFS)" \
@@ -46,14 +51,14 @@ bin/btrfs-progs/install_root: bin/btrfs-progs
 	# otherwise instal will fail since udev dir cannot be written
 	sed -i 's!/usr/lib/udev!$${prefix}/lib/udev!' Makefile.inc
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
-	make install
+	$(MAKE) install
 
 clean:
 	rm -rf bin/*
 
 fs_init:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
-	bash etc/setup_test_drive.sh -d "2018-08-18-15-33-20-00" -p btrfs_test_partition -s
+	bash etc/setup_test_drive.sh -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
 
 tags:
 	ctags *.h *.c

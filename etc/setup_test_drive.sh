@@ -20,6 +20,8 @@ CREATE_SNAP_FLAG=0
 LEAVE_UMOUNTED=0
 DRY_RUN=""
 
+PARTED_CMD=( parted --align=optimal --script )
+
 parse_opts() {
   while getopts 'd:l:fpsu' opt; do
     case $opt in
@@ -111,16 +113,16 @@ mount_fs() {
 
 prepare_disk() {
   [[ "$CREATE_DISK_FLAG" == 1 ]] || return
-  run_cmd sudo parted "$DISK_DEVICE" mklabel gpt
+  run_cmd sudo "${PARTED_CMD[@]}" "$DISK_DEVICE" mklabel gpt
 }
 
 prepare_partition() {
-  [[ $CREATE_PART_FLAG == 1 ]] || return
-  run_cmd sudo parted "$DISK_DEVICE" print
-  run_cmd sudo parted "$DISK_DEVICE" mkpart primary btrfs 0% 50%
-  run_cmd sudo parted "$DISK_DEVICE" mkpart primary btrfs 50% 100%
-  run_cmd sudo parted "$DISK_DEVICE" name 1 "$PART_LBL_SRC"
-  run_cmd sudo parted "$DISK_DEVICE" name 2 "$PART_LBL_DST"
+  [[ "$CREATE_PART_FLAG" == 1 ]] || return
+  run_cmd sudo "${PARTED_CMD[@]}" "$DISK_DEVICE" print
+  run_cmd sudo "${PARTED_CMD[@]}" "$DISK_DEVICE" mkpart primary btrfs 1% 49%
+  run_cmd sudo "${PARTED_CMD[@]}" "$DISK_DEVICE" mkpart primary btrfs 50% 99%
+  run_cmd sudo "${PARTED_CMD[@]}" "$DISK_DEVICE" name 1 "$PART_LBL_SRC"
+  run_cmd sudo "${PARTED_CMD[@]}" "$DISK_DEVICE" name 2 "$PART_LBL_DST"
 
   sync
   run_cmd ls "/dev/disk/by-partlabel"
@@ -188,5 +190,5 @@ prepare_filesystem
 mount_fs
 create_dummy_subvol_and_snap
 sync
-[[ "$LEAVE_UMOUNTED" == 1 ]] && umount_fs
+[[ "$LEAVE_UMOUNTED" == 0 ]] || umount_fs
 
