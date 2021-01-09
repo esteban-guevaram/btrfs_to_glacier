@@ -21,7 +21,7 @@
 #endif
 
 #define TEST_ASSERT(exp, msg, ...) \
-  if (!(exp)) { __LOG__("TEST_ASSERT", msg " : " #exp ,##__VA_ARGS__); __my_assert__(!!(exp)); }
+  if (!(exp)) { __LOG__("TEST_ASSERT", msg " : " #exp ,##__VA_ARGS__); exit(1); }
 
 #define STATIC_ASSERT(COND,MSG) \
   typedef char __static_assert_##MSG[(COND)?1:-1]
