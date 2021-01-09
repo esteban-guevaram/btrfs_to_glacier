@@ -1,8 +1,8 @@
 .ONESHELL:
 .SECONDARY:
-.PHONY: all bin clean dbg opt test
+.PHONY: all bin clean test
 
-include test_fs.include
+include etc/Makefile.include
 STAGE_PATH := /tmp/bin_btrfs_to_glacier
 BTRFS_GIT     := $(STAGE_PATH)/btrfs-progs
 BTRFS_INSTALL := $(BTRFS_GIT)/install_root
@@ -10,28 +10,33 @@ BTRFS_LIB     := $(BTRFS_INSTALL)/lib
 BTRFS_INCLUDE := $(BTRFS_INSTALL)/include
 
 CC       := gcc
-CPPFLAGS := 
-opt: CPPFLAGS := $(CPPFLAGS) -D_GNU_SOURCE -D__LEVEL_LOG__=2 -D__LEVEL_ASSERT__=0
-dbg: CPPFLAGS := $(CPPFLAGS) -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
-CFLAGS_BTRFS  := -std=c11
-CFLAGS   := $(CFLAGS_BTRFS) -I$(BTRFS_INCLUDE) -Iinclude -Wall -Werror
-opt: CFLAGS := $(CFLAGS) -mtune=native -march=native -O3
-dbg: CFLAGS := $(CFLAGS) -ggdb -fsanitize=address
-LDFLAGS  :=
-dbg: LDFLAGS := $(LDFLAGS) -fsanitize=address
+CPPFLAGS := $(CPPFLAGS) -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
+CFLAGS_BTRFS  := -std=gnu11
+# -mtune=native -march=native -O3
+CFLAGS   := $(CFLAGS_BTRFS) -I$(BTRFS_INCLUDE) -Iinclude -Wall -Werror -ggdb -fsanitize=address
+LDFLAGS  := -fsanitize=address
 LDLIBS   :=
 
-headers = $(wildcard include/*.h)
+# If the host has a libbtrfsutil with headers, link againt that instead of submodule
+ifneq ($(USE_HOST_BTRFSUTIL), )
+	BTRFSUTIL_LBLIB := -lbtrfsutil
+else
+	BTRFSUTIL_LBLIB := $(BTRFS_LIB)/libbtrfsutil.a
+endif
 
-all: $(BTRFS_INSTALL) dbg;
-opt dbg: bin/test_btrfs_prog_integration;
+headers := $(wildcard include/*.h)
 
-bin/test_btrfs_prog_integration: LDLIBS := $(BTRFS_LIB)/libbtrfsutil.a
-bin/test_btrfs_prog_integration: bin/common.o bin/test_btrfs_prog_integration.o \
-                                 | $(BTRFS_INSTALL)
+all: $(BTRFS_INSTALL) bin/test_btrfs_prog_integration;
+
+clean:
+	rm -rf bin/*
 
 test: all
 	bin/test_btrfs_prog_integration "$(SUBVOL_PATH)"
+
+fs_init:
+	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
+	bash etc/setup_test_drive.sh -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
 
 bin:
 	[[ -d $(STAGE_PATH) ]] || mkdir $(STAGE_PATH)
@@ -53,15 +58,9 @@ $(BTRFS_INSTALL): $(BTRFS_GIT)
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
 	$(MAKE) install
 
-clean:
-	rm -rf bin/*
-
-fs_init:
-	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
-	bash etc/setup_test_drive.sh -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
-
-tags:
-	ctags *.h *.c
+bin/test_btrfs_prog_integration: LDLIBS := $(BTRFSUTIL_LBLIB)
+bin/test_btrfs_prog_integration: bin/common.o bin/test_btrfs_prog_integration.o \
+																 | $(BTRFS_INSTALL)
 
 bin/%.o : src/%.c $(headers)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
