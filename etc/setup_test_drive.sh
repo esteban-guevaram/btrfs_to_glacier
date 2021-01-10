@@ -1,10 +1,10 @@
 #! /bin/bash
 # Creates dummy btrfs filesystems to test the project
 
-MOUNT_SRC="$TEMP/btrfs_test_part_src"
-MOUNT_DST="$TEMP/btrfs_test_part_dst"
-RESTORE_POINT="$MOUNT_DST/restore"
-SNAP_POINT="$MOUNT_SRC/snapshots"
+MOUNT_SRC=""
+MOUNT_DST=""
+RESTORE_POINT=""
+SNAP_POINT=""
 
 DISK_UUID=""
 DISK_DEVICE=""
@@ -44,6 +44,10 @@ parse_opts() {
   PART_LBL_SRC="${PART_PREFIX}_src"
   PART_LBL_DST="${PART_PREFIX}_dst"
   SUBVOL_LIST=( "$@" )
+  MOUNT_SRC="$TEMP/${PART_PREFIX}_src"
+  MOUNT_DST="$TEMP/${PART_PREFIX}_dst"
+  RESTORE_POINT="$MOUNT_DST/restore"
+  SNAP_POINT="$MOUNT_SRC/snapshots"
 }
 
 try_or_die() {
