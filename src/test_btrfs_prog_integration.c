@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,15 +15,19 @@ int is_directory(const char* path) {
   const size_t buf_len = 256;
   char buf[buf_len];
   int len = strnlen(path, buf_len-2);
-  if (len < 0) return 0;
+  if (len < 1) return 0;
 
-  strncpy(buf, path, len);
-  if (buf[len-1] != '/') strcat(buf, "/");
-  // Why is `accesss` dodgy and fails 50% of the time ?
+  strncpy(buf, path, buf_len);
+  if (buf[len-1] != '/') strncat(buf, "/", buf_len);
+  buf[buf_len-1] = '\0';
+  // Another option to using `stat`
   //return !access(buf, F_OK);
   struct stat s;
-  int err = stat(buf, &s);
-  if(err == -1) return 0;
+  errno = 0;
+  if(stat(buf, &s) == -1) {
+    LOG_WARN("stat failed (path=%s) [%d: %s]", buf, errno, strerror(errno));
+    exit(1);
+  }
   return S_ISDIR(s.st_mode);
 }
 
