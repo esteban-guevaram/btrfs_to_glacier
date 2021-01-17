@@ -1,5 +1,8 @@
 syntax = "proto3";
 package messages;
+// Cannot use "btrfs_to_glacier/messages" because it will influence the path
+// where protoc will put the files...
+option go_package = "./messages";
 
 message Volume {
   string uuid = 1; 
@@ -14,7 +17,7 @@ message SnapshotChunks {
   }
   string uuid = 1; 
   string snap_uuid = 2; 
-  repeated Chunks chunks = 3;
+  repeated Chunk chunks = 3;
 }
 
 message Snapshot {
@@ -51,14 +54,14 @@ message SnapshotSeq {
 message SnapshotChanges {
   enum Type {
     UNKNOWN = 0;
-    WRITE;
-    DELETE;
+    WRITE = 1;
+    DELETE = 2;
   }
   message Change {
     Type type = 1;
     string path = 2;
   }
   string snap_uuid = 1; 
-  repeated Change changes = 1;
+  repeated Change changes = 2;
 }
 

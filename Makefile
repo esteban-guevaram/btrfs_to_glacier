@@ -1,6 +1,6 @@
 .ONESHELL:
 .SECONDARY:
-.PHONY: all bin clean fs_init go_code test
+.PHONY: all bin clean fs_init go_code go_unittest test
 
 include etc/Makefile.include
 STAGE_PATH := /tmp/bin_btrfs_to_glacier
@@ -19,6 +19,12 @@ else
 endif
 
 GOENV    := $(STAGE_PATH)/go_env
+MYGOSRC  := src/golang
+GO_PROTOC_INSTALL := $(STAGE_PATH)/gobin/protoc-gen-go
+# Chose NOT to store generated proto sources in git
+# Can be problematic for some languages like C++ (see groups.google.com/g/protobuf/c/Qz5Aj7zK03Y)
+GO_PROTO_GEN_SRCS  := $(MYGOSRC)/messages/messages.pb.go
+PROTOSRC := src/proto
 CC       := gcc
 CPPFLAGS := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
 CFLAGS_BTRFS  := -std=gnu11
@@ -28,34 +34,39 @@ LDFLAGS  :=
 LDLIBS   :=
 
 headers := $(wildcard include/*.h)
-go_files := $(wildcard src/golang/*.go)
+go_files := $(shell find "$(MYGOSRC)" -type f -name '*.go')
 
 all: $(BTRFS_INSTALL) go_code bin/test_btrfs_prog_integration;
 
 clean:
 	rm -rf bin/*
 
-test: all
+test: go_unittest all
 	bin/test_btrfs_prog_integration "$(SUBVOL_PATH)" || exit 1
-	pushd src/golang
+	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./integration_test --subvol="$(SUBVOL_PATH)" || exit 1
-	GOENV="$(GOENV)" go test ./... || exit 1
 
 fs_init:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
 	bash etc/setup_test_drive.sh -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
 
-go_code: $(GOENV) $(go_files) | $(BTRFS_INSTALL)
-	pushd src/golang
+go_code: $(GOENV) $(go_files) $(GO_PROTO_GEN_SRCS) | $(BTRFS_INSTALL)
+	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go install ./...
+
+go_unittest: go_code
+	pushd "$(MYGOSRC)"
+	# add --test.v to get verbose tests
+	GOENV="$(GOENV)" go test ./...
 
 $(GOENV): | bin
 	GOENV="$(GOENV)" go env -w CC="$(CC)" \
 	                           CGO_CFLAGS="$(CFLAGS)" \
 														 CGO_LDFLAGS="$(BTRFSUTIL_LBLIB)" \
-														 GOBIN="$(STAGE_PATH)" \
+														 GOPATH="$(STAGE_PATH)/gopath" \
+														 GOBIN="$(STAGE_PATH)/gobin" \
 														 GOCACHE="$(STAGE_PATH)/go-build"
-	GOENV="$(GOENV)" go env
+	#GOENV="$(GOENV)" go env
 
 bin:
 	[[ -d $(STAGE_PATH) ]] || mkdir $(STAGE_PATH)
@@ -76,6 +87,14 @@ $(BTRFS_INSTALL): $(BTRFS_GIT)
 	sed -i 's!/usr/lib/udev!$${prefix}/lib/udev!' Makefile.inc
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
 	$(MAKE) install
+
+$(GO_PROTOC_INSTALL):
+	GOENV="$(GOENV)" go get google.golang.org/protobuf/cmd/protoc-gen-go
+	GOENV="$(GOENV)" go install google.golang.org/protobuf/cmd/protoc-gen-go
+
+$(MYGOSRC)/messages/%.pb.go: $(PROTOSRC)/%.proto $(GO_PROTOC_INSTALL)
+	export PATH="$(PATH):`GOENV="$(GOENV)" go env GOBIN`"
+	protoc '-I=$(PROTOSRC)' '--go_out=$(MYGOSRC)' "$<"
 
 bin/test_btrfs_prog_integration: LDLIBS := $(BTRFSUTIL_LBLIB)
 bin/test_btrfs_prog_integration: bin/common.o bin/test_btrfs_prog_integration.o \

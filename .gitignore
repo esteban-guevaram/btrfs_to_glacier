@@ -3,6 +3,7 @@ htmlcov
 .coverage
 **/tags
 **/*.log
+**/*.pb.go
 **/*.pyc
 **/*.tar.gz
 **/*.tar
