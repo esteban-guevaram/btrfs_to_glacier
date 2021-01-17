@@ -1,7 +1,7 @@
 package main
 
 import (
-  "btrfs_to_glacier/log"
+  "btrfs_to_glacier/util"
   "btrfs_to_glacier/shim"
   "flag"
 )
@@ -14,14 +14,14 @@ func init() {
 
 // Cannot use a test since Testing does not support cgo
 func main() {
-  log.Infof("btrfs_prog_integration_run")
+  util.Infof("btrfs_prog_integration_run")
   flag.Parse()
 
   btrfsutil := shim.New()
   subvol, err := btrfsutil.SubvolumeInfo(path_flag, 0);
   if err != nil {
-    log.Fatalf("integration failed = %v", err)
+    util.Fatalf("integration failed = %v", err)
   }
-  log.Infof("uuid = %s\n", subvol.Uuid())
+  util.Infof("uuid = %s\n", subvol.Uuid())
 }
 
