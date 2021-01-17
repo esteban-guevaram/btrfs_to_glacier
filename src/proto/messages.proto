@@ -1,0 +1,64 @@
+syntax = "proto3";
+package messages;
+
+message Volume {
+  string uuid = 1; 
+  string mounted_path = 2; 
+}
+
+message SnapshotChunks {
+  message Chunk {
+    string uuid = 1; 
+    uint64 start = 2;
+    uint64 size = 3;
+  }
+  string uuid = 1; 
+  string snap_uuid = 2; 
+  repeated Chunks chunks = 3;
+}
+
+message Snapshot {
+  Volume vol = 1;
+  string parent_uuid = 2; 
+  string receive_uuid = 3; 
+  string chunks_uuid = 4; 
+  fixed64 create_ts = 5;
+  SystemInfo origin_sys = 6;
+}
+
+message SystemInfo {
+  uint32 kern_major = 1;
+  uint32 kern_minor = 2;
+  uint32 btrfs_mod_major = 3;
+  uint32 btrfs_mod_minor = 4;
+  uint32 btrfs_usr_major = 5;
+  uint32 btrfs_usr_minor = 6;
+  string tool_git_commit = 7;
+}
+
+message SnapshotSeqHead {
+  // same as the volume uuid
+  string uuid = 1; 
+  string cur_seq_uuid = 2;
+  repeated string prev_seq_uuid = 3;
+}
+
+message SnapshotSeq {
+  string uuid = 1; 
+  repeated Snapshot snaps = 2;
+}
+
+message SnapshotChanges {
+  enum Type {
+    UNKNOWN = 0;
+    WRITE;
+    DELETE;
+  }
+  message Change {
+    Type type = 1;
+    string path = 2;
+  }
+  string snap_uuid = 1; 
+  repeated Change changes = 1;
+}
+

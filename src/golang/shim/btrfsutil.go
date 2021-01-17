@@ -8,16 +8,16 @@ package shim
 import "C"
 import (
   "btrfs_to_glacier/log"
-  "btrfs_to_glacier/shim_if"
+  "btrfs_to_glacier/types"
   "fmt"
   "unsafe"
 )
 
 type btrfs_util_impl struct {}
 
-func New() shim_if.Btrfsutil { return new(btrfs_util_impl) }
+func New() types.Btrfsutil { return new(btrfs_util_impl) }
 
-func (*btrfs_util_impl) SubvolumeInfo(path string, subvol_id int) (shim_if.SubvolumeInfoIf, error) {
+func (*btrfs_util_impl) SubvolumeInfo(path string, subvol_id int) (types.SubvolumeInfoIf, error) {
   var subvol subvolume_info_impl
   c_path := C.CString(path)
   defer C.free(unsafe.Pointer(c_path))

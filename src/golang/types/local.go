@@ -1,0 +1,54 @@
+package types
+
+type VolumeManager interface {
+  GetVolume() error
+  GetChangesBetweenSnaps() error
+  ListSnapshotSeq() error
+}
+
+// Implementation questions
+// * Can I use btrfs receive dump mode for something ? 
+type VolumeSource interface {
+  VolumeManager
+  ReceiveSnapshotStream() error
+  GetSnapshotStream() error
+}
+
+type VolumeDestination interface {
+  VolumeManager
+  CreateVolume() error
+  DeleteVolume() error
+}
+
+/*
+snapshot        ./asubvol2                      uuid=119f6e7e-da47-e64d-a203-32b479c714f2 transid=9 parent_uuid=a09df70b-cdcf-f040-a4d4-e3c373afecf6 parent_transid=7
+utimes          ./asubvol2/                     atime=2021-01-15T02:26:39+0100 mtime=2021-01-15T02:27:52+0100 ctime=2021-01-15T02:27:52+0100
+unlink          ./asubvol2/file.OQAoZp
+utimes          ./asubvol2/                     atime=2021-01-15T02:26:39+0100 mtime=2021-01-15T02:27:52+0100 ctime=2021-01-15T02:27:52+0100
+mkfile          ./asubvol2/o258-8-0
+rename          ./asubvol2/o258-8-0             dest=./asubvol2/salut
+utimes          ./asubvol2/                     atime=2021-01-15T02:26:39+0100 mtime=2021-01-15T02:27:52+0100 ctime=2021-01-15T02:27:52+0100
+update_extent   ./asubvol2/salut                offset=0 len=6
+chown           ./asubvol2/salut                gid=1001 uid=1000
+chmod           ./asubvol2/salut                mode=644
+utimes          ./asubvol2/salut                atime=2021-01-15T02:27:42+0100 mtime=2021-01-15T02:27:42+0100 ctime=2021-01-15T02:27:42+0100
+mkfile          ./asubvol2/o259-8-0
+rename          ./asubvol2/o259-8-0             dest=./asubvol2/coucou
+utimes          ./asubvol2/                     atime=2021-01-15T02:26:39+0100 mtime=2021-01-15T02:27:52+0100 ctime=2021-01-15T02:27:52+0100
+update_extent   ./asubvol2/coucou               offset=0 len=7
+chown           ./asubvol2/coucou               gid=1001 uid=1000
+chmod           ./asubvol2/coucou               mode=644
+utimes          ./asubvol2/coucou               atime=2021-01-15T02:27:49+0100 mtime=2021-01-15T02:27:49+0100 ctime=2021-01-15T02:27:49+0100
+
+snapshot        ./asubvol3                      uuid=3e694a94-4297-6440-a26c-f1362f2b318b transid=10 parent_uuid=119f6e7e-da47-e64d-a203-32b479c714f2 parent_transid=9
+update_extent   ./asubvol3/coucou               offset=0 len=52
+utimes          ./asubvol3/coucou               atime=2021-01-15T02:27:49+0100 mtime=2021-01-15T02:33:28+0100 ctime=2021-01-15T02:33:28+0100
+
+snapshot        ./asubvol4                      uuid=f5c2610c-1c36-dc44-915d-3b2ac8aa0234 transid=11 parent_uuid=3e694a94-4297-6440-a26c-f1362f2b318b parent_transid=10
+utimes          ./asubvol4/                     atime=2021-01-15T02:26:39+0100 mtime=2021-01-15T02:39:05+0100 ctime=2021-01-15T02:39:05+0100
+link            ./asubvol4/chocolat             dest=coucou
+unlink          ./asubvol4/coucou
+utimes          ./asubvol4/                     atime=2021-01-15T02:26:39+0100 mtime=2021-01-15T02:39:05+0100 ctime=2021-01-15T02:39:05+0100
+utimes          ./asubvol4/                     atime=2021-01-15T02:26:39+0100 mtime=2021-01-15T02:39:05+0100 ctime=2021-01-15T02:39:05+0100
+utimes          ./asubvol4/chocolat             atime=2021-01-15T02:27:49+0100 mtime=2021-01-15T02:33:28+0100 ctime=2021-01-15T02:39:05+0100
+*/
