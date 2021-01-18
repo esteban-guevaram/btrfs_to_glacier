@@ -1,7 +1,12 @@
 #pragma once
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <logger.h>
 
 #define __STRINGIFY__(arg) #arg
 #define STRINGIFY(arg) __STRINGIFY__(arg)
@@ -30,8 +35,9 @@ void __my_assert__(int condition);
 
 #define is_null_or_empty(str) (str) == NULL || *(str) == '\0'
 
-#define DIE_OR_ASSIGN(result, expr) \
-  errno = 0; int result = expr; if(result < 0) { LOG("[%d: %s] " #expr " < 0", errno, strerror(errno)); exit(1); }
+#define CALL_POSIX_CHECK(call, expr) \
+  call; \
+  if(!(expr)) { LOG_ERROR("[%d: %s] " #call, errno, strerror(errno)); exit(1); }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 

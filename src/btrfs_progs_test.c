@@ -1,7 +1,3 @@
-#include <errno.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -23,7 +19,6 @@ int is_directory(const char* path) {
   // Another option to using `stat`
   //return !access(buf, F_OK);
   struct stat s;
-  errno = 0;
   if(stat(buf, &s) == -1) {
     LOG_WARN("stat failed (path=%s) [%d: %s]", buf, errno, strerror(errno));
     exit(1);

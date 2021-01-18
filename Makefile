@@ -1,9 +1,10 @@
 .ONESHELL:
 .SECONDARY:
-.PHONY: all bin clean fs_init go_code go_unittest test
+.PHONY: all bin clean fs_init c_code go_code go_unittest test
 
+PROJ_ROOT     := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 include etc/Makefile.include
-STAGE_PATH := /tmp/bin_btrfs_to_glacier
+STAGE_PATH    := /tmp/bin_btrfs_to_glacier
 BTRFS_GIT     := $(STAGE_PATH)/btrfs-progs
 BTRFS_INSTALL := $(BTRFS_GIT)/install_root
 
@@ -11,11 +12,11 @@ BTRFS_INSTALL := $(BTRFS_GIT)/install_root
 ifneq ($(USE_HOST_BTRFSUTIL), )
 	BTRFS_LIB     := /usr/lib
 	BTRFS_INCLUDE := /usr/include
-	BTRFSUTIL_LBLIB := -lbtrfsutil
+	BTRFSUTIL_LDLIB := -lbtrfsutil
 else
 	BTRFS_LIB     := $(BTRFS_INSTALL)/lib
 	BTRFS_INCLUDE := $(BTRFS_INSTALL)/include
-	BTRFSUTIL_LBLIB := $(BTRFS_LIB)/libbtrfsutil.a
+	BTRFSUTIL_LDLIB := $(BTRFS_LIB)/libbtrfsutil.a
 endif
 
 GOENV    := $(STAGE_PATH)/go_env
@@ -29,20 +30,23 @@ CC       := gcc
 CPPFLAGS := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
 CFLAGS_BTRFS  := -std=gnu11
 # -mtune=native -march=native -O3
-CFLAGS   := $(CFLAGS_BTRFS) -I$(BTRFS_INCLUDE) -Iinclude -Wall -Werror -ggdb
+CFLAGS   := $(CFLAGS_BTRFS) -I$(BTRFS_INCLUDE) "-I$(PROJ_ROOT)/include" -Wall -Werror -ggdb
 LDFLAGS  := 
 LDLIBS   :=
 
-headers := $(wildcard include/*.h)
+headers  := $(wildcard include/*.h)
 go_files := $(shell find "$(MYGOSRC)" -type f -name '*.go')
+c_lib     = bin/$(1).so bin/$(1).a bin/$(1)_test
 
-all: $(BTRFS_INSTALL) go_code bin/test_btrfs_prog_integration;
+all: $(BTRFS_INSTALL) go_code c_code;
+
+c_code: bin/btrfs_progs_test $(call c_lib,linux_utils);
 
 clean:
 	rm -rf bin/*
 
 test: go_unittest all
-	bin/test_btrfs_prog_integration "$(SUBVOL_PATH)" || exit 1
+	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./shim/integration --subvol="$(SUBVOL_PATH)" || exit 1
 
@@ -62,7 +66,7 @@ go_unittest: go_code
 $(GOENV): | bin
 	GOENV="$(GOENV)" go env -w CC="$(CC)" \
 	                           CGO_CFLAGS="$(CFLAGS)" \
-														 CGO_LDFLAGS="$(BTRFSUTIL_LBLIB)" \
+														 CGO_LDFLAGS="$(BTRFSUTIL_LDLIB) $(STAGE_PATH)/linux_utils.a -lcap" \
 														 GOPATH="$(STAGE_PATH)/gopath" \
 														 GOBIN="$(STAGE_PATH)/gobin" \
 														 GOCACHE="$(STAGE_PATH)/go-build"
@@ -96,13 +100,20 @@ $(MYGOSRC)/messages/%.pb.go: $(PROTOSRC)/%.proto $(GO_PROTOC_INSTALL)
 	export PATH="$(PATH):`GOENV="$(GOENV)" go env GOBIN`"
 	protoc '-I=$(PROTOSRC)' '--go_out=$(MYGOSRC)' "$<"
 
-bin/test_btrfs_prog_integration: LDLIBS := $(BTRFSUTIL_LBLIB)
-bin/test_btrfs_prog_integration: bin/common.o bin/test_btrfs_prog_integration.o \
-																 | $(BTRFS_INSTALL)
+$(call c_lib,linux_utils): LDLIBS := -lcap
 
 bin/%.o : src/%.c $(headers)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o "$@" "$<"
 
-bin/%:
-	$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
+bin/%.so:
+	$(CC) -shared $(LDFLAGS) -o "$@" $^ $(LOADLIBES) $(LDLIBS)
+
+bin/%.a:
+	ar rcs "$@" $^
+
+bin/%_test: bin/%_test.o bin/%.o bin/common.o
+	$(CC) $(LDFLAGS) -o "$@" $^ $(LOADLIBES) $(LDLIBS)
+
+bin/btrfs_progs_test: bin/btrfs_progs_test.o bin/common.o
+	$(CC) $(LDFLAGS) -o "$@" $^ $(BTRFSUTIL_LDLIB)
 
