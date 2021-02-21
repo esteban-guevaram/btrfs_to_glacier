@@ -13,21 +13,24 @@ import (
   "unsafe"
 )
 
-type btrfs_util_impl struct {}
+type btrfsUtilImpl struct {}
 
-func New() types.Btrfsutil { return new(btrfs_util_impl) }
+func NewBtrfsutil(conf types.Config) (types.Btrfsutil, error) {
+  impl := new(btrfsUtilImpl)
+  return impl, nil
+}
 
-func (*btrfs_util_impl) CheckCompatibleWithHost() error {
+func (*btrfsUtilImpl) CheckCompatibleWithHost() error {
   return nil
 }
 
-func (*btrfs_util_impl) SubvolumeInfo(path string, subvol_id int) (types.SubvolumeInfoIf, error) {
+func (*btrfsUtilImpl) SubvolumeInfo(path string, subvol_id int) (types.SubvolumeInfoIf, error) {
   var subvol subvolume_info_impl
   c_path := C.CString(path)
   defer C.free(unsafe.Pointer(c_path))
 
   util.Infof("btrfs_util_subvolume_info('%s')", path)
-  stx := C.btrfs_util_subvolume_info(c_path, 0, &subvol.subvol_);
+  stx := C.btrfs_util_subvolume_info(c_path, 0, &subvol.subvol_)
   if stx != 0 {
     return nil, fmt.Errorf("btrfs_util_subvolume_info = %d", stx)
   }

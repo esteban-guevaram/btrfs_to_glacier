@@ -17,7 +17,7 @@ func main() {
   util.Infof("btrfs_prog_integration_run")
   flag.Parse()
 
-  btrfsutil := shim.New()
+  btrfsutil, err := shim.NewBtrfsutilShim()
   subvol, err := btrfsutil.SubvolumeInfo(path_flag, 0);
   if err != nil {
     util.Fatalf("integration failed = %v", err)
