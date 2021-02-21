@@ -1,6 +1,6 @@
 .ONESHELL:
 .SECONDARY:
-.PHONY: all bin clean fs_init c_code go_code go_unittest test
+.PHONY: all clean fs_init c_code go_code go_unittest test
 
 PROJ_ROOT     := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 include etc/Makefile.include
@@ -38,14 +38,19 @@ headers  := $(wildcard include/*.h)
 go_files := $(shell find "$(MYGOSRC)" -type f -name '*.go')
 c_lib     = bin/$(1).so bin/$(1).a bin/$(1)_test
 
-all: $(BTRFS_INSTALL) go_code c_code;
+all: go_code c_code
+go_code c_code test: | bin $(BTRFS_INSTALL)
 
-c_code: bin/btrfs_progs_test $(call c_lib,linux_utils);
+c_code: $(call c_lib,linux_utils)
 
 clean:
+	if [[ -f "$(GOENV)" ]]; then
+	  GOPATH="`GOENV="$(GOENV)" go env GOPATH`"
+		chmod --recursive 'a+wx' "$$GOPATH"
+	fi
 	rm -rf bin/*
 
-test: go_unittest all
+test: all go_unittest bin/btrfs_progs_test
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./shim/integration --subvol="$(SUBVOL_PATH)" || exit 1
@@ -54,7 +59,7 @@ fs_init:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
 	bash etc/setup_test_drive.sh -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
 
-go_code: $(GOENV) $(go_files) $(GO_PROTO_GEN_SRCS) | $(BTRFS_INSTALL)
+go_code: c_code $(GOENV) $(go_files) $(GO_PROTO_GEN_SRCS)
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go install ./...
 
@@ -63,7 +68,7 @@ go_unittest: go_code
 	# add --test.v to get verbose tests
 	GOENV="$(GOENV)" go test ./...
 
-$(GOENV): | bin
+$(GOENV): bin
 	GOENV="$(GOENV)" go env -w CC="$(CC)" \
 	                           CGO_CFLAGS="$(CFLAGS)" \
 														 CGO_LDFLAGS="$(BTRFSUTIL_LDLIB) $(STAGE_PATH)/linux_utils.a -lcap" \
@@ -72,16 +77,18 @@ $(GOENV): | bin
 														 GOCACHE="$(STAGE_PATH)/go-build"
 	#GOENV="$(GOENV)" go env
 
-bin:
-	[[ -d $(STAGE_PATH) ]] || mkdir $(STAGE_PATH)
+bin: | $(STAGE_PATH)
 	[[ -L bin ]] || ln -s $(STAGE_PATH) bin
+
+$(STAGE_PATH):
+	[[ -d $(STAGE_PATH) ]] || mkdir $(STAGE_PATH)
 
 $(BTRFS_GIT): | bin
 	git submodule init
 	git submodule update
 	cp -r "btrfs-progs" "$(STAGE_PATH)"
 
-$(BTRFS_INSTALL): $(BTRFS_GIT)
+$(BTRFS_INSTALL): | $(BTRFS_GIT)
 	pushd "$(BTRFS_GIT)"
 	[[ -d "$(BTRFS_INSTALL)" ]] || mkdir "$(BTRFS_INSTALL)"
 	bash autogen.sh
@@ -92,15 +99,15 @@ $(BTRFS_INSTALL): $(BTRFS_GIT)
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
 	$(MAKE) install
 
-$(GO_PROTOC_INSTALL):
+$(GO_PROTOC_INSTALL): $(GOENV)
 	GOENV="$(GOENV)" go get google.golang.org/protobuf/cmd/protoc-gen-go
-	GOENV="$(GOENV)" go install google.golang.org/protobuf/cmd/protoc-gen-go
 
-$(MYGOSRC)/messages/%.pb.go: $(PROTOSRC)/%.proto $(GO_PROTOC_INSTALL)
+$(MYGOSRC)/messages/%.pb.go: $(PROTOSRC)/%.proto $(GOENV) | $(GO_PROTOC_INSTALL)
 	export PATH="$(PATH):`GOENV="$(GOENV)" go env GOBIN`"
 	protoc '-I=$(PROTOSRC)' '--go_out=$(MYGOSRC)' "$<"
 
 $(call c_lib,linux_utils): LDLIBS := -lcap
+$(call c_lib,linux_utils): bin/linux_utils.o bin/common.o
 
 bin/%.o : src/%.c $(headers)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o "$@" "$<"
@@ -111,7 +118,7 @@ bin/%.so:
 bin/%.a:
 	ar rcs "$@" $^
 
-bin/%_test: bin/%_test.o bin/%.o bin/common.o
+bin/%_test: bin/%_test.o bin/%.o
 	$(CC) $(LDFLAGS) -o "$@" $^ $(LOADLIBES) $(LDLIBS)
 
 bin/btrfs_progs_test: bin/btrfs_progs_test.o bin/common.o
