@@ -2,7 +2,7 @@ package messages
 
 import (
   "testing"
-  "github.com/golang/protobuf/proto"
+  "google.golang.org/protobuf/proto"
 )
 
 func TestMessagesGotGenerated(t *testing.T) {
