@@ -1,8 +1,9 @@
 package main
 
 import (
-  "btrfs_to_glacier/util"
   "btrfs_to_glacier/shim"
+  "btrfs_to_glacier/types"
+  "btrfs_to_glacier/util"
   "flag"
 )
 
@@ -17,8 +18,19 @@ func main() {
   util.Infof("btrfs_prog_integration_run")
   flag.Parse()
 
-  btrfsutil, err := shim.NewBtrfsutilShim()
-  subvol, err := btrfsutil.SubvolumeInfo(path_flag, 0);
+  var config types.Config
+  var err error
+  var btrfsutil types.Btrfsutil
+  var subvol types.SubvolumeInfoIf
+  config, err = util.Load()
+  if err != nil {
+    util.Fatalf("integration failed = %v", err)
+  }
+  btrfsutil, err = shim.NewBtrfsutil(config)
+  if err != nil {
+    util.Fatalf("integration failed = %v", err)
+  }
+  subvol, err = btrfsutil.SubvolumeInfo(path_flag, 0);
   if err != nil {
     util.Fatalf("integration failed = %v", err)
   }

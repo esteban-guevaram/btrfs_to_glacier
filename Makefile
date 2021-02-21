@@ -24,7 +24,7 @@ MYGOSRC  := src/golang
 GO_PROTOC_INSTALL := $(STAGE_PATH)/gobin/protoc-gen-go
 # Chose NOT to store generated proto sources in git
 # Can be problematic for some languages like C++ (see groups.google.com/g/protobuf/c/Qz5Aj7zK03Y)
-GO_PROTO_GEN_SRCS  := $(MYGOSRC)/messages/messages.pb.go
+GO_PROTO_GEN_SRCS  := $(MYGOSRC)/messages/config.pb.go $(MYGOSRC)/messages/messages.pb.go
 PROTOSRC := src/proto
 CC       := gcc
 CPPFLAGS := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
