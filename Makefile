@@ -5,19 +5,10 @@
 PROJ_ROOT     := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 include etc/Makefile.include
 STAGE_PATH    := /tmp/bin_btrfs_to_glacier
-BTRFS_GIT     := $(STAGE_PATH)/btrfs-progs
-BTRFS_INSTALL := $(BTRFS_GIT)/install_root
 
-# If the host has a libbtrfsutil with headers, link againt that instead of submodule
-ifneq ($(USE_HOST_BTRFSUTIL), )
-	BTRFS_LIB     := /usr/lib
-	BTRFS_INCLUDE := /usr/include
-	BTRFSUTIL_LDLIB := -lbtrfsutil
-else
-	BTRFS_LIB     := $(BTRFS_INSTALL)/lib
-	BTRFS_INCLUDE := $(BTRFS_INSTALL)/include
-	BTRFSUTIL_LDLIB := $(BTRFS_LIB)/libbtrfsutil.a
-endif
+BTRFS_LIB     := /usr/lib
+BTRFS_INCLUDE := /usr/include
+BTRFSUTIL_LDLIB := -lbtrfsutil
 
 GOENV    := $(STAGE_PATH)/go_env
 MYGOSRC  := src/golang
@@ -39,7 +30,7 @@ go_files := $(shell find "$(MYGOSRC)" -type f -name '*.go')
 c_lib     = bin/$(1).so bin/$(1).a bin/$(1)_test
 
 all: go_code c_code
-go_code c_code test: | bin $(BTRFS_INSTALL)
+go_code c_code test: | bin
 
 c_code: $(call c_lib,linux_utils)
 
@@ -82,22 +73,6 @@ bin: | $(STAGE_PATH)
 
 $(STAGE_PATH):
 	[[ -d $(STAGE_PATH) ]] || mkdir $(STAGE_PATH)
-
-$(BTRFS_GIT): | bin
-	git submodule init
-	git submodule update
-	cp -r "btrfs-progs" "$(STAGE_PATH)"
-
-$(BTRFS_INSTALL): | $(BTRFS_GIT)
-	pushd "$(BTRFS_GIT)"
-	[[ -d "$(BTRFS_INSTALL)" ]] || mkdir "$(BTRFS_INSTALL)"
-	bash autogen.sh
-	CC="$(CC)" CFLAGS="$(CFLAGS_BTRFS)" \
-	  bash configure --prefix="$(BTRFS_INSTALL)"
-	# otherwise instal will fail since udev dir cannot be written
-	sed -i 's!/usr/lib/udev!$${prefix}/lib/udev!' Makefile.inc
-	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
-	$(MAKE) install
 
 $(GO_PROTOC_INSTALL): $(GOENV)
 	GOENV="$(GOENV)" go get google.golang.org/protobuf/cmd/protoc-gen-go
