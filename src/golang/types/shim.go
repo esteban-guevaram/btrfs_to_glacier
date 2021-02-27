@@ -8,6 +8,7 @@ type Linuxutil interface {
   IsCapSysAdmin() bool
   LinuxKernelVersion() (uint32, uint32)
   BtrfsProgsVersion() (uint32, uint32)
+  ProjectVersion() string
 }
 
 type Btrfsutil interface {

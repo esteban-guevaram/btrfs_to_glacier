@@ -60,7 +60,9 @@ go_unittest: go_code
 	GOENV="$(GOENV)" go test ./...
 
 $(GOENV): | bin
+	COMMIT_ID="`git rev-list -1 HEAD`"
 	GOENV="$(GOENV)" go env -w CC="$(CC)" \
+														 CGO_CPPFLAGS="-DBTRFS_TO_GLACIER_VERSION=\"$$COMMIT_ID\"" \
 	                           CGO_CFLAGS="$(CFLAGS)" \
 														 CGO_LDFLAGS="$(BTRFSUTIL_LDLIB) $(STAGE_PATH)/linux_utils.a -lcap" \
 														 GOPATH="$(STAGE_PATH)/gopath" \

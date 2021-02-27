@@ -5,6 +5,11 @@ package shim
 #include <stdlib.h>
 #include <stdio.h>
 #include <linux_utils.h>
+
+// This macro is normally defined by the preprocessor flags introduced by `go env`
+#ifndef BTRFS_TO_GLACIER_VERSION
+#define BTRFS_TO_GLACIER_VERSION "NO_VERSION"
+#endif
 */
 import "C"
 import "fmt"
@@ -35,5 +40,9 @@ func (*linuxutilImpl) BtrfsProgsVersion() (uint32, uint32) {
     panic("Failed to get btrfs progrs version from header.")
   }
   return uint32(maj), uint32(min)
+}
+
+func (*linuxutilImpl) ProjectVersion() string {
+  return C.BTRFS_TO_GLACIER_VERSION
 }
 

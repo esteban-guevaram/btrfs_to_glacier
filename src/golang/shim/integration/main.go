@@ -42,6 +42,7 @@ func TestLinuxUtils_AllFuncs() {
   util.Infof("LinuxKernelVersion = %d.%d", kmaj, kmin)
   bmaj, bmin := linuxutil.BtrfsProgsVersion()
   util.Infof("LinuxKernelVersion = %d.%d", bmaj, bmin)
+  util.Infof("ProjectVersion = %s", linuxutil.ProjectVersion())
 }
 
 // Cannot use a test since Testing does not support cgo
