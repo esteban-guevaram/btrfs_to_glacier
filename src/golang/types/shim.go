@@ -1,11 +1,10 @@
 package types
 
-type SubvolumeInfoIf interface {
-  Uuid() string
-}
+import (
+  pb "btrfs_to_glacier/messages"
+)
 
 type Btrfsutil interface {
-  CheckCompatibleWithHost() error
-  SubvolumeInfo(path string, subvol_id int) (SubvolumeInfoIf, error)
+  SubvolumeInfo(path string, subvol_id int) (*pb.SubVolume, error)
 }
 

@@ -21,7 +21,7 @@ func NewVolumeManager(conf types.Config) (types.VolumeManager, error) {
   return &mgr, err
 }
 
-func (self *btrfsVolumeManager) GetVolume(path string) (*pb.Volume, error) {
+func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   return nil, nil
 }
 

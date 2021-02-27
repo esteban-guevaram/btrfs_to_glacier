@@ -28,13 +28,13 @@ int is_directory(const char* path) {
 
 int main(int argc, char** argv) {
   LOG_INFO("Testing btrfs-prog linking");
-  TEST_ASSERT(argc == 2, "USAGE: test_btrfs_prog_integration SUBVOL_PATH");
+  TEST_ASSERT_MSG(argc == 2, "USAGE: test_btrfs_prog_integration SUBVOL_PATH");
   const char* subvol_path = argv[1];
-  TEST_ASSERT(is_directory(subvol_path), "SUBVOL_PATH does not exist");
+  TEST_ASSERT_MSG(is_directory(subvol_path), "SUBVOL_PATH does not exist");
 
   struct btrfs_util_subvolume_info subvol;
   enum btrfs_util_error stx = btrfs_util_subvolume_info(subvol_path, 0, &subvol);
-  TEST_ASSERT(stx == BTRFS_UTIL_OK, "Failed to get subvolume information");
+  TEST_ASSERT_MSG(stx == BTRFS_UTIL_OK, "Failed to get subvolume information");
   char buf[256];
   LOG_INFO("path='%s', UUID='%s'", subvol_path, uuid_to_str(subvol.uuid, buf, sizeof(buf)));
   LOG_INFO("All done !!");

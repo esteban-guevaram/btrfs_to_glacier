@@ -32,7 +32,7 @@ c_lib     = bin/$(1).so bin/$(1).a bin/$(1)_test
 all: go_code c_code
 go_code c_code test: | bin
 
-c_code: $(call c_lib,linux_utils)
+c_code: $(call c_lib,linux_utils) bin/btrfs_progs_test
 
 clean:
 	if [[ -f "$(GOENV)" ]]; then
@@ -41,12 +41,12 @@ clean:
 	fi
 	rm -rf bin/*
 
-test: all go_unittest bin/btrfs_progs_test
+test: all go_unittest | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./shim/integration --subvol="$(SUBVOL_PATH)" || exit 1
 
-fs_init:
+$(SUBVOL_PATH) fs_init:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
 	bash etc/setup_test_drive.sh -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
 
@@ -59,7 +59,7 @@ go_unittest: go_code
 	# add --test.v to get verbose tests
 	GOENV="$(GOENV)" go test ./...
 
-$(GOENV): bin
+$(GOENV): | bin
 	GOENV="$(GOENV)" go env -w CC="$(CC)" \
 	                           CGO_CFLAGS="$(CFLAGS)" \
 														 CGO_LDFLAGS="$(BTRFSUTIL_LDLIB) $(STAGE_PATH)/linux_utils.a -lcap" \

@@ -4,9 +4,11 @@ package messages;
 // where protoc will put the files...
 option go_package = "./messages";
 
-message Volume {
+message SubVolume {
   string uuid = 1; 
   string mounted_path = 2; 
+  fixed64 created_ts = 5;
+  SystemInfo origin_sys = 6;
 }
 
 message SnapshotChunks {
@@ -21,26 +23,22 @@ message SnapshotChunks {
 }
 
 message Snapshot {
-  Volume vol = 1;
+  SubVolume vol = 1;
   string parent_uuid = 2; 
   string receive_uuid = 3; 
   string chunks_uuid = 4; 
-  fixed64 create_ts = 5;
-  SystemInfo origin_sys = 6;
 }
 
 message SystemInfo {
   uint32 kern_major = 1;
   uint32 kern_minor = 2;
-  uint32 btrfs_mod_major = 3;
-  uint32 btrfs_mod_minor = 4;
   uint32 btrfs_usr_major = 5;
   uint32 btrfs_usr_minor = 6;
   string tool_git_commit = 7;
 }
 
 message SnapshotSeqHead {
-  // same as the volume uuid
+  // same as the subvolume uuid
   string uuid = 1; 
   string cur_seq_uuid = 2;
   repeated string prev_seq_uuid = 3;

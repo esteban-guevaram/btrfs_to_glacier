@@ -5,7 +5,7 @@ import (
 )
 
 type VolumeManager interface {
-  GetVolume(path string) (*pb.Volume, error)
+  GetVolume(path string) (*pb.SubVolume, error)
   GetChangesBetweenSnaps() (*pb.SnapshotChanges, error)
   GetSnapshotSeqForVolume() (*pb.SnapshotSeq, error)
 }

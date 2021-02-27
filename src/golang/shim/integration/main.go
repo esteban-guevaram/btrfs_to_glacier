@@ -1,6 +1,7 @@
 package main
 
 import (
+  pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/shim"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
@@ -21,7 +22,7 @@ func main() {
   var config types.Config
   var err error
   var btrfsutil types.Btrfsutil
-  var subvol types.SubvolumeInfoIf
+  var subvol *pb.SubVolume
   config, err = util.Load()
   if err != nil {
     util.Fatalf("integration failed = %v", err)
@@ -34,6 +35,6 @@ func main() {
   if err != nil {
     util.Fatalf("integration failed = %v", err)
   }
-  util.Infof("uuid = %s\n", subvol.Uuid())
+  util.Infof("subvol = %s\n", subvol)
 }
 

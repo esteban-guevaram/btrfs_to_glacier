@@ -1,6 +1,9 @@
+#include <stdio.h>
 #include <sys/capability.h>
 #include <sys/types.h>
+#include <sys/utsname.h>
 
+#include <linux_utils.h>
 #include <common.h>
 
 int is_cap_sys_admin() {
@@ -14,5 +17,13 @@ int is_cap_sys_admin() {
                    free_res == 0);
   //LOG_DEBUG("is_cap_sys_admin : %d", enabled == CAP_SET);
   return enabled == CAP_SET;
+}
+
+void linux_kernel_version(struct MajorMinor* result) {
+  struct utsname vers_str;
+  const char *format = "%d.%d";
+  CALL_POSIX_CHECK(int res_uname = uname(&vers_str), res_uname == 0);
+  CALL_POSIX_CHECK(int res_scanf = sscanf(vers_str.release, format, &result->major, &result->minor),
+                   res_scanf == 2);
 }
 

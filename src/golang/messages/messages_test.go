@@ -2,13 +2,23 @@ package messages
 
 import (
   "testing"
-  "google.golang.org/protobuf/proto"
+  "google.golang.org/protobuf/encoding/prototext"
 )
 
 func TestMessagesGotGenerated(t *testing.T) {
-  vol := Volume { Uuid: "salut" }
-  t.Logf("TextMarshaler vol='%s'", proto.MarshalTextString(&vol))
+  vol := SubVolume {
+    Uuid: "salut",
+    MountedPath: "/choco/pops",
+    CreatedTs: 666,
+    OriginSys: &SystemInfo{
+      KernMajor: 5,
+      KernMinor: 10,
+    },
+  }
+  txt, err := prototext.Marshal(&vol)
+  t.Logf("TextMarshaler vol='%s' (err:%v)", txt, err)
   t.Logf("String vol='%s'", vol.String())
-  t.Logf("Format vol='%v'", vol)
+  t.Logf("Format%%s vol='%s'", &vol)
+  t.Logf("Format%%v vol='%v'", vol)
 }
 
