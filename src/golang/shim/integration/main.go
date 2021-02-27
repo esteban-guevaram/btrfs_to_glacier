@@ -14,11 +14,7 @@ func init() {
   flag.StringVar(&path_flag, "subvol", "", "the fullpath to the btrfs subvolume")
 }
 
-// Cannot use a test since Testing does not support cgo
-func main() {
-  util.Infof("btrfs_prog_integration_run")
-  flag.Parse()
-
+func TestBtrfsUtil_SubvolumeInfo() {
   var config types.Config
   var err error
   var btrfsutil types.Btrfsutil
@@ -36,5 +32,23 @@ func main() {
     util.Fatalf("integration failed = %v", err)
   }
   util.Infof("subvol = %s\n", subvol)
+}
+
+func TestLinuxUtils_AllFuncs() {
+  var conf types.Config
+  linuxutil, _ := shim.NewLinuxutil(conf)
+  util.Infof("IsCapSysAdmin = %v", linuxutil.IsCapSysAdmin())
+  kmaj, kmin := linuxutil.LinuxKernelVersion()
+  util.Infof("LinuxKernelVersion = %d.%d", kmaj, kmin)
+  bmaj, bmin := linuxutil.BtrfsProgsVersion()
+  util.Infof("LinuxKernelVersion = %d.%d", bmaj, bmin)
+}
+
+// Cannot use a test since Testing does not support cgo
+func main() {
+  util.Infof("btrfs_prog_integration_run")
+  flag.Parse()
+  TestBtrfsUtil_SubvolumeInfo()
+  TestLinuxUtils_AllFuncs()
 }
 
