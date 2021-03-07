@@ -14,10 +14,11 @@ package shim
 import "C"
 import "fmt"
 import "btrfs_to_glacier/types"
+import pb "btrfs_to_glacier/messages"
 
 type linuxutilImpl struct {}
 
-func NewLinuxutil(conf types.Config) (types.Linuxutil, error) {
+func NewLinuxutil(conf *pb.Config) (types.Linuxutil, error) {
   return new(linuxutilImpl), nil
 }
 

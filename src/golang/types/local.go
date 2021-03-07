@@ -5,9 +5,14 @@ import (
 )
 
 type VolumeManager interface {
+  // `path` must be the root of the volume.
+  // `origin_sys` will be set to the host environment.
   GetVolume(path string) (*pb.SubVolume, error)
   GetChangesBetweenSnaps() (*pb.SnapshotChanges, error)
-  GetSnapshotSeqForVolume() (*pb.SnapshotSeq, error)
+  // Returns all snapshots whose parent is `subvol`.
+  // Returned snaps are soted by creation generation (oldest first).
+  // `received_uuid` will only be set if the snapshot was effectibely received.
+  GetSnapshotSeqForVolume(subvol *pb.SubVolume) (*pb.SnapshotSeq, error)
 }
 
 // Implementation questions

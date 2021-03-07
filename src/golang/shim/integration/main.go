@@ -9,16 +9,17 @@ import (
 )
 
 var path_flag string
+var root_flag string
 
 func init() {
   flag.StringVar(&path_flag, "subvol", "", "the fullpath to the btrfs subvolume")
+  flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the btrfs subvolume")
 }
 
-func TestBtrfsUtil_SubvolumeInfo() {
-  var config types.Config
+func GetBtrfsUtil() types.Btrfsutil {
+  var config *pb.Config
   var err error
   var btrfsutil types.Btrfsutil
-  var subvol *pb.SubVolume
   config, err = util.Load()
   if err != nil {
     util.Fatalf("integration failed = %v", err)
@@ -27,21 +28,36 @@ func TestBtrfsUtil_SubvolumeInfo() {
   if err != nil {
     util.Fatalf("integration failed = %v", err)
   }
-  subvol, err = btrfsutil.SubvolumeInfo(path_flag, 0);
+  return btrfsutil
+}
+
+func TestBtrfsUtil_SubvolumeInfo(btrfsutil types.Btrfsutil) {
+  subvol, err := btrfsutil.SubvolumeInfo(path_flag);
   if err != nil {
     util.Fatalf("integration failed = %v", err)
   }
   util.Infof("subvol = %s\n", subvol)
 }
 
+func TestBtrfsUtil_ListSubVolumesUnder(btrfsutil types.Btrfsutil) {
+  var err error
+  var vols []*pb.Snapshot
+  vols, err = btrfsutil.ListSubVolumesUnder(root_flag);
+  if err != nil {
+    util.Fatalf("integration failed = %v", err)
+  }
+  for _,subvol := range(vols) { util.Infof("subvol = %s\n", subvol) }
+  util.Infof("len(vols) = %d\n", len(vols))
+}
+
 func TestLinuxUtils_AllFuncs() {
-  var conf types.Config
+  var conf *pb.Config
   linuxutil, _ := shim.NewLinuxutil(conf)
   util.Infof("IsCapSysAdmin = %v", linuxutil.IsCapSysAdmin())
   kmaj, kmin := linuxutil.LinuxKernelVersion()
   util.Infof("LinuxKernelVersion = %d.%d", kmaj, kmin)
   bmaj, bmin := linuxutil.BtrfsProgsVersion()
-  util.Infof("LinuxKernelVersion = %d.%d", bmaj, bmin)
+  util.Infof("BtrfsProgsVersion = %d.%d", bmaj, bmin)
   util.Infof("ProjectVersion = %s", linuxutil.ProjectVersion())
 }
 
@@ -49,7 +65,9 @@ func TestLinuxUtils_AllFuncs() {
 func main() {
   util.Infof("btrfs_prog_integration_run")
   flag.Parse()
-  TestBtrfsUtil_SubvolumeInfo()
+  btrfsutil := GetBtrfsUtil()
+  TestBtrfsUtil_SubvolumeInfo(btrfsutil)
+  TestBtrfsUtil_ListSubVolumesUnder(btrfsutil)
   TestLinuxUtils_AllFuncs()
 }
 

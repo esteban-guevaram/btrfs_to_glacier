@@ -44,7 +44,8 @@ clean:
 test: all go_unittest | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
-	GOENV="$(GOENV)" go run ./shim/integration --subvol="$(SUBVOL_PATH)" || exit 1
+	GOENV="$(GOENV)" go run ./shim/integration \
+	  --subvol="$(SUBVOL_PATH)" --rootvol="$(MOUNT_TESTVOL_SRC)" || exit 1
 
 $(SUBVOL_PATH) fs_init:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1

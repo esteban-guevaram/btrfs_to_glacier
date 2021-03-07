@@ -1,16 +1,18 @@
 package util
 
 import (
-  "btrfs_to_glacier/types"
   pb "btrfs_to_glacier/messages"
 )
 
-type protoFileConfig struct {
-  config pb.Config
+func Load() (*pb.Config, error) {
+  conf := pb.Config{}
+  return &conf, nil
 }
 
-func Load() (types.Config, error) {
-  conf := protoFileConfig{}
-  return &conf, nil
+func LoadTestConf() *pb.Config {
+  return &pb.Config {
+    RootSnapPath: "/tmp",
+    SubvolPaths: []string { "/tmp/subvol1", },
+  }
 }
 

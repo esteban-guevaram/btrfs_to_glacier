@@ -7,6 +7,7 @@ option go_package = "./messages";
 message SubVolume {
   string uuid = 1; 
   string mounted_path = 2; 
+  uint64 gen_at_creation = 4;
   fixed64 created_ts = 5;
   SystemInfo origin_sys = 6;
 }
@@ -23,9 +24,9 @@ message SnapshotChunks {
 }
 
 message Snapshot {
-  SubVolume vol = 1;
+  SubVolume subvol = 1;
   string parent_uuid = 2; 
-  string receive_uuid = 3; 
+  string received_uuid = 3; 
   string chunks_uuid = 4; 
 }
 
