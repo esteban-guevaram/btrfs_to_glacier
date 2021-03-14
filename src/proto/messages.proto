@@ -55,6 +55,9 @@ message SnapshotChanges {
     UNKNOWN = 0;
     WRITE = 1;
     DELETE = 2;
+    DEL_DIR = 3;
+    NEW = 4;
+    NEW_DIR = 5;
   }
   message Change {
     Type type = 1;
