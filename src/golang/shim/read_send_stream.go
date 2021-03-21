@@ -3,6 +3,7 @@ package shim
 /*
 #include <common.h>
 #include <btrfs/send-stream.h>
+#include <string.h>
 
 extern int go_subvol_cb        (char *path, u8 *uuid, u64 ctransid, void *user);
 extern int go_snapshot_cb      (char *path, u8 *uuid, u64 ctransid,
@@ -64,22 +65,29 @@ IGNORE_WARNING_POP
 */
 import "C"
 import "fmt"
-import "os"
-import "sort"
 import "sync/atomic"
 import "syscall"
 import "unsafe"
-import pb "btrfs_to_glacier/messages"
+import "btrfs_to_glacier/types"
 import "btrfs_to_glacier/util"
 
 //export go_subvol_cb
 func go_subvol_cb        (path *C.char, uuid *C.u8, ctransid C.u64, user unsafe.Pointer) C.int { return 0; }
 //export go_snapshot_cb
 func go_snapshot_cb      (path *C.char, uuid *C.u8, ctransid C.u64,
-                          parent_uuid *C.u8, parent_ctransid C.u64, user unsafe.Pointer) C.int { return 0 }
+                          parent_uuid *C.u8, parent_ctransid C.u64, user unsafe.Pointer) C.int {
+  state := getSendDumpOpsFromHandle(user)
+  if len(state.ToUuid) > 0 || len(state.FromUuid) > 0 {
+    util.Warnf("Overwriting to_uuid=%s, from_uuid=%s", state.ToUuid, state.FromUuid)
+  }
+  state.ToUuid = bytePtrToUuid(uuid)
+  state.FromUuid = bytePtrToUuid(parent_uuid)
+  return 0
+}
+
 //export go_mkfile_cb
 func go_mkfile_cb        (path *C.char, user unsafe.Pointer) C.int {
-  state := static_table.GetFromHandle(user)
+  state := getSendDumpOpsFromHandle(user)
   go_path := C.GoString(path)
   state.New[go_path]= true
   return 0
@@ -87,9 +95,9 @@ func go_mkfile_cb        (path *C.char, user unsafe.Pointer) C.int {
 
 //export go_mkdir_cb
 func go_mkdir_cb         (path *C.char, user unsafe.Pointer) C.int {
-  state := static_table.GetFromHandle(user)
+  state := getSendDumpOpsFromHandle(user)
   go_path := C.GoString(path)
-  state.New[go_path]= true
+  state.NewDir[go_path]= true
   return 0
 }
 
@@ -103,35 +111,27 @@ func go_mksock_cb        (path *C.char, user unsafe.Pointer) C.int { return 0 }
 func go_symlink_cb       (path *C.char, lnk *C.char, user unsafe.Pointer) C.int { return 0 }
 //export go_rename_cb
 func go_rename_cb        (from *C.char, to *C.char, user unsafe.Pointer) C.int {
-  state := static_table.GetFromHandle(user)
+  state := getSendDumpOpsFromHandle(user)
   go_from := C.GoString(from)
   go_to := C.GoString(to)
-  if state.New[go_from] {
-    delete(state.New, go_from)
-  } else {
-    state.Deleted[go_from] = true
-  }
-  state.New[go_to] = true
+  state.FromTo[go_from] = go_to
+  state.ToFrom[go_to] = go_from
   return 0
 }
 
 //export go_link_cb
 func go_link_cb          (path *C.char, lnk *C.char, user unsafe.Pointer) C.int {
-  state := static_table.GetFromHandle(user)
+  state := getSendDumpOpsFromHandle(user)
   go_from := C.GoString(lnk)
   go_to := C.GoString(path)
-  if state.New[go_from] {
-    delete(state.New, go_from)
-  } else {
-    state.Deleted[go_from] = true
-  }
-  state.New[go_to] = true
+  state.FromTo[go_from] = go_to
+  state.ToFrom[go_to] = go_from
   return 0
 }
 
 //export go_unlink_cb
 func go_unlink_cb        (path *C.char, user unsafe.Pointer) C.int {
-  state := static_table.GetFromHandle(user)
+  state := getSendDumpOpsFromHandle(user)
   go_path := C.GoString(path)
   state.Deleted[go_path]= true
   return 0
@@ -139,10 +139,9 @@ func go_unlink_cb        (path *C.char, user unsafe.Pointer) C.int {
 
 //export go_rmdir_cb
 func go_rmdir_cb         (path *C.char, user unsafe.Pointer) C.int {
-  state := static_table.GetFromHandle(user)
+  state := getSendDumpOpsFromHandle(user)
   go_path := C.GoString(path)
-  state.New[go_path] = false
-  state.Deleted[go_path] = true
+  state.DelDir[go_path] = true
   return 0
 }
 
@@ -175,101 +174,70 @@ func go_utimes_cb        (path *C.char, at *C.struct_timespec,
                           mt *C.struct_timespec, ct *C.struct_timespec, user unsafe.Pointer) C.int { return 0 }
 //export go_update_extent_cb
 func go_update_extent_cb (path *C.char, offset C.u64, len_ C.u64, user unsafe.Pointer) C.int {
-  state := static_table.GetFromHandle(user)
+  state := getSendDumpOpsFromHandle(user)
   go_path := C.GoString(path)
-  if !state.New[go_path] {
-    state.Written[go_path]= true
-  }
+  state.Written[go_path]= true
   return 0
 }
 
-type streamState struct {
-  Written map[string]bool
-  New map[string]bool
-  Deleted map[string]bool
-}
 type stateTable struct {
-  slots map[int32]*streamState
+  slots map[int32]*types.SendDumpOperations
   free int32
-}
-
-func (self *stateTable) Allocate() int32 {
-  slot_idx := atomic.AddInt32(&self.free, 1)
-  self.slots[slot_idx] = &streamState{
-    Written: make(map[string]bool),
-    New: make(map[string]bool),
-    Deleted: make(map[string]bool),
-  }
-  return slot_idx
-}
-
-func (self *stateTable) Deallocate(slot_idx int32) {
-  delete(self.slots, slot_idx)
-}
-
-func (self *stateTable) GetFromHandle(handle unsafe.Pointer) *streamState {
-  slot_idx := *(*int32)(handle)
-  return self.Get(slot_idx)
-}
-func (self *stateTable) Get(idx int32) *streamState {
-  state, ok := self.slots[idx]
-  if !ok { panic("could not find state in static table") }
-  return state
 }
 
 var static_table stateTable
 func init() {
   static_table = stateTable {
-    slots: make(map[int32]*streamState),
+    slots: make(map[int32]*types.SendDumpOperations),
   }
 }
 
-// Implement interface for sorter
-type ByPath []*pb.SnapshotChanges_Change
-func (a ByPath) Len() int           { return len(a) }
-func (a ByPath) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByPath) Less(i, j int) bool { return a[i].Path < a[j].Path }
-
-func StreamStateToSnapChanges(state *streamState) *pb.SnapshotChanges {
-  changes := make([]*pb.SnapshotChanges_Change, 0, 64)
-  for path,v := range state.New {
-    if !v { continue }
-    changes = append(changes, &pb.SnapshotChanges_Change {
-      Type: pb.SnapshotChanges_NEW,
-      Path: path,
-    })
+func allocateSendDumpOps() int32 {
+  slot_idx := atomic.AddInt32(&static_table.free, 1)
+  static_table.slots[slot_idx] = &types.SendDumpOperations{
+    Written: make(map[string]bool),
+    New: make(map[string]bool),
+    NewDir: make(map[string]bool),
+    Deleted: make(map[string]bool),
+    DelDir: make(map[string]bool),
+    FromTo: make(map[string]string),
+    ToFrom: make(map[string]string),
   }
-  for path,v := range state.Written {
-    if !v { continue }
-    changes = append(changes, &pb.SnapshotChanges_Change {
-      Type: pb.SnapshotChanges_WRITE,
-      Path: path,
-    })
-  }
-  for path,v := range state.Deleted {
-    if !v { continue }
-    changes = append(changes, &pb.SnapshotChanges_Change {
-      Type: pb.SnapshotChanges_DELETE,
-      Path: path,
-    })
-  }
-  sort.Sort(ByPath(changes))
-  proto := pb.SnapshotChanges{ Changes: changes }
-  return &proto
+  return slot_idx
 }
 
-func ReadAndProcessSendStream(dump *os.File) (*pb.SnapshotChanges, error) {
+func deallocateSendDumpOps(slot_idx int32) {
+  delete(static_table.slots, slot_idx)
+}
+
+func getSendDumpOpsFromHandle(handle unsafe.Pointer) *types.SendDumpOperations {
+  slot_idx := *(*int32)(handle)
+  return getSendDumpOpsFromKey(slot_idx)
+}
+func getSendDumpOpsFromKey(idx int32) *types.SendDumpOperations {
+  state, ok := static_table.slots[idx]
+  if !ok { panic("could not find state in static table") }
+  return state
+}
+
+func bytePtrToUuid(uuid *C.u8) string {
+  var a [16]C.u8
+  C.memcpy(unsafe.Pointer(&a[0]), unsafe.Pointer(uuid), 16)
+  return bytesToUuid(a)
+}
+
+func readAndProcessSendStreamHelper(dump_fd uintptr) (*types.SendDumpOperations, error) {
   const IGNORE_ERR = 0
   const PROPAGATE_LAST_CMD_ERR = 1
-  slot_idx := static_table.Allocate()
-  defer static_table.Deallocate(slot_idx)
+  slot_idx := allocateSendDumpOps()
+  defer deallocateSendDumpOps(slot_idx)
   ops := C.get_go_ops()
-  ret := C.btrfs_read_and_process_send_stream(C.int(dump.Fd()), &ops, unsafe.Pointer(&slot_idx),
+  ret := C.btrfs_read_and_process_send_stream(C.int(dump_fd), &ops, unsafe.Pointer(&slot_idx),
                                               PROPAGATE_LAST_CMD_ERR, IGNORE_ERR)
   // btrfs_read_and_process_send_stream is f*cked BTRFS_SEND_C_END will always produce a 1 return code ?
   if ret != 0 && ret != 1 {
     return nil, fmt.Errorf("btrfs_read_and_process_send_stream: %d=%s", ret, syscall.Errno(ret))
   }
-  return StreamStateToSnapChanges(static_table.Get(slot_idx)), nil
+  return getSendDumpOpsFromKey(slot_idx), nil
 }
 

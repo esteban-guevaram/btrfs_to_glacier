@@ -69,6 +69,6 @@ func main() {
   TestBtrfsUtil_SubvolumeInfo(btrfsutil)
   TestBtrfsUtil_ListSubVolumesUnder(btrfsutil)
   TestLinuxUtils_AllFuncs()
-  TestSendDumpAll()
+  TestSendDumpAll(btrfsutil)
 }
 

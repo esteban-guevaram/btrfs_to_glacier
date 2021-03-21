@@ -55,10 +55,6 @@ func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   return subvol, nil
 }
 
-func (self *btrfsVolumeManager) GetChangesBetweenSnaps() (*pb.SnapshotChanges, error) {
-  return nil, nil
-}
-
 // Implement interface for sorter
 type ByCGen []*pb.Snapshot
 func (a ByCGen) Len() int           { return len(a) }
@@ -86,5 +82,54 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) (*
     }
   }
   return &seq, nil
+}
+
+func (self *btrfsVolumeManager) GetChangesBetweenSnaps(from *pb.Snapshot, to *pb.Snapshot) (*pb.SnapshotChanges, error) {
+  if from.ParentUuid != to.ParentUuid {
+    return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
+  }
+  if from.Subvol.GenAtCreation < to.Subvol.GenAtCreation {
+    return nil, fmt.Errorf("From is not older than To : '%d' / '%d'", from.Subvol.GenAtCreation, to.Subvol.GenAtCreation)
+  }
+  //send_ops, err := self.btrfsutil.ReadAndProcessSendStream()
+  return nil, nil
+}
+
+// Implement interface for sorter
+type ByPath []*pb.SnapshotChanges_Change
+func (a ByPath) Len() int           { return len(a) }
+func (a ByPath) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByPath) Less(i, j int) bool { return a[i].Path < a[j].Path }
+
+func SendDumpOpsToSnapChanges(state *types.SendDumpOperations) *pb.SnapshotChanges {
+  changes := make([]*pb.SnapshotChanges_Change, 0, 64)
+  for path,v := range state.New {
+    if !v { continue }
+    changes = append(changes, &pb.SnapshotChanges_Change {
+      Type: pb.SnapshotChanges_NEW,
+      Path: path,
+    })
+  }
+  for path,v := range state.Written {
+    if !v { continue }
+    changes = append(changes, &pb.SnapshotChanges_Change {
+      Type: pb.SnapshotChanges_WRITE,
+      Path: path,
+    })
+  }
+  for path,v := range state.Deleted {
+    if !v { continue }
+    changes = append(changes, &pb.SnapshotChanges_Change {
+      Type: pb.SnapshotChanges_DELETE,
+      Path: path,
+    })
+  }
+  sort.Sort(ByPath(changes))
+  proto := pb.SnapshotChanges{
+    Changes: changes,
+    ToUuid: state.ToUuid,
+    FromUuid: state.FromUuid,
+  }
+  return &proto
 }
 

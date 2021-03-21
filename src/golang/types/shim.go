@@ -1,6 +1,7 @@
 package types
 
 import (
+  "context"
   pb "btrfs_to_glacier/messages"
 )
 
@@ -16,6 +17,19 @@ type Linuxutil interface {
   ProjectVersion() string
 }
 
+// The raw operations from a btrfs-send dump
+type SendDumpOperations struct {
+  Written map[string]bool
+  New map[string]bool
+  NewDir map[string]bool
+  Deleted map[string]bool
+  DelDir map[string]bool
+  FromTo map[string]string
+  ToFrom map[string]string
+  ToUuid string
+  FromUuid string
+}
+
 type Btrfsutil interface {
   // Get the `struct btrfs_util_subvolume_info` for a btrfs subvolume.
   // @path must be the root of the subvolume.
@@ -25,6 +39,13 @@ type Btrfsutil interface {
   // IMPORTANT: we only consider read-only snapshots, writable snaps will be returned as subvolumes.
   // @path must be the root of the subvolume or root_volume.
   ListSubVolumesUnder(path string) ([]*pb.Snapshot, error)
+  // Reads a file generated from `btrfs send --no-data` and returns a record of the operations.
+  ReadAndProcessSendStream(dump PipeReadEnd) (*SendDumpOperations, error)
+  // Starts a separate `btrfs send` and returns the read end of the pipe.
+  // `no_data` is the same option as for `btrfs send`.
+  // `from` can be null to get the full contents of the subvolume.
+  // When `ctx` is done/cancelled the write end of the pipe should be closed and the forked process killed.
+  StartSendStream(ctx context.Context, from string, to string, no_data bool) (PipeReadEnd, error)
 }
 
 
@@ -32,7 +53,6 @@ type MockLinuxutil struct {
   IsAdmin bool
   SysInfo *pb.SystemInfo
 }
-
 func (self *MockLinuxutil) IsCapSysAdmin() bool { return self.IsAdmin }
 func (self *MockLinuxutil) LinuxKernelVersion() (uint32, uint32) {
   return self.SysInfo.KernMajor, self.SysInfo.KernMinor
@@ -42,16 +62,24 @@ func (self *MockLinuxutil) BtrfsProgsVersion() (uint32, uint32) {
 }
 func (self *MockLinuxutil) ProjectVersion() string { return self.SysInfo.ToolGitCommit }
 
+
 type MockBtrfsutil struct {
   Err error
-  Subvol *pb.SubVolume
-  Snaps  []*pb.Snapshot
+  Subvol     *pb.SubVolume
+  Snaps      []*pb.Snapshot
+  DumOps     *SendDumpOperations
+  SendStream PipeReadEnd
 }
-
 func (self *MockBtrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   return self.Subvol, self.Err
 }
 func (self *MockBtrfsutil) ListSubVolumesUnder(path string) ([]*pb.Snapshot, error) {
   return self.Snaps, self.Err
+}
+func (self *MockBtrfsutil) ReadAndProcessSendStream(dump PipeReadEnd) (*SendDumpOperations, error) {
+  return self.DumOps, self.Err
+}
+func (self *MockBtrfsutil) StartSendStream(ctx context.Context, from string, to string, no_data bool) (PipeReadEnd, error) {
+  return self.SendStream, self.Err
 }
 

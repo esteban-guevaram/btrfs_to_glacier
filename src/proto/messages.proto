@@ -63,7 +63,8 @@ message SnapshotChanges {
     Type type = 1;
     string path = 2;
   }
-  string snap_uuid = 1; 
-  repeated Change changes = 2;
+  string from_uuid = 1; 
+  string to_uuid = 2; 
+  repeated Change changes = 3;
 }
 

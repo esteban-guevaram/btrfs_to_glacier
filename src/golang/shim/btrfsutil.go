@@ -8,6 +8,7 @@ package shim
 */
 import "C"
 import (
+  "context"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
   "btrfs_to_glacier/types"
@@ -142,4 +143,13 @@ func (self *btrfsUtilImpl) ListSubVolumesUnder(path string) ([]*pb.Snapshot, err
   }
   return vols, nil
 }
+
+func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump types.PipeReadEnd) (*types.SendDumpOperations, error) {
+  return readAndProcessSendStreamHelper(dump.Fd())
+}
+
+func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (types.PipeReadEnd, error) {
+  return nil, nil
+}
+
 
