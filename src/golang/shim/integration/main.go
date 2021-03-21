@@ -10,10 +10,14 @@ import (
 
 var path_flag string
 var root_flag string
+var snap1_flag string
+var snap2_flag string
 
 func init() {
-  flag.StringVar(&path_flag, "subvol", "", "the fullpath to the btrfs subvolume")
+  flag.StringVar(&path_flag, "subvol",  "", "the fullpath to the btrfs subvolume")
   flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the btrfs subvolume")
+  flag.StringVar(&snap1_flag, "snap1",  "", "the fullpath to the oldest snapshot")
+  flag.StringVar(&snap2_flag, "snap2",  "", "the fullpath to the latest snapshot")
 }
 
 func GetBtrfsUtil() types.Btrfsutil {
@@ -29,6 +33,15 @@ func GetBtrfsUtil() types.Btrfsutil {
     util.Fatalf("integration failed = %v", err)
   }
   return btrfsutil
+}
+
+func GetLinuxUtil() types.Linuxutil {
+  var conf *pb.Config
+  linuxutil, err := shim.NewLinuxutil(conf)
+  if err != nil {
+    util.Fatalf("integration failed = %v", err)
+  }
+  return linuxutil
 }
 
 func TestBtrfsUtil_SubvolumeInfo(btrfsutil types.Btrfsutil) {
@@ -50,9 +63,7 @@ func TestBtrfsUtil_ListSubVolumesUnder(btrfsutil types.Btrfsutil) {
   util.Infof("len(vols) = %d\n", len(vols))
 }
 
-func TestLinuxUtils_AllFuncs() {
-  var conf *pb.Config
-  linuxutil, _ := shim.NewLinuxutil(conf)
+func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
   util.Infof("IsCapSysAdmin = %v", linuxutil.IsCapSysAdmin())
   kmaj, kmin := linuxutil.LinuxKernelVersion()
   util.Infof("LinuxKernelVersion = %d.%d", kmaj, kmin)
@@ -66,9 +77,11 @@ func main() {
   util.Infof("btrfs_prog_integration_run")
   flag.Parse()
   btrfsutil := GetBtrfsUtil()
+  linuxutil := GetLinuxUtil()
   TestBtrfsUtil_SubvolumeInfo(btrfsutil)
   TestBtrfsUtil_ListSubVolumesUnder(btrfsutil)
-  TestLinuxUtils_AllFuncs()
+  TestLinuxUtils_AllFuncs(linuxutil)
   TestSendDumpAll(btrfsutil)
+  TestBtrfsSendStreamAll(linuxutil, btrfsutil)
 }
 

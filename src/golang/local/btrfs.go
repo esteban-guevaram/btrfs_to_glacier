@@ -1,6 +1,7 @@
 package local
 
 import (
+  "context"
   "fmt"
   "btrfs_to_glacier/shim"
   "btrfs_to_glacier/types"
@@ -84,15 +85,28 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) (*
   return &seq, nil
 }
 
-func (self *btrfsVolumeManager) GetChangesBetweenSnaps(from *pb.Snapshot, to *pb.Snapshot) (*pb.SnapshotChanges, error) {
+func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from *pb.Snapshot, to *pb.Snapshot) (<-chan types.SnapshotChangesOrError, error) {
   if from.ParentUuid != to.ParentUuid {
     return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
   }
   if from.Subvol.GenAtCreation < to.Subvol.GenAtCreation {
     return nil, fmt.Errorf("From is not older than To : '%d' / '%d'", from.Subvol.GenAtCreation, to.Subvol.GenAtCreation)
   }
-  //send_ops, err := self.btrfsutil.ReadAndProcessSendStream()
-  return nil, nil
+  read_end, err := self.btrfsutil.StartSendStream(ctx, from.Subvol.MountedPath, to.Subvol.MountedPath, true)
+  if err != nil { return nil, err }
+
+  changes_chan := make(chan types.SnapshotChangesOrError, 1)
+  go func() {
+    defer read_end.Close()
+    defer close(changes_chan)
+    _, err := self.btrfsutil.ReadAndProcessSendStream(read_end)
+    if err != nil {
+      changes_chan <- types.SnapshotChangesOrError{nil, err}
+      return
+    }
+    changes_chan <- types.SnapshotChangesOrError{nil, nil}
+  }()
+  return changes_chan, nil
 }
 
 // Implement interface for sorter

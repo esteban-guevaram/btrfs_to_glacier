@@ -1,8 +1,14 @@
 package types
 
 import (
+  "context"
   pb "btrfs_to_glacier/messages"
 )
+
+type SnapshotChangesOrError struct {
+  Val *pb.SnapshotChanges
+  Err error
+}
 
 type VolumeManager interface {
   // `path` must be the root of the volume.
@@ -14,7 +20,7 @@ type VolumeManager interface {
   GetSnapshotSeqForVolume(subvol *pb.SubVolume) (*pb.SnapshotSeq, error)
   // Returns the changes between 2 snapshots of the same subvolume.
   // Both snaps must come from the same parent and `from` must be from a previous gen than `to`.
-  GetChangesBetweenSnaps(from *pb.Snapshot, to *pb.Snapshot) (*pb.SnapshotChanges, error)
+  GetChangesBetweenSnaps(ctx context.Context, from *pb.Snapshot, to *pb.Snapshot) (<-chan SnapshotChangesOrError, error)
 }
 
 // Implementation questions

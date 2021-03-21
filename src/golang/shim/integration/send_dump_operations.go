@@ -1,8 +1,12 @@
 package main
 
+import "bytes"
+import "context"
 import "encoding/base64"
 import "encoding/json"
 import "fmt"
+import "io/ioutil"
+import "time"
 import "btrfs_to_glacier/types"
 import "btrfs_to_glacier/util"
 
@@ -193,5 +197,79 @@ func TestSendDump(btrfsutil types.Btrfsutil, dumpname string, dump_base64 string
   changes, err = btrfsutil.ReadAndProcessSendStream(preload_pipe.ReadEnd())
   json_str, err = json.MarshalIndent(changes, "", "  ")
   util.Infof("err=%v\n%s = %s", err, dumpname, json_str)
+}
+
+func TestBtrfsSendStreamAll(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
+  if !linuxutil.IsCapSysAdmin() {
+    util.Warnf("TestBtrfsSendStreamAll needs CAP_SYS_ADMIN")
+    return
+  }
+  TestBtrfsSendStream(btrfsutil, snap1_flag, snap2_flag, false)
+  TestBtrfsSendStream(btrfsutil, snap1_flag, snap2_flag, true)
+  TestBtrfsSendStream(btrfsutil, "", snap2_flag, false)
+  TestBtrfsSendStream(btrfsutil, "", snap2_flag, true)
+  TestBtrfsSendAndReceiveStreamDump(btrfsutil, "", snap2_flag)
+}
+
+// Requires CAP_SYS_ADMIN
+func TestBtrfsSendStream(btrfsutil types.Btrfsutil, snap_old string, snap_new string, no_data bool) {
+  var err error
+  var read_end types.PipeReadEnd
+  header := []byte("btrfs-stream\x00")
+  ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+  defer cancel()
+
+  done := make(chan []byte)
+  read_end, err = btrfsutil.StartSendStream(ctx, snap_old, snap_new, no_data)
+  if err != nil { panic(fmt.Sprintf("failed btrfs send: %v", err)) }
+
+  go func() {
+    defer read_end.Close()
+    defer close(done)
+    data, err := ioutil.ReadAll(read_end)
+    util.Infof("snap_old='%s' snap_new='%s' no_data=%v data_len=%d err=%v",
+               snap_old, snap_new, no_data, len(data), err)
+    done <- data
+  }()
+
+  select {
+    case data := <-done:
+      if len(data) < len(header) {
+        panic(fmt.Sprintf("send stream data is too short: %d", len(data)))
+      }
+      data_start := data[0:len(header)]
+      if bytes.Compare(data_start, header) != 0 {
+        panic(fmt.Sprintf("send stream bad:\n%v\n != %v", data_start, header))
+      }
+    case <-ctx.Done(): panic("btrfs send timeout")
+  }
+}
+
+// Requires CAP_SYS_ADMIN
+func TestBtrfsSendAndReceiveStreamDump(btrfsutil types.Btrfsutil, snap_old string, snap_new string) {
+  var err error
+  var read_end types.PipeReadEnd
+  ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+  defer cancel()
+
+  read_end, err = btrfsutil.StartSendStream(ctx, snap_old, snap_new, true)
+  if err != nil { panic(fmt.Sprintf("failed btrfs send: %v", err)) }
+
+  done := make(chan bool)
+  go func() {
+    var err error
+    var json_str []byte
+    var changes *types.SendDumpOperations
+    defer close(done)
+    changes, err = btrfsutil.ReadAndProcessSendStream(read_end)
+    json_str, err = json.MarshalIndent(changes, "", "  ")
+    util.Infof("err=%v\nsnap_old:'%s' snap_new:'%s' = %s", err, snap_old, snap_new, json_str)
+    done <- true
+  }()
+
+  select {
+    case <-done:
+    case <-ctx.Done(): panic("btrfs send timeout")
+  }
 }
 

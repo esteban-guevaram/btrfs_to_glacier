@@ -149,7 +149,25 @@ func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump types.PipeReadEnd) (*ty
 }
 
 func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (types.PipeReadEnd, error) {
-  return nil, nil
-}
+  if len(from) > 0 && !fpmod.IsAbs(from) {
+    return nil, fmt.Errorf("'from' needs an absolute path, got: %s", from)
+  }
+  if !fpmod.IsAbs(to) {
+    return nil, fmt.Errorf("'to' needs an absolute path, got: %s", to)
+  }
 
+  args := make([]string, 0, 16)
+  args = append(args, "btrfs")
+  args = append(args, "send")
+  if no_data {
+    args = append(args, "--no-data")
+  }
+  if len(from) > 0 {
+    args = append(args, "-p")
+    args = append(args, from)
+  }
+  args = append(args, to)
+
+  return util.StartCmdWithPipedOutput(ctx, args)
+}
 
