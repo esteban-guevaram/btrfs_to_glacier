@@ -17,22 +17,24 @@ SUBVOL_LIST=( )
 CREATE_DISK_FLAG=0
 CREATE_PART_FLAG=0
 CREATE_SNAP_FLAG=0
+CREATE_RSTR_SNAP=0
 LEAVE_UMOUNTED=0
 DRY_RUN=""
 
 PARTED_CMD=( parted --align=optimal --script )
 
 parse_opts() {
-  while getopts 'd:l:fpsu' opt; do
+  while getopts 'd:l:fpsur' opt; do
     case $opt in
       d) DISK_UUID="$OPTARG" ;;
       l) PART_PREFIX="$OPTARG" ;;
       f) CREATE_DISK_FLAG=1 ;;
       p) CREATE_PART_FLAG=1 ;;
       s) CREATE_SNAP_FLAG=1 ;;
+      r) CREATE_RSTR_SNAP=1 ;;
       u) LEAVE_UMOUNTED=1 ;;
       *)
-        echo "[USAGE] $0 -d DISK_UUID -l PART_PREFIX [-f][-p][-s][-u] [SUBVOL_LIST]"
+        echo "[USAGE] $0 -d DISK_UUID -l PART_PREFIX [-f][-p][-s][-u][-r] [SUBVOL_LIST]"
         exit 5
       ;;
     esac
@@ -151,8 +153,8 @@ create_dummy_subvol_and_snap() {
 
     run_cmd sudo btrfs subvolume create "$subvol_name" 
     run_cmd sudo chown -R `whoami`: "$subvol_name"
-    modify_subvol_and_snap "$subvol_name"
-    #modify_subvol_and_snap "$subvol_name"
+    modify_subvol_and_snap "$subvol_name" "${subvol_name}.snap.1"
+    modify_subvol_and_snap "$subvol_name" "${subvol_name}.snap.2"
   done
   popd
 }
@@ -161,11 +163,13 @@ modify_subvol_and_snap() {
   [[ "$CREATE_SNAP_FLAG" == 1 ]] || return
   local subvol_name="$1"
   local subvol_path="$MOUNT_SRC/$1"
-  local snap_path=`mktemp -u "${SNAP_POINT}/${subvol_name}.XXXXXX"`
-  local restore_path=`mktemp -u "$TEMP/${subvol_name}.send.XXXXXX"`
+  local snap_path="${SNAP_POINT}/$2"
 
   write_random_file "$subvol_path"
   run_cmd sudo btrfs subvolume snapshot -r "$subvol_path" "$snap_path"
+
+  [[ "$CREATE_RSTR_SNAP" == 1 ]] || return
+  local restore_path=`mktemp -u "$TEMP/${subvol_name}.send.XXXXXX"`
   run_cmd sudo btrfs send -f "$restore_path" "$snap_path"
   run_cmd sudo btrfs receive -f "$restore_path" "${RESTORE_POINT}"
 }

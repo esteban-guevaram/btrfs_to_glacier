@@ -8,7 +8,7 @@ STAGE_PATH    := /tmp/bin_btrfs_to_glacier
 
 BTRFS_LIB     := /usr/lib
 BTRFS_INCLUDE := /usr/include
-BTRFSUTIL_LDLIB := -lbtrfsutil
+BTRFS_LDLIB   := -lbtrfsutil -lbtrfs
 
 GOENV    := $(STAGE_PATH)/go_env
 MYGOSRC  := src/golang
@@ -45,7 +45,9 @@ test: all go_unittest | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./shim/integration \
-	  --subvol="$(SUBVOL_PATH)" --rootvol="$(MOUNT_TESTVOL_SRC)" || exit 1
+	  --subvol="$(SUBVOL_PATH)" \
+		--rootvol="$(MOUNT_TESTVOL_SRC)" \
+		--snap1="$(SNAP1_PATH)" --snap2="$(SNAP2_PATH)"
 
 $(SUBVOL_PATH) fs_init:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
@@ -58,14 +60,16 @@ go_code: c_code $(GOENV) $(go_files) $(GO_PROTO_GEN_SRCS)
 go_unittest: go_code
 	pushd "$(MYGOSRC)"
 	# add --test.v to get verbose tests
-	GOENV="$(GOENV)" go test ./...
+	# add --test.count=1 to not cache results
+	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "/shim|/types"` )
+	GOENV="$(GOENV)" go test "$${pkg_to_test[@]}"
 
 $(GOENV): | bin
 	COMMIT_ID="`git rev-list -1 HEAD`"
 	GOENV="$(GOENV)" go env -w CC="$(CC)" \
 														 CGO_CPPFLAGS="-DBTRFS_TO_GLACIER_VERSION=\"$$COMMIT_ID\"" \
 	                           CGO_CFLAGS="$(CFLAGS)" \
-														 CGO_LDFLAGS="$(BTRFSUTIL_LDLIB) $(STAGE_PATH)/linux_utils.a -lcap" \
+														 CGO_LDFLAGS="$(BTRFS_LDLIB) $(STAGE_PATH)/linux_utils.a -lcap" \
 														 GOPATH="$(STAGE_PATH)/gopath" \
 														 GOBIN="$(STAGE_PATH)/gobin" \
 														 GOCACHE="$(STAGE_PATH)/go-build"
@@ -100,5 +104,5 @@ bin/%_test: bin/%_test.o bin/%.o
 	$(CC) $(LDFLAGS) -o "$@" $^ $(LOADLIBES) $(LDLIBS)
 
 bin/btrfs_progs_test: bin/btrfs_progs_test.o bin/common.o
-	$(CC) $(LDFLAGS) -o "$@" $^ $(BTRFSUTIL_LDLIB)
+	$(CC) $(LDFLAGS) -o "$@" $^ $(BTRFS_LDLIB)
 
