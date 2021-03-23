@@ -69,36 +69,43 @@ import "sync/atomic"
 import "syscall"
 import "unsafe"
 import "btrfs_to_glacier/types"
-import "btrfs_to_glacier/util"
+
+func callback_harness(user unsafe.Pointer, body func(state *types.SendDumpOperations)) C.int {
+  state := getSendDumpOpsFromHandle(user)
+  if state.Err != nil { return 1 }
+  body(state)
+  if state.Err != nil { return 1 }
+  return 0
+}
 
 //export go_subvol_cb
 func go_subvol_cb        (path *C.char, uuid *C.u8, ctransid C.u64, user unsafe.Pointer) C.int { return 0; }
 //export go_snapshot_cb
 func go_snapshot_cb      (path *C.char, uuid *C.u8, ctransid C.u64,
                           parent_uuid *C.u8, parent_ctransid C.u64, user unsafe.Pointer) C.int {
-  state := getSendDumpOpsFromHandle(user)
-  if len(state.ToUuid) > 0 || len(state.FromUuid) > 0 {
-    util.Warnf("Overwriting to_uuid=%s, from_uuid=%s", state.ToUuid, state.FromUuid)
-  }
-  state.ToUuid = bytePtrToUuid(uuid)
-  state.FromUuid = bytePtrToUuid(parent_uuid)
-  return 0
+  return callback_harness(user, func(state *types.SendDumpOperations) {
+    if len(state.ToUuid) > 0 || len(state.FromUuid) > 0 {
+      state.Err = fmt.Errorf("Overwriting to_uuid=%s, from_uuid=%s", state.ToUuid, state.FromUuid)
+    }
+    state.ToUuid = bytePtrToUuid(uuid)
+    state.FromUuid = bytePtrToUuid(parent_uuid)
+  })
 }
 
 //export go_mkfile_cb
 func go_mkfile_cb        (path *C.char, user unsafe.Pointer) C.int {
-  state := getSendDumpOpsFromHandle(user)
-  go_path := C.GoString(path)
-  state.New[go_path]= true
-  return 0
+  return callback_harness(user, func(state *types.SendDumpOperations) {
+    go_path := C.GoString(path)
+    state.New[go_path]= true
+  })
 }
 
 //export go_mkdir_cb
 func go_mkdir_cb         (path *C.char, user unsafe.Pointer) C.int {
-  state := getSendDumpOpsFromHandle(user)
-  go_path := C.GoString(path)
-  state.NewDir[go_path]= true
-  return 0
+  return callback_harness(user, func(state *types.SendDumpOperations) {
+    go_path := C.GoString(path)
+    state.NewDir[go_path]= true
+  })
 }
 
 //export go_mknod_cb
@@ -111,45 +118,43 @@ func go_mksock_cb        (path *C.char, user unsafe.Pointer) C.int { return 0 }
 func go_symlink_cb       (path *C.char, lnk *C.char, user unsafe.Pointer) C.int { return 0 }
 //export go_rename_cb
 func go_rename_cb        (from *C.char, to *C.char, user unsafe.Pointer) C.int {
-  state := getSendDumpOpsFromHandle(user)
-  go_from := C.GoString(from)
-  go_to := C.GoString(to)
-  state.FromTo[go_from] = go_to
-  state.ToFrom[go_to] = go_from
-  return 0
+  return callback_harness(user, func(state *types.SendDumpOperations) {
+    go_from := C.GoString(from)
+    go_to := C.GoString(to)
+    if _, found := state.FromTo[go_from]; found {
+      state.Err = fmt.Errorf("Overwriting FromTo key=%s", go_from)
+    }
+    state.FromTo[go_from] = go_to
+  })
 }
 
 //export go_link_cb
 func go_link_cb          (path *C.char, lnk *C.char, user unsafe.Pointer) C.int {
-  state := getSendDumpOpsFromHandle(user)
-  go_from := C.GoString(lnk)
-  go_to := C.GoString(path)
-  state.FromTo[go_from] = go_to
-  state.ToFrom[go_to] = go_from
-  return 0
+  return go_rename_cb(lnk, path, user)
 }
 
 //export go_unlink_cb
 func go_unlink_cb        (path *C.char, user unsafe.Pointer) C.int {
-  state := getSendDumpOpsFromHandle(user)
-  go_path := C.GoString(path)
-  state.Deleted[go_path]= true
-  return 0
+  return callback_harness(user, func(state *types.SendDumpOperations) {
+    go_path := C.GoString(path)
+    state.Deleted[go_path]= true
+  })
 }
 
 //export go_rmdir_cb
 func go_rmdir_cb         (path *C.char, user unsafe.Pointer) C.int {
-  state := getSendDumpOpsFromHandle(user)
-  go_path := C.GoString(path)
-  state.DelDir[go_path] = true
-  return 0
+  return callback_harness(user, func(state *types.SendDumpOperations) {
+    go_path := C.GoString(path)
+    state.DelDir[go_path] = true
+  })
 }
 
 //export go_write_cb
 func go_write_cb         (path *C.char, data unsafe.Pointer, offset C.u64, len_ C.u64,
                           user unsafe.Pointer) C.int {
-  util.Warnf("Did not expect go_write_cb for %s (len=%d)", C.GoString(path), len_)
-  return 0
+  return callback_harness(user, func(state *types.SendDumpOperations) {
+    state.Err = fmt.Errorf("Did not expect go_write_cb for %s (len=%d)", C.GoString(path), len_)
+  })
 }
 
 //export go_clone_cb
@@ -174,10 +179,10 @@ func go_utimes_cb        (path *C.char, at *C.struct_timespec,
                           mt *C.struct_timespec, ct *C.struct_timespec, user unsafe.Pointer) C.int { return 0 }
 //export go_update_extent_cb
 func go_update_extent_cb (path *C.char, offset C.u64, len_ C.u64, user unsafe.Pointer) C.int {
-  state := getSendDumpOpsFromHandle(user)
-  go_path := C.GoString(path)
-  state.Written[go_path]= true
-  return 0
+  return callback_harness(user, func(state *types.SendDumpOperations) {
+    go_path := C.GoString(path)
+    state.Written[go_path]= true
+  })
 }
 
 type stateTable struct {
@@ -201,7 +206,6 @@ func allocateSendDumpOps() int32 {
     Deleted: make(map[string]bool),
     DelDir: make(map[string]bool),
     FromTo: make(map[string]string),
-    ToFrom: make(map[string]string),
   }
   return slot_idx
 }
@@ -234,10 +238,14 @@ func readAndProcessSendStreamHelper(dump_fd uintptr) (*types.SendDumpOperations,
   ops := C.get_go_ops()
   ret := C.btrfs_read_and_process_send_stream(C.int(dump_fd), &ops, unsafe.Pointer(&slot_idx),
                                               PROPAGATE_LAST_CMD_ERR, IGNORE_ERR)
+  state := getSendDumpOpsFromKey(slot_idx)
+  if state.Err != nil {
+    return nil, state.Err
+  }
   // btrfs_read_and_process_send_stream is f*cked BTRFS_SEND_C_END will always produce a 1 return code ?
   if ret != 0 && ret != 1 {
     return nil, fmt.Errorf("btrfs_read_and_process_send_stream: %d=%s", ret, syscall.Errno(ret))
   }
-  return getSendDumpOpsFromKey(slot_idx), nil
+  return state, nil
 }
 

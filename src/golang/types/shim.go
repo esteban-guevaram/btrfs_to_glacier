@@ -25,9 +25,9 @@ type SendDumpOperations struct {
   Deleted map[string]bool
   DelDir map[string]bool
   FromTo map[string]string
-  ToFrom map[string]string
   ToUuid string
   FromUuid string
+  Err error
 }
 
 type Btrfsutil interface {
