@@ -10,11 +10,13 @@ import "time"
 type PipeReadEnd interface {
   io.ReadCloser
   Fd() uintptr
+  GetErr() error
 }
 
 type PipeWriteEnd interface {
   io.WriteCloser
   Fd() uintptr
+  PutErr(err error)
 }
 
 // Encapsulates both sides of a pipe.
@@ -24,14 +26,32 @@ type Pipe interface {
   WriteEnd() PipeWriteEnd
 }
 
-type MockPreloadedPipe struct {
-  read_end *os.File
-  write_end *os.File
-}
+// Dummy type to implement both pipe ends with a standard os.File
+type pipeFile struct { *os.File }
+func (file pipeFile) PutErr(err error) { panic("PutErr not implemented on os.File") }
+func (file pipeFile) GetErr() error { panic("GetErr not implemented on os.File") }
 
-func NewMockPreloadedPipe(data []byte) *MockPreloadedPipe {
+type MockPipe struct {
+  read_end  pipeFile
+  write_end pipeFile
+}
+func NewMockPipe() *MockPipe {
   read_end, write_end, err := os.Pipe()
   if err != nil { panic(fmt.Sprintf("failed os.Pipe %v", err)) }
+  return &MockPipe{pipeFile{read_end}, pipeFile{write_end}}
+}
+func (self *MockPipe) Close() error {
+  if self.read_end.File != nil { self.read_end.Close() }
+  if self.write_end.File != nil { self.write_end.Close() }
+  return nil
+}
+func (self *MockPipe) ReadEnd() PipeReadEnd { return self.read_end }
+func (self *MockPipe) WriteEnd() PipeWriteEnd { return self.write_end }
+
+
+type MockPreloadedPipe struct { MockPipe }
+func NewMockPreloadedPipe(data []byte) *MockPreloadedPipe {
+  pipe := &MockPreloadedPipe{*NewMockPipe()}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
@@ -39,8 +59,8 @@ func NewMockPreloadedPipe(data []byte) *MockPreloadedPipe {
   done := make(chan bool, 1)
   go func() {
     defer close(done)
-    defer write_end.Close()
-    cnt, err := write_end.Write(data)
+    defer pipe.write_end.Close()
+    cnt, err := pipe.write_end.Write(data)
     if err != nil || cnt != len(data) { panic(fmt.Sprintf("failed to write %v", err)) }
     done <- true
   }()
@@ -49,69 +69,47 @@ func NewMockPreloadedPipe(data []byte) *MockPreloadedPipe {
     case <-done:
     case <-ctx.Done(): panic("Write to pipe took too long")
   }
-  return &MockPreloadedPipe{read_end, write_end}
+  return pipe
 }
 
-func (self *MockPreloadedPipe) Close() error {
-  if self.read_end != nil { self.read_end.Close() }
-  if self.write_end != nil { self.write_end.Close() }
-  return nil
-}
-func (self *MockPreloadedPipe) ReadEnd() PipeReadEnd { return self.read_end }
-func (self *MockPreloadedPipe) WriteEnd() PipeWriteEnd { return nil }
 
-type MockDiscardPipe struct {
-  read_end *os.File
-  write_end *os.File
-}
-
-func (self *MockDiscardPipe) Close() error {
-  if self.read_end != nil { self.read_end.Close() }
-  if self.write_end != nil { self.write_end.Close() }
-  return nil
-}
-func (self *MockDiscardPipe) ReadEnd() PipeReadEnd { return nil }
-func (self *MockDiscardPipe) WriteEnd() PipeWriteEnd { return self.write_end }
-
+type MockDiscardPipe struct { MockPipe }
 func NewMockDicardPipe(ctx context.Context) *MockDiscardPipe {
-  read_end, write_end, err := os.Pipe()
-  if err != nil { panic(fmt.Sprintf("failed os.Pipe %v", err)) }
+  pipe := &MockDiscardPipe{*NewMockPipe()}
 
   done := make(chan bool)
   go func() {
     defer close(done)
-    _, err := io.Copy(ioutil.Discard, read_end)
+    _, err := io.Copy(ioutil.Discard, pipe.read_end)
     if err != nil { panic(fmt.Sprintf("failed to discard %v", err)) }
     done <- true
   }()
   go func() {
     select {
       case <-done:
-      case <-ctx.Done(): read_end.Close()
+      case <-ctx.Done(): pipe.read_end.Close()
     }
   }()
-  return &MockDiscardPipe{read_end, write_end}
+  return pipe
 }
+
 
 type MockCollectPipe struct {
-  MockDiscardPipe
+  MockPipe
   Output <-chan []byte
 }
-
 func NewMockCollectPipe(ctx context.Context) *MockCollectPipe {
-  read_end, write_end, err := os.Pipe()
-  if err != nil { panic(fmt.Sprintf("failed os.Pipe %v", err)) }
-
   done := make(chan []byte, 1)
-  pipe := &MockCollectPipe{MockDiscardPipe{read_end, write_end}, done}
+  pipe := &MockCollectPipe{*NewMockPipe(), done}
+
   go func() {
     defer close(done)
-    buf, err := ioutil.ReadAll(read_end)
+    buf, err := ioutil.ReadAll(pipe.read_end)
     if err != nil { panic(fmt.Sprintf("failed to collect %v", err)) }
     done <- buf
   }()
   go func() {
-    select { case <-ctx.Done(): read_end.Close() }
+    select { case <-ctx.Done(): pipe.read_end.Close() }
   }()
   return pipe
 }
