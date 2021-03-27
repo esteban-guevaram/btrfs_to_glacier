@@ -230,7 +230,7 @@ func bytePtrToUuid(uuid *C.u8) string {
   return bytesToUuid(a)
 }
 
-func readAndProcessSendStreamHelper(dump_fd uintptr) (*types.SendDumpOperations, error) {
+func readAndProcessSendStreamHelper(dump_fd uintptr) *types.SendDumpOperations {
   const IGNORE_ERR = 0
   const PROPAGATE_LAST_CMD_ERR = 1
   slot_idx := allocateSendDumpOps()
@@ -239,13 +239,10 @@ func readAndProcessSendStreamHelper(dump_fd uintptr) (*types.SendDumpOperations,
   ret := C.btrfs_read_and_process_send_stream(C.int(dump_fd), &ops, unsafe.Pointer(&slot_idx),
                                               PROPAGATE_LAST_CMD_ERR, IGNORE_ERR)
   state := getSendDumpOpsFromKey(slot_idx)
-  if state.Err != nil {
-    return nil, state.Err
-  }
   // btrfs_read_and_process_send_stream is f*cked BTRFS_SEND_C_END will always produce a 1 return code ?
   if ret != 0 && ret != 1 {
-    return nil, fmt.Errorf("btrfs_read_and_process_send_stream: %d=%s", ret, syscall.Errno(ret))
+    state.Err = fmt.Errorf("btrfs_read_and_process_send_stream: %d=%s", ret, syscall.Errno(ret))
   }
-  return state, nil
+  return state
 }
 

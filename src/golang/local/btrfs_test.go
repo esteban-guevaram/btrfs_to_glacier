@@ -1,6 +1,8 @@
 package local
 
 import (
+  "context"
+  "fmt"
   "testing"
   "time"
   pb "btrfs_to_glacier/messages"
@@ -14,6 +16,23 @@ func CloneSubvol(vol *pb.SubVolume) *pb.SubVolume { return proto.Clone(vol).(*pb
 
 func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockLinuxutil) {
   conf := util.LoadTestConf()
+  newfile_ops := types.SendDumpOperations{
+    Written: map[string]bool{
+      "coucou": true,
+    },
+    New: map[string]bool{
+      "o260-8-0": true,
+    },
+    NewDir: map[string]bool{},
+    Deleted: map[string]bool{},
+    DelDir: map[string]bool{},
+    FromTo: map[string]string{
+      "o260-8-0": "coucou",
+    },
+    ToUuid: "72124d274e1e67428b7eed6909b00537",
+    FromUuid: "5196e8fc2aa495499e24d9df818ba8c7",
+    Err: nil,
+  }
   sys_info := &pb.SystemInfo{
     KernMajor: 1,
     KernMinor: 2,
@@ -70,6 +89,8 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
       CloneSnap(mock_snap3),
       CloneSnap(mock_snap4),
     },
+    DumpOps: &newfile_ops,
+    SendStream: types.NewMockPreloadedPipe([]byte("somedata")),
   }
   linuxutil := &types.MockLinuxutil {}
   volmgr    := &btrfsVolumeManager {
@@ -105,6 +126,68 @@ func TestGetSnapshotSeqForVolume(t *testing.T) {
     if !proto.Equal(expect_snap, snapseq.Snaps[idx]) {
       t.Errorf("\n%s\n !=\n %s", expect_snap, snapseq.Snaps[idx])
     }
+  }
+}
+
+func TestGetChangesBetweenSnaps(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  expect_changes := &pb.SnapshotChanges{
+    FromUuid: btrfsutil.DumpOps.FromUuid,
+    ToUuid: btrfsutil.DumpOps.ToUuid,
+    Changes: []*pb.SnapshotChanges_Change{
+      &pb.SnapshotChanges_Change{
+        Type: pb.SnapshotChanges_NEW,
+        Path: "coucou",
+      },
+    },
+  }
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
+  if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
+  select {
+    case changes := <-ch:
+      if changes.Err != nil { t.Fatalf("GetChangesBetweenSnaps: %v", err) }
+      util.CompareAsStrings(t, changes.Val, expect_changes)
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  btrfsutil.Err = fmt.Errorf("problemo")
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
+  if err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
+  if ch != nil { t.Errorf("Expected nil channel on error") }
+}
+
+func TestGetChangesBetweenSnaps_ErrReadingStream(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  btrfsutil.SendStream.WriteEnd().PutErr(fmt.Errorf("problemo"))
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
+  if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
+  select {
+    case changes := <-ch:
+      if changes.Err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  btrfsutil.DumpOps.Err = fmt.Errorf("problemo")
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
+  if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
+  select {
+    case changes := <-ch:
+      if changes.Err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
+    case <-ctx.Done(): t.Fatalf("timedout")
   }
 }
 

@@ -194,7 +194,7 @@ func TestSendDump(btrfsutil types.Btrfsutil, dumpname string, dump_base64 string
   preload_pipe = types.NewMockPreloadedPipe(dump_bytes)
   defer preload_pipe.Close()
 
-  changes, err = btrfsutil.ReadAndProcessSendStream(preload_pipe.ReadEnd())
+  changes = btrfsutil.ReadAndProcessSendStream(preload_pipe.ReadEnd())
   json_str, err = json.MarshalIndent(changes, "", "  ")
   util.Infof("err=%v\n%s = %s", err, dumpname, json_str)
 }
@@ -262,7 +262,7 @@ func TestBtrfsSendAndReceiveStreamDump(btrfsutil types.Btrfsutil, snap_old strin
     var changes *types.SendDumpOperations
     defer close(done)
     defer read_end.Close()
-    changes, err = btrfsutil.ReadAndProcessSendStream(read_end)
+    changes = btrfsutil.ReadAndProcessSendStream(read_end)
     json_str, err = json.MarshalIndent(changes, "", "  ")
     util.Infof("err=%v\nsnap_old:'%s' snap_new:'%s' = %s", err, snap_old, snap_new, json_str)
     done <- true

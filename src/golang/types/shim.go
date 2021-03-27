@@ -40,7 +40,7 @@ type Btrfsutil interface {
   // @path must be the root of the subvolume or root_volume.
   ListSubVolumesUnder(path string) ([]*pb.Snapshot, error)
   // Reads a file generated from `btrfs send --no-data` and returns a record of the operations.
-  ReadAndProcessSendStream(dump PipeReadEnd) (*SendDumpOperations, error)
+  ReadAndProcessSendStream(dump PipeReadEnd) *SendDumpOperations
   // Starts a separate `btrfs send` and returns the read end of the pipe.
   // `no_data` is the same option as for `btrfs send`.
   // `from` can be null to get the full contents of the subvolume.
@@ -67,8 +67,8 @@ type MockBtrfsutil struct {
   Err error
   Subvol     *pb.SubVolume
   Snaps      []*pb.Snapshot
-  DumOps     *SendDumpOperations
-  SendStream PipeReadEnd
+  DumpOps    *SendDumpOperations
+  SendStream Pipe
 }
 func (self *MockBtrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   return self.Subvol, self.Err
@@ -76,10 +76,10 @@ func (self *MockBtrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
 func (self *MockBtrfsutil) ListSubVolumesUnder(path string) ([]*pb.Snapshot, error) {
   return self.Snaps, self.Err
 }
-func (self *MockBtrfsutil) ReadAndProcessSendStream(dump PipeReadEnd) (*SendDumpOperations, error) {
-  return self.DumOps, self.Err
+func (self *MockBtrfsutil) ReadAndProcessSendStream(dump PipeReadEnd) *SendDumpOperations {
+  return self.DumpOps
 }
 func (self *MockBtrfsutil) StartSendStream(ctx context.Context, from string, to string, no_data bool) (PipeReadEnd, error) {
-  return self.SendStream, self.Err
+  return self.SendStream.ReadEnd(), self.Err
 }
 

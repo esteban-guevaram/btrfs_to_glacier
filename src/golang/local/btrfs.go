@@ -3,10 +3,10 @@ package local
 import (
   "context"
   "fmt"
+  "sort"
   "btrfs_to_glacier/shim"
   "btrfs_to_glacier/types"
   pb "btrfs_to_glacier/messages"
-  "sort"
 )
 
 type btrfsVolumeManager struct {
@@ -97,53 +97,19 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from
 
   changes_chan := make(chan types.SnapshotChangesOrError, 1)
   go func() {
-    defer read_end.Close()
     defer close(changes_chan)
-    _, err := self.btrfsutil.ReadAndProcessSendStream(read_end)
-    if err != nil {
+    defer read_end.Close()
+    dump_ops := self.btrfsutil.ReadAndProcessSendStream(read_end)
+    if dump_ops.Err != nil || read_end.GetErr() != nil {
+      err = fmt.Errorf("src_err:%v dst_err:%v", read_end.GetErr(), dump_ops.Err)
       changes_chan <- types.SnapshotChangesOrError{nil, err}
       return
     }
-    changes_chan <- types.SnapshotChangesOrError{nil, nil}
+    changes_chan <- types.SnapshotChangesOrError{
+      Val: sendDumpOpsToSnapChanges(dump_ops),
+      Err: nil,
+    }
   }()
   return changes_chan, nil
-}
-
-// Implement interface for sorter
-type ByPath []*pb.SnapshotChanges_Change
-func (a ByPath) Len() int           { return len(a) }
-func (a ByPath) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByPath) Less(i, j int) bool { return a[i].Path < a[j].Path }
-
-func SendDumpOpsToSnapChanges(state *types.SendDumpOperations) *pb.SnapshotChanges {
-  changes := make([]*pb.SnapshotChanges_Change, 0, 64)
-  for path,v := range state.New {
-    if !v { continue }
-    changes = append(changes, &pb.SnapshotChanges_Change {
-      Type: pb.SnapshotChanges_NEW,
-      Path: path,
-    })
-  }
-  for path,v := range state.Written {
-    if !v { continue }
-    changes = append(changes, &pb.SnapshotChanges_Change {
-      Type: pb.SnapshotChanges_WRITE,
-      Path: path,
-    })
-  }
-  for path,v := range state.Deleted {
-    if !v { continue }
-    changes = append(changes, &pb.SnapshotChanges_Change {
-      Type: pb.SnapshotChanges_DELETE,
-      Path: path,
-    })
-  }
-  sort.Sort(ByPath(changes))
-  proto := pb.SnapshotChanges{
-    Changes: changes,
-    ToUuid: state.ToUuid,
-    FromUuid: state.FromUuid,
-  }
-  return &proto
 }
 

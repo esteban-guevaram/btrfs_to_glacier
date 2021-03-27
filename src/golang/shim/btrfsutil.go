@@ -144,7 +144,7 @@ func (self *btrfsUtilImpl) ListSubVolumesUnder(path string) ([]*pb.Snapshot, err
   return vols, nil
 }
 
-func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump types.PipeReadEnd) (*types.SendDumpOperations, error) {
+func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump types.PipeReadEnd) *types.SendDumpOperations {
   return readAndProcessSendStreamHelper(dump.Fd())
 }
 

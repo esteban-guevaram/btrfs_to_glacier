@@ -58,10 +58,12 @@ message SnapshotChanges {
     DEL_DIR = 3;
     NEW = 4;
     NEW_DIR = 5;
+    MOVE = 6; // AFAIK cannot distinguish between dir and files moves
   }
   message Change {
     Type type = 1;
     string path = 2;
+    string from = 3;
   }
   string from_uuid = 1; 
   string to_uuid = 2; 

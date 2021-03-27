@@ -27,18 +27,25 @@ type Pipe interface {
 }
 
 // Dummy type to implement both pipe ends with a standard os.File
-type pipeFile struct { *os.File }
-func (file pipeFile) PutErr(err error) { panic("PutErr not implemented on os.File") }
-func (file pipeFile) GetErr() error { panic("GetErr not implemented on os.File") }
+type pipeFile struct {
+  *os.File
+  Common *MockPipe
+}
+func (file *pipeFile) PutErr(err error) { file.Common.Err = err }
+func (file *pipeFile) GetErr() error { return file.Common.Err }
 
 type MockPipe struct {
-  read_end  pipeFile
-  write_end pipeFile
+  read_end  *pipeFile
+  write_end *pipeFile
+  Err error
 }
 func NewMockPipe() *MockPipe {
   read_end, write_end, err := os.Pipe()
+  pipe := &MockPipe{}
   if err != nil { panic(fmt.Sprintf("failed os.Pipe %v", err)) }
-  return &MockPipe{pipeFile{read_end}, pipeFile{write_end}}
+  pipe.read_end = &pipeFile{read_end,pipe}
+  pipe.write_end = &pipeFile{write_end,pipe}
+  return pipe
 }
 func (self *MockPipe) Close() error {
   if self.read_end.File != nil { self.read_end.Close() }
