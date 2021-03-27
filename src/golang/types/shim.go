@@ -32,8 +32,9 @@ type SendDumpOperations struct {
 
 type Btrfsutil interface {
   // Get the `struct btrfs_util_subvolume_info` for a btrfs subvolume.
+  // If `path` does not point to a snapshot the corresponding fields will be empty.
   // @path must be the root of the subvolume.
-  SubvolumeInfo(path string) (*pb.SubVolume, error)
+  SubvolumeInfo(path string) (*pb.Snapshot, error)
   // Returns a list with all subvolumes under `path`.
   // If the subvolume is not a snapshot then the corresponding fields will be empty.
   // IMPORTANT: we only consider read-only snapshots, writable snaps will be returned as subvolumes.
@@ -46,6 +47,12 @@ type Btrfsutil interface {
   // `from` can be null to get the full contents of the subvolume.
   // When `ctx` is done/cancelled the write end of the pipe should be closed and the forked process killed.
   StartSendStream(ctx context.Context, from string, to string, no_data bool) (PipeReadEnd, error)
+  // Calls `btrfs_util_create_snapshot()` to create a snapshot of `subvol` in `snap` path.
+  // Sets the read-only flag.
+  // Note async subvolume is no longer possible.
+  CreateSnapshot(subvol string, snap string) error
+  // Calls `btrfs_util_start_sync()` to wait for a transaction to sync.
+  WaitForTransactionId(root_fs string, tid uint64) error
 }
 
 
@@ -65,12 +72,12 @@ func (self *MockLinuxutil) ProjectVersion() string { return self.SysInfo.ToolGit
 
 type MockBtrfsutil struct {
   Err error
-  Subvol     *pb.SubVolume
+  Subvol     *pb.Snapshot
   Snaps      []*pb.Snapshot
   DumpOps    *SendDumpOperations
   SendStream Pipe
 }
-func (self *MockBtrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
+func (self *MockBtrfsutil) SubvolumeInfo(path string) (*pb.Snapshot, error) {
   return self.Subvol, self.Err
 }
 func (self *MockBtrfsutil) ListSubVolumesUnder(path string) ([]*pb.Snapshot, error) {
@@ -81,5 +88,11 @@ func (self *MockBtrfsutil) ReadAndProcessSendStream(dump PipeReadEnd) *SendDumpO
 }
 func (self *MockBtrfsutil) StartSendStream(ctx context.Context, from string, to string, no_data bool) (PipeReadEnd, error) {
   return self.SendStream.ReadEnd(), self.Err
+}
+func (self *MockBtrfsutil) CreateSnapshot(subvol string, snap string) error {
+  return self.Err
+}
+func (self *MockBtrfsutil) WaitForTransactionId(root_fs string, tid uint64) error {
+  return self.Err
 }
 

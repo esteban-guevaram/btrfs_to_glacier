@@ -12,8 +12,8 @@ type SnapshotChangesOrError struct {
 
 type VolumeManager interface {
   // `path` must be the root of the volume.
-  // `origin_sys` will be set to the host environment.
-  GetVolume(path string) (*pb.SubVolume, error)
+  // If `path` does not point to a snapshot the corresponding fields will be empty.
+  GetVolume(path string) (*pb.Snapshot, error)
   // Returns all snapshots whose parent is `subvol`.
   // Returned snaps are soted by creation generation (oldest first).
   // `received_uuid` will only be set if the snapshot was effectibely received.
@@ -23,17 +23,17 @@ type VolumeManager interface {
   GetChangesBetweenSnaps(ctx context.Context, from *pb.Snapshot, to *pb.Snapshot) (<-chan SnapshotChangesOrError, error)
 }
 
-// Implementation questions
-// * Can I use btrfs receive dump mode for something ? 
 type VolumeSource interface {
   VolumeManager
-  ReceiveSnapshotStream() error
   GetSnapshotStream() error
 }
 
 type VolumeDestination interface {
   VolumeManager
-  CreateVolume() error
-  DeleteVolume() error
+  // Creates a read-only snapshot of `subvol`.
+  // The path for the new snapshot will be determined by configuration.
+  CreateSnapshot(subvol *pb.SubVolume) (*pb.Snapshot, error)
+  ReceiveSnapshotStream() error
+  DeleteSnapshot(snap *pb.SubVolume) error
 }
 

@@ -25,7 +25,7 @@ func NewBtrfsutil(conf *pb.Config) (types.Btrfsutil, error) {
   return impl, nil
 }
 
-func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.SubVolume, error) {
+func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.Snapshot, error) {
   var subvol C.struct_btrfs_util_subvolume_info
   c_path := C.CString(path)
   defer C.free(unsafe.Pointer(c_path))
@@ -44,7 +44,7 @@ func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   if subvol.parent_id == 0 {
     return nil, fmt.Errorf("returning root subvolume is not supported")
   }
-  return self.toProtoSubVolume(&subvol, path), nil
+  return self.toProtoSnapOrSubvol(&subvol, path), nil
 }
 
 func (*btrfsUtilImpl) toProtoSubVolume(subvol *C.struct_btrfs_util_subvolume_info, path string) *pb.SubVolume {
@@ -169,5 +169,38 @@ func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to 
   args = append(args, to)
 
   return util.StartCmdWithPipedOutput(ctx, args)
+}
+
+func (self *btrfsUtilImpl) CreateSnapshot(subvol string, snap string) error {
+  if !fpmod.IsAbs(subvol) {
+    return fmt.Errorf("'subvol' needs an absolute path, got: %s", subvol)
+  }
+  if !fpmod.IsAbs(snap) {
+    return fmt.Errorf("'snap' needs an absolute path, got: %s", snap)
+  }
+  c_subvol := C.CString(subvol)
+  c_snap := C.CString(snap)
+  var flags C.int = C.BTRFS_UTIL_CREATE_SNAPSHOT_READ_ONLY
+  // Async creation has been deprecated in btrfs 5.7, using `async_transid` arg will f*ck things up.
+  // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=15c981d16d70e8a5be297fa4af07a64ab7e080ed
+  stx := C.btrfs_util_create_snapshot(c_subvol, c_snap, flags, nil, nil)
+  if stx != C.BTRFS_UTIL_OK {
+    return fmt.Errorf("btrfs_util_create_snapshot(%s, %s, %d): %s = %d",
+                      subvol, snap, flags, C.GoString(C.btrfs_util_strerror(stx)), stx)
+  }
+  return nil
+}
+
+func (self *btrfsUtilImpl) WaitForTransactionId(root_fs string, tid uint64) error {
+  if !fpmod.IsAbs(root_fs) {
+    return fmt.Errorf("'root_fs' needs an absolute path, got: %s", root_fs)
+  }
+  c_rootfs := C.CString(root_fs)
+  stx := C.btrfs_util_wait_sync(c_rootfs, (C.uint64_t)(tid))
+  if stx != C.BTRFS_UTIL_OK {
+    return fmt.Errorf("btrfs_util_wait_sync: %s = %d",
+                           C.GoString(C.btrfs_util_strerror(stx)), stx)
+  }
+  return nil
 }
 

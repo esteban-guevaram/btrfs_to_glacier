@@ -40,11 +40,13 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
     BtrfsUsrMinor: 4,
     ToolGitCommit: "hash",
   }
-  mock_subvol := &pb.SubVolume {
-    Uuid: "uuid",
-    MountedPath: "/tmp/subvol",
-    GenAtCreation: 66,
-    CreatedTs: uint64(time.Now().UnixNano()),
+  mock_subvol := &pb.Snapshot {
+    Subvol: &pb.SubVolume {
+      Uuid: "uuid",
+      MountedPath: "/tmp/subvol",
+      GenAtCreation: 66,
+      CreatedTs: uint64(time.Now().UnixNano()),
+    },
   }
   mock_snap1 := &pb.Snapshot {
     Subvol: &pb.SubVolume {
@@ -82,7 +84,7 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
     },
   }
   btrfsutil := &types.MockBtrfsutil {
-    Subvol: CloneSubvol(mock_subvol),
+    Subvol: CloneSnap(mock_subvol),
     Snaps: []*pb.Snapshot{
       CloneSnap(mock_snap1),
       CloneSnap(mock_snap2),
@@ -104,8 +106,8 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
 
 func TestGetVolume(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
-  expect_subvol := CloneSubvol(btrfsutil.Subvol)
-  expect_subvol.OriginSys = volmgr.sysinfo
+  expect_subvol := CloneSnap(btrfsutil.Subvol)
+  expect_subvol.Subvol.OriginSys = volmgr.sysinfo
   subvol, err := volmgr.GetVolume("")
   if err != nil { t.Fatalf("%s", err) }
   if !proto.Equal(expect_subvol, subvol) {
@@ -116,7 +118,7 @@ func TestGetVolume(t *testing.T) {
 func TestGetSnapshotSeqForVolume(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
   expect_snaps := []*pb.Snapshot { CloneSnap(btrfsutil.Snaps[1]), CloneSnap(btrfsutil.Snaps[0]) }
-  snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvol)
+  snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvol.Subvol)
   if err != nil { t.Fatalf("%s", err) }
   if snapseq.Uuid != "" { t.Errorf("Expected empty snapseq uuid got %s", snapseq.Uuid) }
   if len(snapseq.Snaps) != len(expect_snaps) {
@@ -189,5 +191,14 @@ func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
       if changes.Err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
     case <-ctx.Done(): t.Fatalf("timedout")
   }
+}
+
+func TestCreateSnapshot(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  expect_snap := CloneSnap(btrfsutil.Subvol)
+  expect_snap.Subvol.OriginSys = volmgr.sysinfo
+  snapshot, err := volmgr.CreateSnapshot(btrfsutil.Subvol.Subvol)
+  if err != nil { t.Fatalf("%s", err) }
+  util.CompareAsStrings(t, snapshot, expect_snap)
 }
 

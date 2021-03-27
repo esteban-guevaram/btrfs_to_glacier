@@ -3,7 +3,9 @@ package local
 import (
   "context"
   "fmt"
+  fpmod "path/filepath"
   "sort"
+  "time"
   "btrfs_to_glacier/shim"
   "btrfs_to_glacier/types"
   pb "btrfs_to_glacier/messages"
@@ -46,13 +48,13 @@ func NewVolumeManager(conf *pb.Config) (types.VolumeManager, error) {
   return &mgr, err
 }
 
-func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
-  var subvol *pb.SubVolume
+func (self *btrfsVolumeManager) GetVolume(path string) (*pb.Snapshot, error) {
+  var subvol *pb.Snapshot
   var err error
   subvol, err = self.btrfsutil.SubvolumeInfo(path)
   if err != nil { return subvol, err }
   clone := *self.sysinfo
-  subvol.OriginSys = &clone
+  subvol.Subvol.OriginSys = &clone
   return subvol, nil
 }
 
@@ -111,5 +113,14 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from
     }
   }()
   return changes_chan, nil
+}
+
+func (self *btrfsVolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.Snapshot, error) {
+  ts_str    := time.Now().Format("20060201")
+  snap_name := fmt.Sprintf("%s.%s.%d", fpmod.Base(subvol.MountedPath), ts_str, time.Now().Unix())
+  snap_path := fpmod.Join(self.conf.RootSnapPath, snap_name)
+  err  := self.btrfsutil.CreateSnapshot(subvol.MountedPath, snap_path)
+  if err != nil { return nil, err }
+  return self.GetVolume(snap_path)
 }
 

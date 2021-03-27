@@ -1,11 +1,14 @@
 package main
 
 import (
+  "flag"
+  "fmt"
+  fpmod "path/filepath"
+  "time"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/shim"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
-  "flag"
 )
 
 var path_flag string
@@ -46,21 +49,34 @@ func GetLinuxUtil() types.Linuxutil {
 
 func TestBtrfsUtil_SubvolumeInfo(btrfsutil types.Btrfsutil) {
   subvol, err := btrfsutil.SubvolumeInfo(path_flag);
-  if err != nil {
-    util.Fatalf("integration failed = %v", err)
-  }
+  if err != nil { util.Fatalf("integration failed = %v", err) }
   util.Infof("subvol = %s\n", subvol)
 }
 
 func TestBtrfsUtil_ListSubVolumesUnder(btrfsutil types.Btrfsutil) {
   var err error
   var vols []*pb.Snapshot
-  vols, err = btrfsutil.ListSubVolumesUnder(root_flag);
-  if err != nil {
-    util.Fatalf("integration failed = %v", err)
-  }
+  vols, err = btrfsutil.ListSubVolumesUnder(root_flag)
+  if err != nil { util.Fatalf("integration failed = %v", err) }
   for _,subvol := range(vols) { util.Infof("subvol = %s\n", subvol) }
   util.Infof("len(vols) = %d\n", len(vols))
+}
+
+func TestBtrfsUtil_CreateSnapshot(btrfsutil types.Btrfsutil) {
+  snap_path := fpmod.Join(fpmod.Dir(snap1_flag),
+                          fmt.Sprintf("%s.%d", "TestBtrfsUtil_CreateSnapshotAndWait", time.Now().Unix()))
+  err := btrfsutil.CreateSnapshot(path_flag, snap_path);
+  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", path_flag, snap_path, err) }
+
+  subvol, err := btrfsutil.SubvolumeInfo(snap_path);
+  if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
+  util.Infof("subvol = %s\n", subvol)
+}
+
+func TestBtrfsUtil_AllFuncs(btrfsutil types.Btrfsutil) {
+  TestBtrfsUtil_SubvolumeInfo(btrfsutil)
+  TestBtrfsUtil_ListSubVolumesUnder(btrfsutil)
+  TestBtrfsUtil_CreateSnapshot(btrfsutil)
 }
 
 func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
@@ -78,8 +94,7 @@ func main() {
   flag.Parse()
   btrfsutil := GetBtrfsUtil()
   linuxutil := GetLinuxUtil()
-  TestBtrfsUtil_SubvolumeInfo(btrfsutil)
-  TestBtrfsUtil_ListSubVolumesUnder(btrfsutil)
+  TestBtrfsUtil_AllFuncs(btrfsutil)
   TestLinuxUtils_AllFuncs(linuxutil)
   TestSendDumpAll(btrfsutil)
   TestBtrfsSendStreamAll(linuxutil, btrfsutil)
