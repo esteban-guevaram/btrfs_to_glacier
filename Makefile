@@ -1,6 +1,6 @@
 .ONESHELL:
 .SECONDARY:
-.PHONY: all clean fs_init c_code go_code go_unittest test
+.PHONY: all clean fs_init c_code go_code go_debug go_unittest test
 
 PROJ_ROOT     := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 include etc/Makefile.include
@@ -15,15 +15,16 @@ MYGOSRC  := src/golang
 GO_PROTOC_INSTALL := $(STAGE_PATH)/gobin/protoc-gen-go
 # Chose NOT to store generated proto sources in git
 # Can be problematic for some languages like C++ (see groups.google.com/g/protobuf/c/Qz5Aj7zK03Y)
-GO_PROTO_GEN_SRCS  := $(MYGOSRC)/messages/config.pb.go $(MYGOSRC)/messages/messages.pb.go
-PROTOSRC := src/proto
-CC       := gcc
-CPPFLAGS := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
-CFLAGS_BTRFS  := -std=gnu11
+GO_PROTO_GEN_SRCS := $(MYGOSRC)/messages/config.pb.go $(MYGOSRC)/messages/messages.pb.go
+PROTOSRC     := src/proto
+CC           := gcc
+CPPFLAGS     := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
+CFLAGS_BTRFS := -std=gnu11
 # -mtune=native -march=native -O3
-CFLAGS   := $(CFLAGS_BTRFS) -I$(BTRFS_INCLUDE) "-I$(PROJ_ROOT)/include" -Wall -Werror -ggdb
-LDFLAGS  := 
-LDLIBS   :=
+CFLAGS       := $(CFLAGS_BTRFS) -I$(BTRFS_INCLUDE) "-I$(PROJ_ROOT)/include" -Wall -Werror
+CFLAGS_DBG   := $(CFLAGS) -ggdb -Og
+LDFLAGS      :=
+LDLIBS       :=
 
 headers  := $(wildcard include/*.h)
 go_files := $(shell find "$(MYGOSRC)" -type f -name '*.go')
@@ -64,7 +65,14 @@ go_unittest: go_code
 	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "/shim|/types"` )
 	GOENV="$(GOENV)" go test "$${pkg_to_test[@]}"
 
+go_debug: go_code
+	pushd "$(MYGOSRC)"
+	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
+	  dlv test "btrfs_to_glacier/local" --output="$(STAGE_PATH)/debugme"
+
 $(GOENV): | bin
+	# Could also be achieved with linker flags to override global vars
+	# https://www.digitalocean.com/community/tutorials/using-ldflags-to-set-version-information-for-go-applications
 	COMMIT_ID="`git rev-list -1 HEAD`"
 	GOENV="$(GOENV)" go env -w CC="$(CC)" \
 														 CGO_CPPFLAGS="-DBTRFS_TO_GLACIER_VERSION=\"$$COMMIT_ID\"" \
