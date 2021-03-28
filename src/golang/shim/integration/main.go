@@ -47,6 +47,11 @@ func GetLinuxUtil() types.Linuxutil {
   return linuxutil
 }
 
+func GetNewSnapName(leaf_name string) string {
+  return fpmod.Join(fpmod.Dir(snap1_flag),
+                    fmt.Sprintf("%s.%d", leaf_name, time.Now().Unix()))
+}
+
 func TestBtrfsUtil_SubvolumeInfo(btrfsutil types.Btrfsutil) {
   subvol, err := btrfsutil.SubvolumeInfo(path_flag);
   if err != nil { util.Fatalf("integration failed = %v", err) }
@@ -63,8 +68,7 @@ func TestBtrfsUtil_ListSubVolumesUnder(btrfsutil types.Btrfsutil) {
 }
 
 func TestBtrfsUtil_CreateSnapshot(btrfsutil types.Btrfsutil) {
-  snap_path := fpmod.Join(fpmod.Dir(snap1_flag),
-                          fmt.Sprintf("%s.%d", "TestBtrfsUtil_CreateSnapshotAndWait", time.Now().Unix()))
+  snap_path := GetNewSnapName("TestBtrfsUtil_CreateSnapshotAndWait")
   err := btrfsutil.CreateSnapshot(path_flag, snap_path);
   if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", path_flag, snap_path, err) }
 
@@ -73,10 +77,29 @@ func TestBtrfsUtil_CreateSnapshot(btrfsutil types.Btrfsutil) {
   util.Infof("subvol = %s\n", subvol)
 }
 
-func TestBtrfsUtil_AllFuncs(btrfsutil types.Btrfsutil) {
+// Requires CAP_SYS_ADMIN
+func TestBtrfsUtil_DeleteSubvolume(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
+  if !linuxutil.IsCapSysAdmin() {
+    util.Warnf("TestBtrfsUtil_DeleteSubvolume needs CAP_SYS_ADMIN")
+    return
+  }
+  snap_path := GetNewSnapName("TestBtrfsUtil_DeleteSubvolume")
+  err := btrfsutil.CreateSnapshot(path_flag, snap_path);
+  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", path_flag, snap_path, err) }
+
+  err = btrfsutil.DeleteSubvolume(snap_path);
+  if err != nil { util.Fatalf("btrfsutil.DeleteSubvolume(%s) failed = %v", snap_path, err) }
+
+  var subvol *pb.Snapshot
+  subvol, err = btrfsutil.SubvolumeInfo(snap_path);
+  if err == nil { util.Fatalf("btrfsutil.DeleteSubvolume was not deleted: %v", subvol) }
+}
+
+func TestBtrfsUtil_AllFuncs(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
   TestBtrfsUtil_SubvolumeInfo(btrfsutil)
   TestBtrfsUtil_ListSubVolumesUnder(btrfsutil)
   TestBtrfsUtil_CreateSnapshot(btrfsutil)
+  TestBtrfsUtil_DeleteSubvolume(linuxutil, btrfsutil)
 }
 
 func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
@@ -94,9 +117,10 @@ func main() {
   flag.Parse()
   btrfsutil := GetBtrfsUtil()
   linuxutil := GetLinuxUtil()
-  TestBtrfsUtil_AllFuncs(btrfsutil)
+  TestBtrfsUtil_AllFuncs(linuxutil, btrfsutil)
   TestLinuxUtils_AllFuncs(linuxutil)
   TestSendDumpAll(btrfsutil)
   TestBtrfsSendStreamAll(linuxutil, btrfsutil)
+  util.Infof("ALL DONE")
 }
 

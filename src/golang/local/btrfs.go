@@ -124,3 +124,14 @@ func (self *btrfsVolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.Snapsh
   return self.GetVolume(snap_path)
 }
 
+func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
+  re_read_sv, err := self.GetVolume(subvol.MountedPath)
+  if err != nil { return err }
+  if len(re_read_sv.ParentUuid) < 1 {
+    return fmt.Errorf("%v is not a snapshot", subvol)
+  }
+  err = self.btrfsutil.DeleteSubvolume(subvol.MountedPath)
+  if err != nil { return err }
+  return nil
+}
+

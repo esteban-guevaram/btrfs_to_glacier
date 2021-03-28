@@ -51,6 +51,8 @@ type Btrfsutil interface {
   // Sets the read-only flag.
   // Note async subvolume is no longer possible.
   CreateSnapshot(subvol string, snap string) error
+  // Calls `btrfs_util_delete_subvolume` with empty `flags` argument.
+  DeleteSubvolume(subvol string) error
   // Calls `btrfs_util_start_sync()` to wait for a transaction to sync.
   WaitForTransactionId(root_fs string, tid uint64) error
 }
@@ -90,6 +92,9 @@ func (self *MockBtrfsutil) StartSendStream(ctx context.Context, from string, to 
   return self.SendStream.ReadEnd(), self.Err
 }
 func (self *MockBtrfsutil) CreateSnapshot(subvol string, snap string) error {
+  return self.Err
+}
+func (self *MockBtrfsutil) DeleteSubvolume(subvol string) error {
   return self.Err
 }
 func (self *MockBtrfsutil) WaitForTransactionId(root_fs string, tid uint64) error {

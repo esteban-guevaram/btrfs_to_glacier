@@ -204,3 +204,16 @@ func (self *btrfsUtilImpl) WaitForTransactionId(root_fs string, tid uint64) erro
   return nil
 }
 
+func (self *btrfsUtilImpl) DeleteSubvolume(subvol string) error {
+  if !fpmod.IsAbs(subvol) {
+    return fmt.Errorf("'subvol' needs an absolute path, got: %s", subvol)
+  }
+  c_subvol := C.CString(subvol)
+  stx := C.btrfs_util_delete_subvolume(c_subvol, 0)
+  if stx != C.BTRFS_UTIL_OK {
+    return fmt.Errorf("btrfs_util_destroy_subvolume_iterator: %s = %d",
+                           C.GoString(C.btrfs_util_strerror(stx)), stx)
+  }
+  return nil
+}
+

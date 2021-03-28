@@ -202,3 +202,12 @@ func TestCreateSnapshot(t *testing.T) {
   util.CompareAsStrings(t, snapshot, expect_snap)
 }
 
+func TestDeleteSnapshot(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  err := volmgr.DeleteSnapshot(btrfsutil.Subvol.Subvol)
+  if err == nil { t.Errorf("Expected error when deleting non-readonly subvolumes") }
+  btrfsutil.Subvol = CloneSnap(btrfsutil.Snaps[0])
+  err = volmgr.DeleteSnapshot(btrfsutil.Snaps[0].Subvol)
+  if err != nil { t.Errorf("%s", err) }
+}
+

@@ -33,7 +33,8 @@ type VolumeDestination interface {
   // Creates a read-only snapshot of `subvol`.
   // The path for the new snapshot will be determined by configuration.
   CreateSnapshot(subvol *pb.SubVolume) (*pb.Snapshot, error)
-  ReceiveSnapshotStream() error
+  // Deletes a snapshot. Returns an error if attempting to delete a write snapshot or subvolume.
   DeleteSnapshot(snap *pb.SubVolume) error
+  ReceiveSnapshotStream() error
 }
 
