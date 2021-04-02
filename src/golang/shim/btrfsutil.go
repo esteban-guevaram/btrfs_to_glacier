@@ -18,6 +18,8 @@ import (
   "unsafe"
 )
 
+const NULL_UUID = "00000000000000000000000000000000"
+
 type btrfsUtilImpl struct {}
 
 func NewBtrfsutil(conf *pb.Config) (types.Btrfsutil, error) {
@@ -25,7 +27,7 @@ func NewBtrfsutil(conf *pb.Config) (types.Btrfsutil, error) {
   return impl, nil
 }
 
-func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.Snapshot, error) {
+func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   var subvol C.struct_btrfs_util_subvolume_info
   c_path := C.CString(path)
   defer C.free(unsafe.Pointer(c_path))
@@ -48,20 +50,20 @@ func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.Snapshot, error) {
 }
 
 func (*btrfsUtilImpl) toProtoSubVolume(subvol *C.struct_btrfs_util_subvolume_info, path string) *pb.SubVolume {
-  return &pb.SubVolume {
+  sv := &pb.SubVolume {
     Uuid: bytesToUuid(subvol.uuid),
     MountedPath: strings.TrimSuffix(path, "/"),
     GenAtCreation: uint64(subvol.otransid),
     CreatedTs: uint64(subvol.otime.tv_sec),
   }
+  received_uuid := bytesToUuid(subvol.received_uuid)
+  if received_uuid != NULL_UUID { sv.ReceivedUuid = received_uuid }
+  return sv
 }
 
 // Unlike btrfs we consider ONLY read-only snaps
-func (self *btrfsUtilImpl) toProtoSnapOrSubvol(subvol *C.struct_btrfs_util_subvolume_info, path string) *pb.Snapshot {
-  const NULL_UUID = "00000000000000000000000000000000"
-  snap := &pb.Snapshot {
-    Subvol: self.toProtoSubVolume(subvol, path),
-  }
+func (self *btrfsUtilImpl) toProtoSnapOrSubvol(subvol *C.struct_btrfs_util_subvolume_info, path string) *pb.SubVolume {
+  snap := self.toProtoSubVolume(subvol, path)
   parent_uuid := bytesToUuid(subvol.parent_uuid)
   // Becareful it is a trap subvol.flags does not do sh*t to determine read_only snaps
   // C.BTRFS_SUBVOL_RDONLY is not the right mask ?!
@@ -73,8 +75,6 @@ func (self *btrfsUtilImpl) toProtoSnapOrSubvol(subvol *C.struct_btrfs_util_subvo
     stx := C.btrfs_util_get_subvolume_read_only(c_path, &is_read_only)
     if stx != C.BTRFS_UTIL_OK || !is_read_only { return snap }
     snap.ParentUuid = parent_uuid
-    received_uuid := bytesToUuid(subvol.received_uuid)
-    if received_uuid != NULL_UUID { snap.ReceivedUuid = received_uuid }
   }
   return snap
 }
@@ -106,7 +106,7 @@ func (self *btrfsUtilImpl) CreateSubVolumeIterator(path string) (*C.struct_btrfs
   return subvol_it, nil
 }
 
-func (self *btrfsUtilImpl) SubVolumeIteratorNextInfo(subvol_it *C.struct_btrfs_util_subvolume_iterator, root_path string) (*pb.Snapshot, error) {
+func (self *btrfsUtilImpl) SubVolumeIteratorNextInfo(subvol_it *C.struct_btrfs_util_subvolume_iterator, root_path string) (*pb.SubVolume, error) {
   var c_rel_path *C.char = nil
   var subvol C.struct_btrfs_util_subvolume_info
   defer C.free(unsafe.Pointer(c_rel_path))
@@ -127,10 +127,10 @@ func (self *btrfsUtilImpl) SubVolumeIteratorNextInfo(subvol_it *C.struct_btrfs_u
   return self.toProtoSnapOrSubvol(&subvol, subvol_path), nil
 }
 
-func (self *btrfsUtilImpl) ListSubVolumesUnder(path string) ([]*pb.Snapshot, error) {
-  vols := make([]*pb.Snapshot, 0, 32)
+func (self *btrfsUtilImpl) ListSubVolumesUnder(path string) ([]*pb.SubVolume, error) {
+  vols := make([]*pb.SubVolume, 0, 32)
   var err error
-  var subvol *pb.Snapshot
+  var subvol *pb.SubVolume
   var subvol_it *C.struct_btrfs_util_subvolume_iterator
 
   subvol_it, err = self.CreateSubVolumeIterator(path)

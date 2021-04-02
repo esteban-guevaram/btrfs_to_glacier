@@ -60,7 +60,7 @@ func TestBtrfsUtil_SubvolumeInfo(btrfsutil types.Btrfsutil) {
 
 func TestBtrfsUtil_ListSubVolumesUnder(btrfsutil types.Btrfsutil) {
   var err error
-  var vols []*pb.Snapshot
+  var vols []*pb.SubVolume
   vols, err = btrfsutil.ListSubVolumesUnder(root_flag)
   if err != nil { util.Fatalf("integration failed = %v", err) }
   for _,subvol := range(vols) { util.Infof("subvol = %s\n", subvol) }
@@ -90,7 +90,7 @@ func TestBtrfsUtil_DeleteSubvolume(linuxutil types.Linuxutil, btrfsutil types.Bt
   err = btrfsutil.DeleteSubvolume(snap_path);
   if err != nil { util.Fatalf("btrfsutil.DeleteSubvolume(%s) failed = %v", snap_path, err) }
 
-  var subvol *pb.Snapshot
+  var subvol *pb.SubVolume
   subvol, err = btrfsutil.SubvolumeInfo(snap_path);
   if err == nil { util.Fatalf("btrfsutil.DeleteSubvolume was not deleted: %v", subvol) }
 }

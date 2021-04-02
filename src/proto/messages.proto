@@ -5,11 +5,16 @@ package messages;
 option go_package = "./messages";
 
 message SubVolume {
-  string uuid = 1; 
-  string mounted_path = 2; 
-  uint64 gen_at_creation = 4;
+  string  uuid = 1; 
+  string  mounted_path = 2; 
+  uint64  gen_at_creation = 4;
   fixed64 created_ts = 5;
-  SystemInfo origin_sys = 6;
+  // Only snapshots will have this field not empty
+  string  parent_uuid = 6; 
+  string  received_uuid = 7; 
+  string  chunks_uuid = 8; 
+  bool    read_only = 9;
+  SystemInfo origin_sys = 10;
 }
 
 message SnapshotChunks {
@@ -21,13 +26,6 @@ message SnapshotChunks {
   string uuid = 1; 
   string snap_uuid = 2; 
   repeated Chunk chunks = 3;
-}
-
-message Snapshot {
-  SubVolume subvol = 1;
-  string parent_uuid = 2; 
-  string received_uuid = 3; 
-  string chunks_uuid = 4; 
 }
 
 message SystemInfo {
@@ -47,7 +45,7 @@ message SnapshotSeqHead {
 
 message SnapshotSeq {
   string uuid = 1; 
-  repeated Snapshot snaps = 2;
+  repeated SubVolume snaps = 2;
 }
 
 message SnapshotChanges {

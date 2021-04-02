@@ -12,7 +12,6 @@ import (
   "google.golang.org/protobuf/proto"
 )
 
-func CloneSnap(snap *pb.Snapshot) *pb.Snapshot { return proto.Clone(snap).(*pb.Snapshot) }
 func CloneSubvol(vol *pb.SubVolume) *pb.SubVolume { return proto.Clone(vol).(*pb.SubVolume) }
 
 func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockLinuxutil) {
@@ -41,56 +40,49 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
     BtrfsUsrMinor: 4,
     ToolGitCommit: "hash",
   }
-  mock_subvol := &pb.Snapshot {
-    Subvol: &pb.SubVolume {
-      Uuid: "uuid",
-      MountedPath: "/tmp/subvol",
-      GenAtCreation: 66,
-      CreatedTs: uint64(time.Now().UnixNano()),
-    },
+  mock_subvol := &pb.SubVolume {
+    Uuid: "uuid",
+    MountedPath: "/tmp/subvol",
+    GenAtCreation: 66,
+    CreatedTs: uint64(time.Now().UnixNano()),
   }
-  mock_snap1 := &pb.Snapshot {
-    Subvol: &pb.SubVolume {
-      Uuid: "uuid2",
-      MountedPath: "/tmp/snap1",
-      GenAtCreation: 99,
-      CreatedTs: uint64(time.Now().UnixNano() + 10000),
-    },
+  mock_snap1 := &pb.SubVolume {
+    Uuid: "uuid2",
+    MountedPath: "/tmp/snap1",
+    GenAtCreation: 99,
+    CreatedTs: uint64(time.Now().UnixNano() + 10000),
     ParentUuid: "uuid",
+    ReadOnly: true,
   }
-  mock_snap2 := &pb.Snapshot {
-    Subvol: &pb.SubVolume {
-      Uuid: "uuid3",
-      MountedPath: "/tmp/snap2",
-      GenAtCreation: 77,
-      CreatedTs: uint64(time.Now().UnixNano() + 5000),
-    },
+  mock_snap2 := &pb.SubVolume {
+    Uuid: "uuid3",
+    MountedPath: "/tmp/snap2",
+    GenAtCreation: 77,
+    CreatedTs: uint64(time.Now().UnixNano() + 5000),
     ParentUuid: "uuid",
+    ReadOnly: true,
   }
-  mock_snap3 := &pb.Snapshot {
-    Subvol: &pb.SubVolume {
-      Uuid: "uuid4",
-      MountedPath: "/tmp/snap3",
-      GenAtCreation: 55,
-      CreatedTs: uint64(time.Now().UnixNano()),
-    },
+  mock_snap3 := &pb.SubVolume {
+    Uuid: "uuid4",
+    MountedPath: "/tmp/snap3",
+    GenAtCreation: 55,
+    CreatedTs: uint64(time.Now().UnixNano()),
     ParentUuid: "uuid0",
+    ReadOnly: true,
   }
-  mock_snap4 := &pb.Snapshot {
-    Subvol: &pb.SubVolume {
-      Uuid: "uuid0",
-      MountedPath: "/tmp/subvol0",
-      GenAtCreation: 33,
-      CreatedTs: uint64(time.Now().UnixNano() - 10000),
-    },
+  mock_snap4 := &pb.SubVolume {
+    Uuid: "uuid0",
+    MountedPath: "/tmp/subvol0",
+    GenAtCreation: 33,
+    CreatedTs: uint64(time.Now().UnixNano() - 10000),
   }
   btrfsutil := &types.MockBtrfsutil {
-    Subvol: CloneSnap(mock_subvol),
-    Snaps: []*pb.Snapshot{
-      CloneSnap(mock_snap1),
-      CloneSnap(mock_snap2),
-      CloneSnap(mock_snap3),
-      CloneSnap(mock_snap4),
+    Subvol: CloneSubvol(mock_subvol),
+    Snaps: []*pb.SubVolume{
+      CloneSubvol(mock_snap1),
+      CloneSubvol(mock_snap2),
+      CloneSubvol(mock_snap3),
+      CloneSubvol(mock_snap4),
     },
     DumpOps: &newfile_ops,
     SendStream: types.NewMockPreloadedPipe([]byte("somedata")),
@@ -107,8 +99,8 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
 
 func TestGetVolume(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
-  expect_subvol := CloneSnap(btrfsutil.Subvol)
-  expect_subvol.Subvol.OriginSys = volmgr.sysinfo
+  expect_subvol := CloneSubvol(btrfsutil.Subvol)
+  expect_subvol.OriginSys = volmgr.sysinfo
   subvol, err := volmgr.GetVolume("")
   if err != nil { t.Fatalf("%s", err) }
   if !proto.Equal(expect_subvol, subvol) {
@@ -118,8 +110,8 @@ func TestGetVolume(t *testing.T) {
 
 func TestGetSnapshotSeqForVolume(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
-  expect_snaps := []*pb.Snapshot { CloneSnap(btrfsutil.Snaps[1]), CloneSnap(btrfsutil.Snaps[0]) }
-  snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvol.Subvol)
+  expect_snaps := []*pb.SubVolume { CloneSubvol(btrfsutil.Snaps[1]), CloneSubvol(btrfsutil.Snaps[0]) }
+  snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvol)
   if err != nil { t.Fatalf("%s", err) }
   if snapseq.Uuid != "" { t.Errorf("Expected empty snapseq uuid got %s", snapseq.Uuid) }
   if len(snapseq.Snaps) != len(expect_snaps) {
@@ -222,19 +214,19 @@ func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
 
 func TestCreateSnapshot(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
-  expect_snap := CloneSnap(btrfsutil.Subvol)
-  expect_snap.Subvol.OriginSys = volmgr.sysinfo
-  snapshot, err := volmgr.CreateSnapshot(btrfsutil.Subvol.Subvol)
+  expect_snap := CloneSubvol(btrfsutil.Subvol)
+  expect_snap.OriginSys = volmgr.sysinfo
+  snapshot, err := volmgr.CreateSnapshot(btrfsutil.Subvol)
   if err != nil { t.Fatalf("%s", err) }
   util.CompareAsStrings(t, snapshot, expect_snap)
 }
 
 func TestDeleteSnapshot(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
-  err := volmgr.DeleteSnapshot(btrfsutil.Subvol.Subvol)
+  err := volmgr.DeleteSnapshot(btrfsutil.Subvol)
   if err == nil { t.Errorf("Expected error when deleting non-readonly subvolumes") }
-  btrfsutil.Subvol = CloneSnap(btrfsutil.Snaps[0])
-  err = volmgr.DeleteSnapshot(btrfsutil.Snaps[0].Subvol)
+  btrfsutil.Subvol = CloneSubvol(btrfsutil.Snaps[0])
+  err = volmgr.DeleteSnapshot(btrfsutil.Snaps[0])
   if err != nil { t.Errorf("%s", err) }
 }
 

@@ -34,12 +34,12 @@ type Btrfsutil interface {
   // Get the `struct btrfs_util_subvolume_info` for a btrfs subvolume.
   // If `path` does not point to a snapshot the corresponding fields will be empty.
   // @path must be the root of the subvolume.
-  SubvolumeInfo(path string) (*pb.Snapshot, error)
+  SubvolumeInfo(path string) (*pb.SubVolume, error)
   // Returns a list with all subvolumes under `path`.
   // If the subvolume is not a snapshot then the corresponding fields will be empty.
   // IMPORTANT: we only consider read-only snapshots, writable snaps will be returned as subvolumes.
   // @path must be the root of the subvolume or root_volume.
-  ListSubVolumesUnder(path string) ([]*pb.Snapshot, error)
+  ListSubVolumesUnder(path string) ([]*pb.SubVolume, error)
   // Reads a file generated from `btrfs send --no-data` and returns a record of the operations.
   ReadAndProcessSendStream(dump PipeReadEnd) *SendDumpOperations
   // Starts a separate `btrfs send` and returns the read end of the pipe.
@@ -74,15 +74,15 @@ func (self *MockLinuxutil) ProjectVersion() string { return self.SysInfo.ToolGit
 
 type MockBtrfsutil struct {
   Err error
-  Subvol     *pb.Snapshot
-  Snaps      []*pb.Snapshot
+  Subvol     *pb.SubVolume
+  Snaps      []*pb.SubVolume
   DumpOps    *SendDumpOperations
   SendStream Pipe
 }
-func (self *MockBtrfsutil) SubvolumeInfo(path string) (*pb.Snapshot, error) {
+func (self *MockBtrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   return self.Subvol, self.Err
 }
-func (self *MockBtrfsutil) ListSubVolumesUnder(path string) ([]*pb.Snapshot, error) {
+func (self *MockBtrfsutil) ListSubVolumesUnder(path string) ([]*pb.SubVolume, error) {
   return self.Snaps, self.Err
 }
 func (self *MockBtrfsutil) ReadAndProcessSendStream(dump PipeReadEnd) *SendDumpOperations {
