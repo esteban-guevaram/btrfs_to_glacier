@@ -52,7 +52,7 @@ test: all go_unittest | $(SUBVOL_PATH)
 
 $(SUBVOL_PATH) fs_init:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
-	bash etc/setup_test_drive.sh -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
+	bash etc/setup_test_drive.sh -r -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
 
 go_code: c_code $(GOENV) $(go_files) $(GO_PROTO_GEN_SRCS)
 	pushd "$(MYGOSRC)"

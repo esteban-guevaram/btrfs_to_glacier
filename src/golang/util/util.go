@@ -50,6 +50,39 @@ func (self *pipeFile) GetErr() error {
 }
 
 
+// Synchronous, waits for the command to finish
+// Takes ownership of `input` and will close it once done.
+func StartCmdWithPipedInput(ctx context.Context, input types.PipeReadEnd, args []string) error {
+  var err error
+  buf_err := new(bytes.Buffer)
+  buf_out := new(bytes.Buffer)
+  defer input.Close()
+
+  command := exec.CommandContext(ctx, args[0], args[1:]...)
+  command.Stdout = buf_out
+  command.Stderr = buf_err
+  switch pipe_impl := input.(type) {
+    case *pipeFile: command.Stdin = pipe_impl.File
+    default: command.Stdin = pipe_impl
+  }
+
+  err = command.Start()
+  if err != nil {
+    return fmt.Errorf("%v: %v", args, err)
+  }
+  Infof("%v started as pid %d", args, command.Process.Pid)
+
+  err = command.Wait()
+  if input.GetErr() != nil {
+    return fmt.Errorf("Input pipe had error: %s", input.GetErr())
+  }
+  if err != nil && ctx.Err() == nil {
+    return fmt.Errorf("%v failed: %v\nstderr: %s", args, err, buf_err.Bytes())
+  }
+  Infof("%v done, output:\n%s", args, buf_out)
+  return nil
+}
+
 func StartCmdWithPipedOutput(ctx context.Context, args []string) (types.PipeReadEnd, error) {
   var err error
   pipe := NewFileBasedPipe()

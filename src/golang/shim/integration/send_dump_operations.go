@@ -180,18 +180,18 @@ func TestSendDumpAll(btrfsutil types.Btrfsutil) {
   TestSendDump(btrfsutil, "complexmv", complexmv_dump)
 }
 
+func LoadPipeFromBase64SendData(dump_base64 string) *types.MockPreloadedPipe {
+  dump_bytes, err := base64.StdEncoding.DecodeString(dump_base64)
+  if err != nil { panic(fmt.Sprintf("failed base64.StdEncoding.DecodeString %v", err)) }
+  // Dump should be small enough not to block pipe
+  return types.NewMockPreloadedPipe(dump_bytes)
+}
+
 func TestSendDump(btrfsutil types.Btrfsutil, dumpname string, dump_base64 string) {
   var err error
   var json_str []byte
-  var dump_bytes []byte
   var changes *types.SendDumpOperations
-  var preload_pipe *types.MockPreloadedPipe
-
-  dump_bytes, err = base64.StdEncoding.DecodeString(dump_base64)
-  if err != nil { panic(fmt.Sprintf("failed base64.StdEncoding.DecodeString %v", err)) }
-
-  // Dump should be small enough not to block pipe
-  preload_pipe = types.NewMockPreloadedPipe(dump_bytes)
+  preload_pipe := LoadPipeFromBase64SendData(dump_base64)
   defer preload_pipe.Close()
 
   changes = btrfsutil.ReadAndProcessSendStream(preload_pipe.ReadEnd())

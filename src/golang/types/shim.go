@@ -37,7 +37,6 @@ type Btrfsutil interface {
   SubvolumeInfo(path string) (*pb.SubVolume, error)
   // Returns a list with all subvolumes under `path`.
   // If the subvolume is not a snapshot then the corresponding fields will be empty.
-  // IMPORTANT: we only consider read-only snapshots, writable snaps will be returned as subvolumes.
   // @path must be the root of the subvolume or root_volume.
   ListSubVolumesUnder(path string) ([]*pb.SubVolume, error)
   // Reads a file generated from `btrfs send --no-data` and returns a record of the operations.
@@ -47,6 +46,9 @@ type Btrfsutil interface {
   // `from` can be null to get the full contents of the subvolume.
   // When `ctx` is done/cancelled the write end of the pipe should be closed and the forked process killed.
   StartSendStream(ctx context.Context, from string, to string, no_data bool) (PipeReadEnd, error)
+  // Wrapper around `btrfs receive`
+  // Takes ownership of `read_pipe` and will close it once done.
+  ReceiveSendStream(ctx context.Context, to_dir string, read_pipe PipeReadEnd) error
   // Calls `btrfs_util_create_snapshot()` to create a snapshot of `subvol` in `snap` path.
   // Sets the read-only flag.
   // Note async subvolume is no longer possible.
@@ -98,6 +100,9 @@ func (self *MockBtrfsutil) DeleteSubvolume(subvol string) error {
   return self.Err
 }
 func (self *MockBtrfsutil) WaitForTransactionId(root_fs string, tid uint64) error {
+  return self.Err
+}
+func (self *MockBtrfsutil) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe PipeReadEnd) error {
   return self.Err
 }
 

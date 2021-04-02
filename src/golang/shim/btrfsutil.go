@@ -111,7 +111,7 @@ func (self *btrfsUtilImpl) SubVolumeIteratorNextInfo(subvol_it *C.struct_btrfs_u
   var subvol C.struct_btrfs_util_subvolume_info
   defer C.free(unsafe.Pointer(c_rel_path))
 
-  util.Infof("btrfs_util_subvolume_iterator_next_info('%p')", subvol_it)
+  //util.Infof("btrfs_util_subvolume_iterator_next_info('%p')", subvol_it)
   stx := C.btrfs_util_subvolume_iterator_next_info(subvol_it, &c_rel_path, &subvol)
   if stx == C.BTRFS_UTIL_ERROR_STOP_ITERATION {
     return nil, nil
@@ -215,5 +215,21 @@ func (self *btrfsUtilImpl) DeleteSubvolume(subvol string) error {
                            C.GoString(C.btrfs_util_strerror(stx)), stx)
   }
   return nil
+}
+
+func (self *btrfsUtilImpl) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe types.PipeReadEnd) error {
+  defer read_pipe.Close()
+  if !fpmod.IsAbs(to_dir) {
+    return fmt.Errorf("'to_dir' needs an absolute path, got: %s", to_dir)
+  }
+
+  args := make([]string, 0, 16)
+  args = append(args, "btrfs")
+  args = append(args, "receive")
+  args = append(args, "-e")
+  args = append(args, "--quiet")
+  args = append(args, to_dir)
+
+  return util.StartCmdWithPipedInput(ctx, read_pipe, args)
 }
 

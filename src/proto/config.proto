@@ -4,6 +4,7 @@ option go_package = "./messages";
 
 message Config {
   string root_snap_path = 1;
-  repeated string subvol_paths = 2;
+  string root_restore_path = 2;
+  repeated string subvol_paths = 3;
 }
 

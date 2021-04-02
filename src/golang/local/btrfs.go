@@ -61,6 +61,17 @@ func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   return subvol, nil
 }
 
+func (self *btrfsVolumeManager) FindVolume(fs_root string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
+  var vols []*pb.SubVolume
+  var err error
+  vols, err = self.btrfsutil.ListSubVolumesUnder(fs_root)
+  if err != nil { return nil, err }
+  for _,vol := range vols {
+    if matcher(vol) { return vol, nil }
+  }
+  return nil, nil
+}
+
 // Implement interface for sorter
 type ByCGen []*pb.SubVolume
 func (a ByCGen) Len() int           { return len(a) }
@@ -153,5 +164,32 @@ func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
   err = self.btrfsutil.DeleteSubvolume(subvol.MountedPath)
   if err != nil { return err }
   return nil
+}
+
+func (self *btrfsVolumeManager) ReceiveSendStream(ctx context.Context, src_subvol *pb.SubVolume, read_pipe types.PipeReadEnd)  (<-chan types.SubVolumeOrError, error) {
+  ch := make(chan types.SubVolumeOrError, 1)
+  go func() {
+    var err error
+    var sv *pb.SubVolume
+    defer close(ch)
+    defer read_pipe.Close()
+
+    err = self.btrfsutil.ReceiveSendStream(ctx, self.conf.RootRestorePath, read_pipe)
+    if err != nil {
+      ch <- types.SubVolumeOrError{Err: err}
+      return
+    }
+    sv, err = self.FindVolume(self.conf.RootRestorePath, types.ByReceivedUuid(src_subvol.Uuid))
+    if err != nil {
+      ch <- types.SubVolumeOrError{Err: err}
+      return
+    }
+    if sv == nil {
+      ch <- types.SubVolumeOrError{Err: fmt.Errorf("No subvolume with received uuid '%s' got created", src_subvol.Uuid)}
+      return
+    }
+    ch <- types.SubVolumeOrError{Val: sv}
+  }()
+  return ch, nil
 }
 

@@ -52,6 +52,7 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
     GenAtCreation: 99,
     CreatedTs: uint64(time.Now().UnixNano() + 10000),
     ParentUuid: "uuid",
+    ReceivedUuid: "uuid4",
     ReadOnly: true,
   }
   mock_snap2 := &pb.SubVolume {
@@ -106,6 +107,20 @@ func TestGetVolume(t *testing.T) {
   if !proto.Equal(expect_subvol, subvol) {
     t.Errorf("\n%s\n !=\n %s", expect_subvol, subvol)
   }
+}
+
+func TestFindVolume(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  expect_subvol := CloneSubvol(btrfsutil.Snaps[0])
+  subvol, err := volmgr.FindVolume("", types.ByReceivedUuid(expect_subvol.ReceivedUuid))
+  if err != nil { t.Fatalf("%s", err) }
+  if !proto.Equal(expect_subvol, subvol) {
+    t.Errorf("\n%s\n !=\n %s", expect_subvol, subvol)
+  }
+
+  subvol, err = volmgr.FindVolume("", types.ByReceivedUuid("should not exist as a uuid"))
+  if err != nil { t.Fatalf("%s", err) }
+  if subvol != nil { t.Errorf("Expected to find no subvolume, got %s", subvol) }
 }
 
 func TestGetSnapshotSeqForVolume(t *testing.T) {
@@ -228,5 +243,46 @@ func TestDeleteSnapshot(t *testing.T) {
   btrfsutil.Subvol = CloneSubvol(btrfsutil.Snaps[0])
   err = volmgr.DeleteSnapshot(btrfsutil.Snaps[0])
   if err != nil { t.Errorf("%s", err) }
+}
+
+func TestReceiveSendStream(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  read_pipe := types.NewMockPreloadedPipe([]byte("somedata")).ReadEnd()
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  mock_received := &pb.SubVolume {
+    Uuid: "uuid_TestReceiveSendStream",
+    MountedPath: "/tmp/mock_received",
+    GenAtCreation: 99,
+    CreatedTs: uint64(time.Now().UnixNano() + 10000),
+    ReceivedUuid: btrfsutil.Snaps[1].Uuid,
+    ReadOnly: true,
+  }
+  btrfsutil.Snaps = append(btrfsutil.Snaps, mock_received)
+
+  ch, err := volmgr.ReceiveSendStream(ctx, btrfsutil.Snaps[1], read_pipe)
+  if err != nil { t.Errorf("ReceiveSendStream: %v", err) }
+  select {
+    case sv_or_error := <-ch:
+      if sv_or_error.Err != nil { t.Errorf("ReceiveSendStream: %v", sv_or_error.Err) }
+      util.CompareAsStrings(t, sv_or_error.Val, mock_received)
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  read_pipe := types.NewMockPreloadedPipe([]byte("somedata")).ReadEnd()
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  ch, err := volmgr.ReceiveSendStream(ctx, btrfsutil.Snaps[1], read_pipe)
+  if err != nil { t.Errorf("ReceiveSendStream: %v", err) }
+  select {
+    case sv_or_error := <-ch:
+      if sv_or_error.Err == nil { t.Errorf("ReceiveSendStream expected error") }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
 }
 
