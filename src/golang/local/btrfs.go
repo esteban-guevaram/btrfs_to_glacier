@@ -115,6 +115,19 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from
   return changes_chan, nil
 }
 
+func (self *btrfsVolumeManager) GetSnapshotStream(ctx context.Context, from *pb.Snapshot, to *pb.Snapshot) (types.PipeReadEnd, error) {
+  if from != nil && from.ParentUuid != to.ParentUuid {
+    return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
+  }
+  if from != nil && from.Subvol.GenAtCreation < to.Subvol.GenAtCreation {
+    return nil, fmt.Errorf("From is not older than To : '%d' / '%d'", from.Subvol.GenAtCreation, to.Subvol.GenAtCreation)
+  }
+  from_path := ""
+  if from != nil { from_path = from.Subvol.MountedPath }
+  read_end, err := self.btrfsutil.StartSendStream(ctx, from_path, to.Subvol.MountedPath, false)
+  return read_end, err
+}
+
 func (self *btrfsVolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.Snapshot, error) {
   ts_str    := time.Now().Format("20060201")
   snap_name := fmt.Sprintf("%s.%s.%d", fpmod.Base(subvol.MountedPath), ts_str, time.Now().Unix())

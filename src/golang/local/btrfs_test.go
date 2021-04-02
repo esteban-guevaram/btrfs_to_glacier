@@ -3,6 +3,7 @@ package local
 import (
   "context"
   "fmt"
+  "io/ioutil"
   "testing"
   "time"
   pb "btrfs_to_glacier/messages"
@@ -151,6 +152,32 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
     case changes := <-ch:
       if changes.Err != nil { t.Fatalf("GetChangesBetweenSnaps: %v", err) }
       util.CompareAsStrings(t, changes.Val, expect_changes)
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func TestGetSnapshotStream(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  expect_stream := []byte("somedata")
+  btrfsutil.SendStream = types.NewMockPreloadedPipe(expect_stream)
+
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  read_pipe, err := volmgr.GetSnapshotStream(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
+  if err != nil { t.Errorf("GetSnapshotStream: %v", err) }
+
+  done := make(chan []byte)
+  go func() {
+    defer read_pipe.Close()
+    defer close(done)
+    data, err := ioutil.ReadAll(read_pipe)
+    if err != nil { t.Errorf("GetSnapshotStream bad stream data: %v", err) }
+    done <- data
+  }()
+
+  select {
+    case data := <-done:
+      util.CompareAsStrings(t, data, expect_stream)
     case <-ctx.Done(): t.Fatalf("timedout")
   }
 }

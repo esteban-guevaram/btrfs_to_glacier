@@ -25,14 +25,16 @@ type VolumeManager interface {
 
 type VolumeSource interface {
   VolumeManager
-  GetSnapshotStream() error
+  // Creates a read-only snapshot of `subvol`.
+  // The path for the new snapshot will be determined by configuration.
+  CreateSnapshot(subvol *pb.SubVolume) (*pb.Snapshot, error)
+  // Create a pipe with the data from the delta between `from` and `to` snapshots.
+  // `from` can be nil to get the full snapshot content.
+  GetSnapshotStream(ctx context.Context, from *pb.Snapshot, to *pb.Snapshot) (PipeReadEnd, error)
 }
 
 type VolumeDestination interface {
   VolumeManager
-  // Creates a read-only snapshot of `subvol`.
-  // The path for the new snapshot will be determined by configuration.
-  CreateSnapshot(subvol *pb.SubVolume) (*pb.Snapshot, error)
   // Deletes a snapshot. Returns an error if attempting to delete a write snapshot or subvolume.
   DeleteSnapshot(snap *pb.SubVolume) error
   ReceiveSnapshotStream() error
