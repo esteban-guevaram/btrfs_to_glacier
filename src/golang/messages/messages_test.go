@@ -45,6 +45,7 @@ func TestConfigTextMarshal(t *testing.T) {
   conf := Config {
     RootSnapPath: "/choco/lat",
     SubvolPaths: []string { "/coco/loco", },
+    EncryptionKeys: []string { "secret", },
   }
   var loadedConf Config
   txt, _ := prototext.Marshal(&conf)

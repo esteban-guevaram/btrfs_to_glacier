@@ -25,7 +25,8 @@ message SnapshotChunks {
   }
   string uuid = 1; 
   string snap_uuid = 2; 
-  repeated Chunk chunks = 3;
+  string key_fingerprint = 3;
+  repeated Chunk chunks = 4;
 }
 
 message SystemInfo {
