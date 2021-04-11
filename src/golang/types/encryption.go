@@ -1,5 +1,7 @@
 package types
 
+import "context"
+
 // IN go you cannot embed slice types
 type PersistableKey struct { S string }
 type SecretKey struct { B []byte }
@@ -18,7 +20,17 @@ type Codec interface {
   // Generates a fingerprint for the key that can safely be stored in a non-secure place.
   // The key should be impossible to deduce from the fingerprint.
   FingerprintKey(key PersistableKey) string
-  EncryptString() error
-  EncryptStream() error
+  // Encrypts a textual string.
+  EncryptString(clear string) []byte
+  // Decrypts a textual string. Does not provide a no-tamper guarantee.
+  // `key_fp` may be left empty to use the current encryption key.
+  DecryptString(key_fp string, obfus []byte) (string, error)
+  // Encrypts `input` and outputs obfuscated bytes to a new PipeReadEnd.
+  // Takes ownership of `input` and will close it once done.
+  EncryptStream(ctx context.Context, input PipeReadEnd) (PipeReadEnd, error)
+  // Decrypts `input` and outputs plaintext bytes to a new PipeReadEnd.
+  // `key_fp` may be left empty to use the current encryption key.
+  // Takes ownership of `input` and will close it once done.
+  DecryptStream(ctx context.Context, key_fp string, input PipeReadEnd) (PipeReadEnd, error)
 }
 

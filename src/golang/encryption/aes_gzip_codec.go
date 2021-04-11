@@ -1,14 +1,20 @@
 package encryption
 
 import (
+  "context"
+  "crypto/aes"
+  "crypto/cipher"
   "crypto/md5"
   "crypto/rand"
   "crypto/sha256"
   "encoding/base64"
   "fmt"
+  "io"
+  "reflect"
   "syscall"
   "unicode"
   "unicode/utf8"
+  "unsafe"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
@@ -16,10 +22,13 @@ import (
   "golang.org/x/crypto/ssh/terminal"
 )
 
+// This class uses "Explicit initialization vectors" by prepending a single random block to the plaintext.
+// This way the Init Vector does not need to be stoed anywhere.
 type aesGzipCodec struct {
   conf    *pb.Config
   keyring map[string]types.SecretKey
-  xor_key  types.SecretKey
+  xor_key types.SecretKey
+  block   cipher.Block
 }
 
 func NewCodec(conf *pb.Config) (types.Codec, error) {
@@ -45,6 +54,11 @@ func NewCodecHelper(conf *pb.Config, pw_prompt func() (string, error)) (types.Co
       return nil, fmt.Errorf("Fingerprint duplicated: '%s'", fp)
     }
     codec.keyring[fp] = codec.decodeEncryptionKey(enc_key)
+    // Use the first key in the keyring to encrypt.
+    if codec.block == nil {
+      codec.block, err = aes.NewCipher(codec.keyring[fp].B)
+      if err != nil { return nil, err }
+    }
   }
   return codec, nil
 }
@@ -105,11 +119,160 @@ func (self *aesGzipCodec) FingerprintKey(key types.PersistableKey) string {
   return base64.StdEncoding.EncodeToString(raw_fp[:])
 }
 
-func (self *aesGzipCodec) EncryptString() error {
-  return nil
+func NoCopyByteSliceToString(bytes []byte) string {
+	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&bytes))
+	return *(*string)(unsafe.Pointer(&reflect.StringHeader{
+		Data: hdr.Data,
+		Len:  hdr.Len,
+	}))
 }
 
-func (self *aesGzipCodec) EncryptStream() error {
-  return nil
+func NoCopyStringToByteSlice(str string) []byte {
+	hdr := *(*reflect.StringHeader)(unsafe.Pointer(&str))
+	return *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Data: hdr.Data,
+		Len:  hdr.Len,
+		Cap:  hdr.Len,
+	}))
+}
+
+func (self *aesGzipCodec) getStreamEncrypter() cipher.Stream {
+  iv := make([]byte, self.block.BlockSize())
+  if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+    util.Fatalf("IV failed; %v", err)
+  }
+  return cipher.NewCFBEncrypter(self.block, iv)
+}
+
+func (self *aesGzipCodec) getStreamDecrypter(key_fp string) (cipher.Block, cipher.Stream, error) {
+  block := self.block
+  if len(key_fp) > 0 {
+    k, found := self.keyring[key_fp]
+    if !found  {
+      return nil, nil, fmt.Errorf("%s does not exist in the keyring", key_fp)
+    }
+    var err error
+    block, err = aes.NewCipher(k.B)
+    if err != nil { return nil, nil, err }
+  }
+  null_iv := make([]byte, block.BlockSize())
+  return block, cipher.NewCFBDecrypter(block, null_iv), nil
+}
+
+func (self *aesGzipCodec) EncryptString(clear string) []byte {
+  null_first_block := make([]byte, self.block.BlockSize())
+  padded_obfus := make([]byte, len(clear) + self.block.BlockSize())
+  stream := self.getStreamEncrypter()
+  stream.XORKeyStream(padded_obfus, null_first_block)
+  stream.XORKeyStream(padded_obfus[self.block.BlockSize():], NoCopyStringToByteSlice(clear))
+  return padded_obfus
+}
+
+func (self *aesGzipCodec) DecryptString(key_fp string, obfus []byte) (string, error) {
+  padded_plain := make([]byte, len(obfus))
+  block, stream, err := self.getStreamDecrypter(key_fp)
+  if err != nil { return "", err }
+  if len(obfus) < self.block.BlockSize() {
+    return "", fmt.Errorf("Obfuscated string is too short, expecting some larger than 1 block")
+  }
+  stream.XORKeyStream(padded_plain, obfus)
+  plain := NoCopyByteSliceToString(padded_plain[block.BlockSize():])
+  return plain, nil
+}
+
+func (self *aesGzipCodec) EncryptStream(ctx context.Context, input types.PipeReadEnd) (types.PipeReadEnd, error) {
+  if input.GetErr() != nil {
+    return nil, fmt.Errorf("EncryptStream input has an error")
+  }
+  var err error
+  pipe := util.NewFileBasedPipe()
+  defer util.CloseIfProblemo(pipe, &err)
+
+  stream := self.getStreamEncrypter()
+  block_buffer := make([]byte, 128 * self.block.BlockSize())
+  first_block := block_buffer[0:self.block.BlockSize()]
+
+  // it is valid to reuse slice for output if offsets are the same
+  stream.XORKeyStream(first_block, first_block)
+  // The file pipe should not block writing `first_block` there is not enough data (I hope)
+  _, err = pipe.WriteEnd().Write(first_block)
+  if err != nil { return nil, err }
+
+  go func() {
+    done := false
+    writer := pipe.WriteEnd()
+    defer writer.Close()
+    defer input.Close()
+
+    for !done && ctx.Err() == nil {
+      count, err := input.Read(block_buffer)
+      if err != nil && err != io.EOF {
+        writer.PutErr(fmt.Errorf("EncryptStream failed reading"))
+        return
+      }
+      done = (err == io.EOF)
+
+      stream.XORKeyStream(block_buffer[:count], block_buffer[:count])
+      _, err = writer.Write(block_buffer[:count])
+      if err != nil {
+        writer.PutErr(fmt.Errorf("EncryptStream failed writing: %v", err))
+        return
+      }
+      //util.Debugf("encrypt count=%d done=%v bytes=%x", count, done, block_buffer[:count])
+    }
+  }()
+  return pipe.ReadEnd(), nil
+}
+
+func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp string, input types.PipeReadEnd) (types.PipeReadEnd, error) {
+  if input.GetErr() != nil {
+    return nil, fmt.Errorf("DecryptStream input has an error")
+  }
+  var err error
+  pipe := util.NewFileBasedPipe()
+  defer util.CloseIfProblemo(pipe, &err)
+
+  block, stream, err := self.getStreamDecrypter(key_fp)
+  if err != nil { return nil, err }
+
+  decrypt_helper := func(buffer []byte) (bool, int, error) {
+    count, err := input.Read(buffer)
+    if err != nil && err != io.EOF {
+      return true, count, fmt.Errorf("DecryptStream failed reading")
+    }
+    // it is valid to reuse slice for output if offsets are the same
+    stream.XORKeyStream(buffer, buffer)
+    done := (err == io.EOF)
+    return done, count, nil
+  }
+
+  go func() {
+    var err error
+    done := false
+    block_buffer := make([]byte, 128 * block.BlockSize())
+    writer := pipe.WriteEnd()
+    defer writer.Close()
+    defer input.Close()
+
+    first_block := block_buffer[0:block.BlockSize()]
+    done, _, err = decrypt_helper(first_block)
+    if err != nil && err != io.EOF {
+      writer.PutErr(err)
+      return
+    }
+
+    for !done && ctx.Err() == nil {
+      var count int
+      done, count, err = decrypt_helper(block_buffer)
+
+      _, err = writer.Write(block_buffer[:count])
+      if err != nil {
+        writer.PutErr(fmt.Errorf("DecryptStream failed writing: %v", err))
+        return
+      }
+      //util.Debugf("decrypt count=%d done=%v bytes=%x", count, done, block_buffer[:count])
+    }
+  }()
+  return pipe.ReadEnd(), nil
 }
 
