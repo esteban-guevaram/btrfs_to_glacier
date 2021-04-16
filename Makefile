@@ -16,6 +16,7 @@ GO_PROTOC_INSTALL := $(STAGE_PATH)/gobin/protoc-gen-go
 # Chose NOT to store generated proto sources in git
 # Can be problematic for some languages like C++ (see groups.google.com/g/protobuf/c/Qz5Aj7zK03Y)
 GO_PROTO_GEN_SRCS := $(MYGOSRC)/messages/config.pb.go $(MYGOSRC)/messages/messages.pb.go
+MYDLVINIT    := $(STAGE_PATH)/dlv_init
 PROTOSRC     := src/proto
 CC           := gcc
 CPPFLAGS     := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
@@ -67,8 +68,16 @@ go_unittest: go_code
 
 go_debug: go_code
 	pushd "$(MYGOSRC)"
+	echo '
+	break btrfs_to_glacier/encryption.(*aesGzipCodec).EncryptStream
+	break btrfs_to_glacier/encryption.(*aesGzipCodec).DecryptStream
+	# break encryption/aes_gzip_codec.go:250
+	continue
+	' > "$(MYDLVINIT)"
+	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
-	  dlv test "btrfs_to_glacier/local" --output="$(STAGE_PATH)/debugme"
+	  dlv test "btrfs_to_glacier/encryption" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
+		  -- --test.run='TestEncryptStream$$' --test.v
 
 $(GOENV): | bin
 	# Could also be achieved with linker flags to override global vars
