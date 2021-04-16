@@ -2,7 +2,9 @@ package encryption
 
 import (
   "bytes"
+  "compress/gzip"
   "context"
+  "io"
   "io/ioutil"
   "testing"
   "time"
@@ -108,7 +110,7 @@ func TestEncryptString_Fingerprint(t *testing.T) {
 
 func TestEncryptStream(t *testing.T) {
   codec := buildTestCodec(t)
-  expect_msg := []byte("some plain text data")
+  expect_msg := []byte("this is some plain text data")
   read_pipe := types.NewMockPreloadedPipe(expect_msg).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
@@ -167,5 +169,22 @@ func TestEncryptStream_MoreData(t *testing.T) {
     case <-ctx.Done():
       t.Fatalf("TestEncryptStream timeout")
   }
+}
+
+func TestCompression(t *testing.T) {
+  msg := []byte("original message to compress")
+  src_buf := bytes.NewBuffer(msg)
+
+  comp_buf := new(bytes.Buffer)
+  comp_writer := gzip.NewWriter(comp_buf)
+  io.Copy(comp_writer, src_buf)
+  comp_writer.Close()
+
+  decomp_buf := new(bytes.Buffer)
+  decomp_reader,err := gzip.NewReader(comp_buf)
+  if err != nil { t.Fatalf("gzip.NewReader: %v", err) }
+  io.Copy(decomp_buf, decomp_reader)
+
+  util.CompareAsStrings(t, msg, decomp_buf.Bytes())
 }
 
