@@ -260,8 +260,8 @@ func TestBtrfsSendAndReceiveStreamDump(btrfsutil types.Btrfsutil, snap_old strin
     var err error
     var json_str []byte
     var changes *types.SendDumpOperations
-    defer close(done)
     defer read_end.Close()
+    defer close(done)
     changes = btrfsutil.ReadAndProcessSendStream(read_end)
     json_str, err = json.MarshalIndent(changes, "", "  ")
     util.Infof("err=%v\nsnap_old:'%s' snap_new:'%s' = %s", err, snap_old, snap_new, json_str)

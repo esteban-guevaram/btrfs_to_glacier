@@ -175,8 +175,8 @@ func TestGetSnapshotStream(t *testing.T) {
 
   done := make(chan []byte)
   go func() {
-    defer read_pipe.Close()
     defer close(done)
+    defer read_pipe.Close()
     data, err := ioutil.ReadAll(read_pipe)
     if err != nil { t.Errorf("GetSnapshotStream bad stream data: %v", err) }
     done <- data
