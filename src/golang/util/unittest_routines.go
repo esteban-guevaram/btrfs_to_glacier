@@ -8,7 +8,8 @@ import "strings"
 import "testing"
 import "btrfs_to_glacier/types"
 
-func CompareAsStrings(t *testing.T, val interface{}, expected interface{}) {
+// Returns 0 if equal
+func CompareAsStrings(t *testing.T, val interface{}, expected interface{}) int {
   var val_str, expected_str []byte
   var val_err, expected_err error
   val_str, val_err = json.MarshalIndent(val, "", "  ")
@@ -16,7 +17,9 @@ func CompareAsStrings(t *testing.T, val interface{}, expected interface{}) {
   if val_err != nil || expected_err != nil { panic("cannot marshal to json string") }
   if strings.Compare(string(val_str), string(expected_str)) != 0 {
     t.Errorf("\n%s\n !=\n%s", val_str, expected_str)
+    return -1
   }
+  return 0
 }
 
 func GenerateRandomTextData(size int) []byte {

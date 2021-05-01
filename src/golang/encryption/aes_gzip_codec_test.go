@@ -74,11 +74,11 @@ func TestFingerprintKey(t *testing.T) {
 }
 
 func TestEncryptString(t *testing.T) {
-  expect_plain := "chocoloco plain text"
+  expect_plain := types.SecretString{"chocoloco plain text"}
   codec := buildTestCodec(t)
   obfus := codec.EncryptString(expect_plain)
   obfus_2 := codec.EncryptString(expect_plain)
-  if bytes.Compare(obfus, obfus_2) == 0 {
+  if obfus.S  == obfus_2.S {
     t.Errorf("Encrypt of the same string should not produce the same obfuscated bytes")
   }
 
@@ -86,13 +86,13 @@ func TestEncryptString(t *testing.T) {
   if err != nil { t.Fatalf("Could not decrypt: %v", err) }
 
   t.Logf("obfuscated:%x, plain:%s", obfus, plain)
-  if expect_plain != plain {
+  if util.CompareAsStrings(t, plain, expect_plain) != 0 {
     t.Errorf("Bad decryption expected:%s, got:%s", expect_plain, plain)
   }
 }
 
 func TestEncryptString_Fingerprint(t *testing.T) {
-  expect_plain := "chocoloco plain text"
+  expect_plain := types.SecretString{"chocoloco plain text"}
   keys := []string {persisted_key_2, persisted_key_1,}
   codec := buildTestCodec(t)
   codec_2 := buildTestCodecChooseEncKey(t, keys)
@@ -103,7 +103,7 @@ func TestEncryptString_Fingerprint(t *testing.T) {
   if err != nil { t.Fatalf("Could not decrypt: %v", err) }
 
   t.Logf("obfuscated:%x, plain:%s", obfus, plain)
-  if expect_plain != plain {
+  if util.CompareAsStrings(t, plain, expect_plain) != 0 {
     t.Errorf("Bad decryption expected:%s, got:%s", expect_plain, plain)
   }
 }

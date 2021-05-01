@@ -159,25 +159,29 @@ func (self *aesGzipCodec) getStreamDecrypter(key_fp string) (cipher.Block, ciphe
   return block, cipher.NewCFBDecrypter(block, null_iv), nil
 }
 
-func (self *aesGzipCodec) EncryptString(clear string) []byte {
+func (self *aesGzipCodec) EncryptString(clear types.SecretString) types.PersistableString {
   null_first_block := make([]byte, self.block.BlockSize())
-  padded_obfus := make([]byte, len(clear) + self.block.BlockSize())
+  padded_obfus := make([]byte, len(clear.S) + self.block.BlockSize())
   stream := self.getStreamEncrypter()
   stream.XORKeyStream(padded_obfus, null_first_block)
-  stream.XORKeyStream(padded_obfus[self.block.BlockSize():], NoCopyStringToByteSlice(clear))
-  return padded_obfus
+  stream.XORKeyStream(padded_obfus[self.block.BlockSize():], NoCopyStringToByteSlice(clear.S))
+  return types.PersistableString{base64.StdEncoding.EncodeToString(padded_obfus)}
 }
 
-func (self *aesGzipCodec) DecryptString(key_fp string, obfus []byte) (string, error) {
-  padded_plain := make([]byte, len(obfus))
+func (self *aesGzipCodec) DecryptString(key_fp string, obfus types.PersistableString) (types.SecretString, error) {
+  null_str := types.SecretString{""}
+  obfus_bytes, err_dec := base64.StdEncoding.DecodeString(obfus.S)
+  if err_dec != nil { return null_str, err_dec }
+
+  padded_plain := make([]byte, len(obfus_bytes))
   block, stream, err := self.getStreamDecrypter(key_fp)
-  if err != nil { return "", err }
-  if len(obfus) < self.block.BlockSize() {
-    return "", fmt.Errorf("Obfuscated string is too short, expecting some larger than 1 block")
+  if err != nil { return null_str, err }
+  if len(obfus_bytes) < self.block.BlockSize() {
+    return null_str, fmt.Errorf("Obfuscated string is too short, expecting some larger than 1 block")
   }
-  stream.XORKeyStream(padded_plain, obfus)
+  stream.XORKeyStream(padded_plain, obfus_bytes)
   plain := NoCopyByteSliceToString(padded_plain[block.BlockSize():])
-  return plain, nil
+  return types.SecretString{plain}, nil
 }
 
 func (self *aesGzipCodec) EncryptStream(ctx context.Context, input types.PipeReadEnd) (types.PipeReadEnd, error) {
