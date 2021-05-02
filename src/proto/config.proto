@@ -14,9 +14,12 @@ message Aws {
 }
 
 message Config {
-  string root_snap_path = 1;
-  string root_restore_path = 2;
-  repeated string subvol_paths = 3;
+  // The absolute path to all subvolumes to backup.
+  repeated string subvol_paths = 1;
+  // The absolute path of the directory where all snapshots from `subvol_paths` are.
+  string root_snap_path = 2;
+  // The absolute path of the direcrory where all restored snapshots should be stored.
+  string root_restore_path = 3;
   // The first element is used to encrypt new content.
   // Key length may be imposed by the encryption algorithm.
   // Keys are stored symmetrically encrypted into the configuration.

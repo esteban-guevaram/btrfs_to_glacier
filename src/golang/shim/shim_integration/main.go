@@ -2,8 +2,8 @@ package main
 
 import (
   "context"
-  "flag"
   "fmt"
+  "flag"
   fpmod "path/filepath"
   "os"
   "time"
@@ -13,30 +13,29 @@ import (
   "btrfs_to_glacier/util"
 )
 
-var path_flag string
 var root_flag string
 var snap1_flag string
 var snap2_flag string
 
 func init() {
-  flag.StringVar(&path_flag, "subvol",  "", "the fullpath to the btrfs subvolume")
-  flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the btrfs subvolume")
+  flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the btrfs filesystem")
   flag.StringVar(&snap1_flag, "snap1",  "", "the fullpath to the oldest snapshot")
   flag.StringVar(&snap2_flag, "snap2",  "", "the fullpath to the latest snapshot")
 }
 
-func GetBtrfsUtil() types.Btrfsutil {
-  var config *pb.Config
+func GetConf() *pb.Config {
+  conf := util.LoadTestConf()
+  if root_flag == "" || snap1_flag == "" || snap2_flag == "" {
+    util.Fatalf("Bad flag values")
+  }
+  return conf
+}
+
+func GetBtrfsUtil(conf *pb.Config) types.Btrfsutil {
   var err error
   var btrfsutil types.Btrfsutil
-  config, err = util.Load()
-  if err != nil {
-    util.Fatalf("integration failed = %v", err)
-  }
-  btrfsutil, err = shim.NewBtrfsutil(config)
-  if err != nil {
-    util.Fatalf("integration failed = %v", err)
-  }
+  btrfsutil, err = shim.NewBtrfsutil(conf)
+  if err != nil { util.Fatalf("integration failed = %v", err) }
   return btrfsutil
 }
 
@@ -49,12 +48,12 @@ func GetLinuxUtil() types.Linuxutil {
   return linuxutil
 }
 
-func GetNewSnapName(leaf_name string) string {
+func GetNewSnapName(conf *pb.Config, leaf_name string) string {
   return fpmod.Join(fpmod.Dir(snap1_flag),
                     fmt.Sprintf("%s.%d", leaf_name, time.Now().Unix()))
 }
 
-func GetRestoreDir() string {
+func GetRestoreDir(conf *pb.Config) string {
   restore_dir := fpmod.Join(root_flag,
                             fmt.Sprintf("restore.%d", time.Now().Unix()))
   err := os.Mkdir(restore_dir, os.ModePerm)
@@ -62,13 +61,13 @@ func GetRestoreDir() string {
   return restore_dir
 }
 
-func TestBtrfsUtil_SubvolumeInfo(btrfsutil types.Btrfsutil) {
-  subvol, err := btrfsutil.SubvolumeInfo(path_flag);
+func TestBtrfsUtil_SubvolumeInfo(conf *pb.Config, btrfsutil types.Btrfsutil) {
+  subvol, err := btrfsutil.SubvolumeInfo(conf.SubvolPaths[0]);
   if err != nil { util.Fatalf("integration failed = %v", err) }
   util.Infof("subvol = %s\n", subvol)
 }
 
-func TestBtrfsUtil_ListSubVolumesUnder(btrfsutil types.Btrfsutil) {
+func TestBtrfsUtil_ListSubVolumesUnder(conf *pb.Config, btrfsutil types.Btrfsutil) {
   var err error
   var vols []*pb.SubVolume
   vols, err = btrfsutil.ListSubVolumesUnder(root_flag)
@@ -77,10 +76,10 @@ func TestBtrfsUtil_ListSubVolumesUnder(btrfsutil types.Btrfsutil) {
   util.Infof("len(vols) = %d\n", len(vols))
 }
 
-func TestBtrfsUtil_CreateSnapshot(btrfsutil types.Btrfsutil) {
-  snap_path := GetNewSnapName("TestBtrfsUtil_CreateSnapshotAndWait")
-  err := btrfsutil.CreateSnapshot(path_flag, snap_path);
-  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", path_flag, snap_path, err) }
+func TestBtrfsUtil_CreateSnapshot(conf *pb.Config, btrfsutil types.Btrfsutil) {
+  snap_path := GetNewSnapName(conf, "TestBtrfsUtil_CreateSnapshotAndWait")
+  err := btrfsutil.CreateSnapshot(conf.SubvolPaths[0], snap_path);
+  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", conf.SubvolPaths[0], snap_path, err) }
 
   subvol, err := btrfsutil.SubvolumeInfo(snap_path);
   if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
@@ -88,14 +87,14 @@ func TestBtrfsUtil_CreateSnapshot(btrfsutil types.Btrfsutil) {
 }
 
 // Requires CAP_SYS_ADMIN
-func TestBtrfsUtil_DeleteSubvolume(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
+func TestBtrfsUtil_DeleteSubvolume(conf *pb.Config, linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
   if !linuxutil.IsCapSysAdmin() {
     util.Warnf("TestBtrfsUtil_DeleteSubvolume needs CAP_SYS_ADMIN")
     return
   }
-  snap_path := GetNewSnapName("TestBtrfsUtil_DeleteSubvolume")
-  err := btrfsutil.CreateSnapshot(path_flag, snap_path);
-  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", path_flag, snap_path, err) }
+  snap_path := GetNewSnapName(conf, "TestBtrfsUtil_DeleteSubvolume")
+  err := btrfsutil.CreateSnapshot(conf.SubvolPaths[0], snap_path);
+  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", conf.SubvolPaths[0], snap_path, err) }
 
   err = btrfsutil.DeleteSubvolume(snap_path);
   if err != nil { util.Fatalf("btrfsutil.DeleteSubvolume(%s) failed = %v", snap_path, err) }
@@ -131,12 +130,12 @@ YAAAAAA6qksGCQAMAFFeZ2AAAAAAOqpLBgAAAAAVAFBsyZ0=
 const received_uuid = "166518c08534784089b333f44a344ccb"
 
 // Requires CAP_SYS_ADMIN
-func TestBtrfsUtil_ReceiveSendStream(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
+func TestBtrfsUtil_ReceiveSendStream(conf *pb.Config, linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
   if !linuxutil.IsCapSysAdmin() {
     util.Warnf("TestBtrfsUtil_ReceiveSendStream needs CAP_SYS_ADMIN")
     return
   }
-  restore_dir := GetRestoreDir()
+  restore_dir := GetRestoreDir(conf)
   preload_pipe := LoadPipeFromBase64SendData(send_stream)
   defer preload_pipe.Close()
   ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -161,12 +160,12 @@ func TestBtrfsUtil_ReceiveSendStream(linuxutil types.Linuxutil, btrfsutil types.
 }
 
 
-func TestBtrfsUtil_AllFuncs(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
-  TestBtrfsUtil_SubvolumeInfo(btrfsutil)
-  TestBtrfsUtil_ListSubVolumesUnder(btrfsutil)
-  TestBtrfsUtil_CreateSnapshot(btrfsutil)
-  TestBtrfsUtil_DeleteSubvolume(linuxutil, btrfsutil)
-  TestBtrfsUtil_ReceiveSendStream(linuxutil, btrfsutil)
+func TestBtrfsUtil_AllFuncs(conf *pb.Config, linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
+  TestBtrfsUtil_SubvolumeInfo(conf, btrfsutil)
+  TestBtrfsUtil_ListSubVolumesUnder(conf, btrfsutil)
+  TestBtrfsUtil_CreateSnapshot(conf, btrfsutil)
+  TestBtrfsUtil_DeleteSubvolume(conf, linuxutil, btrfsutil)
+  TestBtrfsUtil_ReceiveSendStream(conf, linuxutil, btrfsutil)
 }
 
 func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
@@ -181,10 +180,10 @@ func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
 // Cannot use a test since Testing does not support cgo
 func main() {
   util.Infof("shim_integration run")
-  flag.Parse()
-  btrfsutil := GetBtrfsUtil()
+  conf := GetConf()
+  btrfsutil := GetBtrfsUtil(conf)
   linuxutil := GetLinuxUtil()
-  TestBtrfsUtil_AllFuncs(linuxutil, btrfsutil)
+  TestBtrfsUtil_AllFuncs(conf, linuxutil, btrfsutil)
   TestLinuxUtils_AllFuncs(linuxutil)
   TestSendDumpAll(btrfsutil)
   TestBtrfsSendStreamAll(linuxutil, btrfsutil)
