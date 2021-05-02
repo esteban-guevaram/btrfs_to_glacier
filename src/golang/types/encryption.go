@@ -1,6 +1,7 @@
 package types
 
 import "context"
+import "io"
 
 // IN go you cannot embed slice types
 type PersistableKey struct { S string }
@@ -34,5 +35,44 @@ type Codec interface {
   // `key_fp` may be left empty to use the current encryption key.
   // Takes ownership of `input` and will close it once done.
   DecryptStream(ctx context.Context, key_fp string, input PipeReadEnd) (PipeReadEnd, error)
+}
+
+// Does not encrypt, just forwards the input.
+type MockCodec struct {
+  Err error
+  Fingerprint  string
+  GenKeySecret SecretKey
+  GenKeyPersistable PersistableKey
+}
+
+func (self *MockCodec) GenerateEncryptionKey() (SecretKey, PersistableKey) {
+  return self.GenKeySecret, self.GenKeyPersistable
+}
+
+func (self *MockCodec) FingerprintKey(key PersistableKey) string {
+  return self.Fingerprint
+}
+
+func (self *MockCodec) EncryptString(clear SecretString) PersistableString {
+  return PersistableString{clear.S}
+}
+
+func (self *MockCodec) DecryptString(key_fp string, obfus PersistableString) (SecretString, error) {
+  return SecretString{obfus.S}, self.Err
+}
+
+func (self *MockCodec) EncryptStream(ctx context.Context, input PipeReadEnd) (PipeReadEnd, error) {
+  if self.Err != nil { return nil, self.Err }
+  pipe := NewMockPipe()
+  go func() {
+    defer pipe.WriteEnd().Close()
+    if ctx.Err() != nil { return }
+    io.Copy(pipe.WriteEnd(), input)
+  }()
+  return pipe.ReadEnd(), nil
+}
+
+func (self *MockCodec) DecryptStream(ctx context.Context, key_fp string, input PipeReadEnd) (PipeReadEnd, error) {
+  return self.EncryptStream(ctx, input)
 }
 

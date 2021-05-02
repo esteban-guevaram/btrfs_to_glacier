@@ -2,6 +2,17 @@ syntax = "proto3";
 package messages;
 option go_package = "./messages";
 
+message Aws {
+  // Use session tokens to get temporal credentials.
+  // https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_request.html#api_getsessiontoken
+  string access_key_id = 1;
+  string secret_access_key = 2;
+  string session_token = 3;
+
+  string region = 4;
+  string dynamo_table_name = 5;
+}
+
 message Config {
   string root_snap_path = 1;
   string root_restore_path = 2;
@@ -10,5 +21,6 @@ message Config {
   // Key length may be imposed by the encryption algorithm.
   // Keys are stored symmetrically encrypted into the configuration.
   repeated string encryption_keys = 4;
+  Aws aws = 5;
 }
 

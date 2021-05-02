@@ -13,6 +13,12 @@ func LoadTestConf() *pb.Config {
   return &pb.Config {
     RootSnapPath: "/tmp",
     SubvolPaths: []string { "/tmp/subvol1", },
+    Aws: &pb.Aws {
+      AccessKeyId: "coucou",
+      SecretAccessKey: "coucou",
+      Region: "coucou",
+      DynamoTableName: "coucou",
+    },
   }
 }
 

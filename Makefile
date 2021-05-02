@@ -16,16 +16,17 @@ GO_PROTOC_INSTALL := $(STAGE_PATH)/gobin/protoc-gen-go
 # Chose NOT to store generated proto sources in git
 # Can be problematic for some languages like C++ (see groups.google.com/g/protobuf/c/Qz5Aj7zK03Y)
 GO_PROTO_GEN_SRCS := $(MYGOSRC)/messages/config.pb.go $(MYGOSRC)/messages/messages.pb.go
-MYDLVINIT    := $(STAGE_PATH)/dlv_init
-PROTOSRC     := src/proto
-CC           := gcc
-CPPFLAGS     := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
-CFLAGS_BTRFS := -std=gnu11
+MYDLVINIT         := $(STAGE_PATH)/dlv_init
+AWS_TEMP_CREDS    := $(STAGE_PATH)/aws_temp_creds
+PROTOSRC          := src/proto
+CC                := gcc
+CPPFLAGS          := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
+CFLAGS_BTRFS      := -std=gnu11
 # -mtune=native -march=native -O3
-CFLAGS       := $(CFLAGS_BTRFS) -I$(BTRFS_INCLUDE) "-I$(PROJ_ROOT)/include" -Wall -Werror
-CFLAGS_DBG   := $(CFLAGS) -ggdb -Og
-LDFLAGS      :=
-LDLIBS       :=
+CFLAGS            := $(CFLAGS_BTRFS) -I$(BTRFS_INCLUDE) "-I$(PROJ_ROOT)/include" -Wall -Werror
+CFLAGS_DBG        := $(CFLAGS) -ggdb -Og
+LDFLAGS           :=
+LDLIBS            :=
 
 headers  := $(wildcard include/*.h)
 go_files := $(shell find "$(MYGOSRC)" -type f -name '*.go')
@@ -42,6 +43,15 @@ clean:
 		chmod --recursive 'a+wx' "$$GOPATH"
 	fi
 	rm -rf bin/*
+
+dyn_integ: all $(AWS_TEMP_CREDS)
+	ACCESS=`cat "$(AWS_TEMP_CREDS)" | grep '"AccessKeyId":' | sed -r 's/.*"([^"]+)",?$$/\1/'`
+	SECRET=`cat "$(AWS_TEMP_CREDS)" | grep '"SecretAccessKey":' | sed -r 's/.*"([^"]+)",?$$/\1/'`
+	SESSION=`cat "$(AWS_TEMP_CREDS)" | grep '"SessionToken":' | sed -r 's/.*"([^"]+)",?$$/\1/'`
+	pushd "$(MYGOSRC)"
+	GOENV="$(GOENV)" go run ./cloud/cloud_integration \
+		--access="$$ACCESS" --secret="$$SECRET" --session="$$SESSION" \
+		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)"
 
 test: all go_unittest | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
@@ -104,6 +114,14 @@ $(GO_PROTOC_INSTALL): $(GOENV)
 $(MYGOSRC)/messages/%.pb.go: $(PROTOSRC)/%.proto $(GOENV) | $(GO_PROTOC_INSTALL)
 	export PATH="$(PATH):`GOENV="$(GOENV)" go env GOBIN`"
 	protoc '-I=$(PROTOSRC)' '--go_out=$(MYGOSRC)' "$<"
+
+$(AWS_TEMP_CREDS): | bin
+	aws --profile=dynamo_root sts get-session-token --duration-seconds=54000 \
+	  > "$(AWS_TEMP_CREDS)"
+	EXPIRE=`cat "$(AWS_TEMP_CREDS)" | grep '"Expiration":' | sed -r 's/.*"([^"]+)",?$$/\1/'`
+	EXP_SECS=`date --date="$$EXPIRE" +%s`
+	NOW_SECS=`date +%s`
+	[[ "$$NOW_SECS" -le "$$EXP_SECS" ]] || echo "ERROR expired creds"
 
 $(call c_lib,linux_utils): LDLIBS := -lcap
 $(call c_lib,linux_utils): bin/linux_utils.o bin/common.o

@@ -1,28 +1,33 @@
 package types
 
-// Implementation questions
-// * Use dynamodb for storing metadata ?
-//   * Can be used as KV store but blobs limited to 400KB
-//   * Eternal free tier should cover all storage needs
-//   * Which replication settings to get 99.999 durability ? (already replicated in the aws region)
+import "context"
+import pb "btrfs_to_glacier/messages"
+
 type Metadata interface {
-  RecordSnapshotSeqHead() error
-  AppendSnapshotToSeq() error
-  AppendChunkToSnapshot() error
+  // Creates the storage objects (depend on implementation) that will contain the metadata.
+  // Creation can take some time so it is done asynchronously.
+  // If the channel contains a null error then the storage has been created ok and is ready to use.
+  // It is a noop if they are already created.
+  SetupMetadata(ctx context.Context) (<-chan error)
 
-  ReadSnapshotSeqHead() error
-  ReadSnapshotSeq() error
+  //RecordSnapshotSeqHead(ctx context.Context, new_seq *pb.SnapshotSeq) error
+  //AppendSnapshotToSeq() error
+  //AppendChunkToSnapshot() error
 
-  IterateAllSnapshotSeqHeads() error
-  IterateAllSnapshotSeqs() error
-  IterateAllSnapshotChunks() error
+  //ReadSnapshotSeqHead() error
+  //ReadSnapshotSeq() error
+
+  //IterateAllSnapshotSeqHeads() error
+  //IterateAllSnapshotSeqs() error
+  //IterateAllSnapshotChunks() error
 }
 
 type DangerMetadata interface {
   Metadata
 
+  DeleteAllMetadata() error
   DeleteSnapshotSeqHead() error
-  DeleteSnapshotSeq() error
+  DeleteSnapshotSeq(seq *pb.SnapshotSeq) error
   DeleteSnapshotChunks() error
 }
 

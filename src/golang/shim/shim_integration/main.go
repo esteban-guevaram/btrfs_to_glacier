@@ -180,7 +180,7 @@ func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
 
 // Cannot use a test since Testing does not support cgo
 func main() {
-  util.Infof("btrfs_prog_integration_run")
+  util.Infof("shim_integration run")
   flag.Parse()
   btrfsutil := GetBtrfsUtil()
   linuxutil := GetLinuxUtil()
