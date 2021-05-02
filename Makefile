@@ -46,7 +46,7 @@ clean:
 test: all go_unittest | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
-	GOENV="$(GOENV)" go run ./shim/integration \
+	GOENV="$(GOENV)" go run ./shim/shim_integration \
 	  --subvol="$(SUBVOL_PATH)" \
 		--rootvol="$(MOUNT_TESTVOL_SRC)" \
 		--snap1="$(SNAP1_PATH)" --snap2="$(SNAP2_PATH)"
@@ -63,7 +63,7 @@ go_unittest: go_code
 	pushd "$(MYGOSRC)"
 	# add --test.v to get verbose tests
 	# add --test.count=1 to not cache results
-	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "/shim|/types"` )
+	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "_integration$$|/shim|/types"` )
 	GOENV="$(GOENV)" go test "$${pkg_to_test[@]}"
 
 go_debug: go_code
