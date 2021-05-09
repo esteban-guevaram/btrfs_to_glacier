@@ -44,7 +44,7 @@ add_item() {
 
   aws dynamodb put-item \
     --table-name="$TAB_NAME" \
-    --item='{ "Uuid": { "S": "'$key'" }, "BlobType": { "S": "'$PB_TYPE'"}, "Blob": { "B": "'"`cat $proto_bin`"'"}}'
+    --item='{ "Uuid": { "S": "'$key'" }, "BlobType": { "S": "'$PB_TYPE'"}, "BlobProto": { "B": "'"`cat $proto_bin`"'"}}'
 }
 
 read_item() {
