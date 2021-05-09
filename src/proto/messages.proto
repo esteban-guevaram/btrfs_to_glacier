@@ -5,6 +5,7 @@ package messages;
 option go_package = "./messages";
 
 message SubVolume {
+  // Both the uuid in the metadata storage AND the actual uuid of the snapshot.
   string  uuid = 1; 
   string  mounted_path = 2; 
   uint64  gen_at_creation = 4;
@@ -12,19 +13,18 @@ message SubVolume {
   // Only snapshots will have this field not empty
   string  parent_uuid = 6; 
   string  received_uuid = 7; 
-  string  chunks_uuid = 8; 
-  bool    read_only = 9;
-  SystemInfo origin_sys = 10;
+  bool    read_only = 8;
+  SnapshotChunks  chunks = 9;
+  SystemInfo      origin_sys = 10;
 }
 
 message SnapshotChunks {
   message Chunk {
+    // Does not correspond to any volume, purely an id for the data storage.
     string uuid = 1; 
     uint64 start = 2;
     uint64 size = 3;
   }
-  string uuid = 1; 
-  string snap_uuid = 2; 
   string key_fingerprint = 3;
   repeated Chunk chunks = 4;
 }
@@ -38,15 +38,20 @@ message SystemInfo {
 }
 
 message SnapshotSeqHead {
-  // same as the subvolume uuid
+  // Both the uuid in the metadata storage
+  // AND the actual uuid of the volume being backed up.
   string uuid = 1; 
   string cur_seq_uuid = 2;
   repeated string prev_seq_uuid = 3;
 }
 
-message SnapshotSeq {
+message SnapshotSequence {
+  // Does not correspond to any volume, purely an id for the metadata storage.
   string uuid = 1; 
-  repeated SubVolume snaps = 2;
+  // The volume being backed up. All `snaps` should be children of `volume`.
+  SubVolume volume = 2;
+  // Ordered from oldest to newest.
+  repeated SubVolume snaps = 3;
 }
 
 message SnapshotChanges {

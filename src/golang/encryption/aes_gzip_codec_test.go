@@ -86,7 +86,7 @@ func TestEncryptString(t *testing.T) {
   if err != nil { t.Fatalf("Could not decrypt: %v", err) }
 
   t.Logf("obfuscated:%x, plain:%s", obfus, plain)
-  if util.CompareAsStrings(t, plain, expect_plain) != 0 {
+  if util.EqualsOrFailTest(t, plain, expect_plain) != 0 {
     t.Errorf("Bad decryption expected:%s, got:%s", expect_plain, plain)
   }
 }
@@ -103,7 +103,7 @@ func TestEncryptString_Fingerprint(t *testing.T) {
   if err != nil { t.Fatalf("Could not decrypt: %v", err) }
 
   t.Logf("obfuscated:%x, plain:%s", obfus, plain)
-  if util.CompareAsStrings(t, plain, expect_plain) != 0 {
+  if util.EqualsOrFailTest(t, plain, expect_plain) != 0 {
     t.Errorf("Bad decryption expected:%s, got:%s", expect_plain, plain)
   }
 }
@@ -134,7 +134,7 @@ func TestEncryptStream(t *testing.T) {
 
   select {
     case data := <-done:
-      util.CompareAsStrings(t, data, expect_msg)
+      util.EqualsOrFailTest(t, data, expect_msg)
     case <-ctx.Done():
       t.Fatalf("TestEncryptStream timeout")
   }
@@ -165,7 +165,7 @@ func TestEncryptStream_MoreData(t *testing.T) {
 
   select {
     case data := <-done:
-      util.CompareAsStrings(t, len(data), 4096*32)
+      util.EqualsOrFailTest(t, len(data), 4096*32)
     case <-ctx.Done():
       t.Fatalf("TestEncryptStream timeout")
   }
@@ -185,6 +185,6 @@ func TestCompression(t *testing.T) {
   if err != nil { t.Fatalf("gzip.NewReader: %v", err) }
   io.Copy(decomp_buf, decomp_reader)
 
-  util.CompareAsStrings(t, msg, decomp_buf.Bytes())
+  util.EqualsOrFailTest(t, msg, decomp_buf.Bytes())
 }
 

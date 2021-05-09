@@ -158,7 +158,7 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
   select {
     case changes := <-ch:
       if changes.Err != nil { t.Fatalf("GetChangesBetweenSnaps: %v", err) }
-      util.CompareAsStrings(t, changes.Val, expect_changes)
+      util.EqualsOrFailTest(t, changes.Val, expect_changes)
     case <-ctx.Done(): t.Fatalf("timedout")
   }
 }
@@ -184,7 +184,7 @@ func TestGetSnapshotStream(t *testing.T) {
 
   select {
     case data := <-done:
-      util.CompareAsStrings(t, data, expect_stream)
+      util.EqualsOrFailTest(t, data, expect_stream)
     case <-ctx.Done(): t.Fatalf("timedout")
   }
 }
@@ -233,7 +233,7 @@ func TestCreateSnapshot(t *testing.T) {
   expect_snap.OriginSys = volmgr.sysinfo
   snapshot, err := volmgr.CreateSnapshot(btrfsutil.Subvol)
   if err != nil { t.Fatalf("%s", err) }
-  util.CompareAsStrings(t, snapshot, expect_snap)
+  util.EqualsOrFailTest(t, snapshot, expect_snap)
 }
 
 func TestDeleteSnapshot(t *testing.T) {
@@ -266,7 +266,7 @@ func TestReceiveSendStream(t *testing.T) {
   select {
     case sv_or_error := <-ch:
       if sv_or_error.Err != nil { t.Errorf("ReceiveSendStream: %v", sv_or_error.Err) }
-      util.CompareAsStrings(t, sv_or_error.Val, mock_received)
+      util.EqualsOrFailTest(t, sv_or_error.Val, mock_received)
     case <-ctx.Done(): t.Fatalf("timedout")
   }
 }

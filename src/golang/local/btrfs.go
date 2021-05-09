@@ -78,14 +78,14 @@ func (a ByCGen) Len() int           { return len(a) }
 func (a ByCGen) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByCGen) Less(i, j int) bool { return a[i].GenAtCreation < a[j].GenAtCreation }
 
-func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) (*pb.SnapshotSeq, error) {
+func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) (*pb.SnapshotSequence, error) {
   var vols []*pb.SubVolume
   var err error
   var last_gen uint64
   vols, err = self.btrfsutil.ListSubVolumesUnder(self.conf.RootSnapPath)
   if err != nil { return nil, err }
 
-  seq := pb.SnapshotSeq {
+  seq := pb.SnapshotSequence {
     Snaps: make([]*pb.SubVolume, 0, 32),
   }
   sort.Sort(ByCGen(vols))

@@ -10,7 +10,14 @@ type Metadata interface {
   // It is a noop if they are already created.
   SetupMetadata(ctx context.Context) (<-chan error)
 
-  //RecordSnapshotSeqHead(ctx context.Context, new_seq *pb.SnapshotSeq) error
+  // Sets `new_seq` as the snaps sequence that will be appended when backing up the corresponding volume.
+  // If there is not already a sequence head, a new one will be created.
+  // Otherwise updates the current head and archives the previously current.
+  // If `new_seq` is already the current sequence, this is a noop.
+  // This should be called **after** the snapshot sequence has been persisted.
+  // Returns the new SnapshotSeqHead just persisted.
+  RecordSnapshotSeqHead(ctx context.Context, new_seq *pb.SnapshotSequence) (*pb.SnapshotSeqHead, error)
+
   //AppendSnapshotToSeq() error
   //AppendChunkToSnapshot() error
 
@@ -27,7 +34,7 @@ type DangerMetadata interface {
 
   DeleteAllMetadata() error
   DeleteSnapshotSeqHead() error
-  DeleteSnapshotSeq(seq *pb.SnapshotSeq) error
+  DeleteSnapshotSeq() error
   DeleteSnapshotChunks() error
 }
 

@@ -2,13 +2,70 @@ package main
 
 import (
   "context"
+  "fmt"
+  "time"
+
   "btrfs_to_glacier/cloud"
-  //pb "btrfs_to_glacier/messages"
+  pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/aws"
 )
+
+func TestMetadataSetup(ctx context.Context, metadata types.Metadata) {
+  done := metadata.SetupMetadata(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("%v", err) }
+    case <-ctx.Done():
+  }
+}
+
+func TestRecordSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
+  var err error
+  var head1, head2, head3 *pb.SnapshotSeqHead
+  vol_uuid := fmt.Sprintf("salut-%d", time.Now().UnixNano())
+  vol := &pb.SubVolume{
+    Uuid: vol_uuid,
+    MountedPath: "/monkey/biz",
+    CreatedTs: 666,
+    OriginSys: &pb.SystemInfo{
+      KernMajor: 1,
+      BtrfsUsrMajor: 1,
+      ToolGitCommit: "commit_hash",
+    },
+  }
+  snap := &pb.SubVolume {
+    Uuid: "coucou_snap",
+    ParentUuid: vol_uuid,
+  }
+  new_seq := &pb.SnapshotSequence{
+    Uuid: fmt.Sprintf("coucou-%d", time.Now().UnixNano()),
+    Volume: vol,
+    Snaps: []*pb.SubVolume{snap},
+  }
+  new_seq_2 := &pb.SnapshotSequence{
+    Uuid: fmt.Sprintf("coucou2-%d", time.Now().UnixNano()),
+    Volume: vol,
+    Snaps: []*pb.SubVolume{snap},
+  }
+  head1, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(head1.Uuid, new_seq.Volume.Uuid)
+  util.EqualsOrDie(head1.CurSeqUuid, new_seq.Uuid)
+
+  head2, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(head2, head1)
+
+  head3, err = metadata.RecordSnapshotSeqHead(ctx, new_seq_2)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(head3.CurSeqUuid, new_seq_2.Uuid)
+
+  _, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
+  if err == nil { util.Fatalf("Adding an old sequence should be an error") }
+}
 
 func main() {
   util.Infof("cloud_integration run")
@@ -24,12 +81,8 @@ func main() {
   metadata, err = cloud.NewMetadata(conf, aws_conf, codec)
   if err != nil { util.Fatalf("%v", err) }
 
-  done := metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { util.Fatalf("%v", err) }
-    case <-ctx.Done():
-  }
+  TestMetadataSetup(ctx, metadata)
+  TestRecordSnapshotSeqHead(ctx, metadata)
   util.Infof("ALL DONE")
 }
 

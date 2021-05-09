@@ -75,7 +75,7 @@ func TestGetChangesBetweenSnaps_NewTree(t *testing.T) {
     },
   }
   changes := sendDumpOpsToSnapChanges(dump_ops)
-  util.CompareAsStrings(t, changes, expect_changes)
+  util.EqualsOrFailTest(t, changes, expect_changes)
 }
 
 func TestGetChangesBetweenSnaps_DelTree(t *testing.T) {
@@ -138,7 +138,7 @@ func TestGetChangesBetweenSnaps_DelTree(t *testing.T) {
     },
   }
   changes := sendDumpOpsToSnapChanges(dump_ops)
-  util.CompareAsStrings(t, changes, expect_changes)
+  util.EqualsOrFailTest(t, changes, expect_changes)
 }
 
 func TestGetChangesBetweenSnaps_MovTree(t *testing.T) {
@@ -189,6 +189,6 @@ func TestGetChangesBetweenSnaps_MovTree(t *testing.T) {
     },
   }
   changes := sendDumpOpsToSnapChanges(dump_ops)
-  util.CompareAsStrings(t, changes, expect_changes)
+  util.EqualsOrFailTest(t, changes, expect_changes)
 }
 
