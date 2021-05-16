@@ -26,6 +26,7 @@ func TestRecordSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
   var err error
   var head1, head2, head3 *pb.SnapshotSeqHead
   vol_uuid := fmt.Sprintf("salut-%d", time.Now().UnixNano())
+  snap_uuid := "coucou_snap"
   vol := &pb.SubVolume{
     Uuid: vol_uuid,
     MountedPath: "/monkey/biz",
@@ -36,19 +37,15 @@ func TestRecordSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
       ToolGitCommit: "commit_hash",
     },
   }
-  snap := &pb.SubVolume {
-    Uuid: "coucou_snap",
-    ParentUuid: vol_uuid,
-  }
   new_seq := &pb.SnapshotSequence{
     Uuid: fmt.Sprintf("coucou-%d", time.Now().UnixNano()),
     Volume: vol,
-    Snaps: []*pb.SubVolume{snap},
+    SnapUuids: []string{snap_uuid},
   }
   new_seq_2 := &pb.SnapshotSequence{
     Uuid: fmt.Sprintf("coucou2-%d", time.Now().UnixNano()),
     Volume: vol,
-    Snaps: []*pb.SubVolume{snap},
+    SnapUuids: []string{snap_uuid},
   }
   head1, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { util.Fatalf("%v", err) }

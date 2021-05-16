@@ -128,13 +128,12 @@ func TestGetSnapshotSeqForVolume(t *testing.T) {
   expect_snaps := []*pb.SubVolume { CloneSubvol(btrfsutil.Snaps[1]), CloneSubvol(btrfsutil.Snaps[0]) }
   snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvol)
   if err != nil { t.Fatalf("%s", err) }
-  if snapseq.Uuid != "" { t.Errorf("Expected empty snapseq uuid got %s", snapseq.Uuid) }
-  if len(snapseq.Snaps) != len(expect_snaps) {
-    t.Fatalf("expected len %d got %d", len(expect_snaps), len(snapseq.Snaps))
+  if len(snapseq) != len(expect_snaps) {
+    t.Fatalf("expected len %d got %d", len(expect_snaps), len(snapseq))
   }
   for idx, expect_snap := range expect_snaps {
-    if !proto.Equal(expect_snap, snapseq.Snaps[idx]) {
-      t.Errorf("\n%s\n !=\n %s", expect_snap, snapseq.Snaps[idx])
+    if !proto.Equal(expect_snap, snapseq[idx]) {
+      t.Errorf("\n%s\n !=\n %s", expect_snap, snapseq[idx])
     }
   }
 }

@@ -51,7 +51,7 @@ message SnapshotSequence {
   // The volume being backed up. All `snaps` should be children of `volume`.
   SubVolume volume = 2;
   // Ordered from oldest to newest.
-  repeated SubVolume snaps = 3;
+  repeated string snap_uuids = 3;
 }
 
 message SnapshotChanges {

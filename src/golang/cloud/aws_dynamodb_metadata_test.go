@@ -85,6 +85,13 @@ func (self *mockDynamoDbClient) PutItem(
   self.Data[key] = blobOrDie(params.Item, blob_col)
   return &dynamodb.PutItemOutput{}, nil
 }
+func (self *mockDynamoDbClient) putForTest(k string, p proto.Message) {
+  key := keyAndtype{
+    Key: k,
+    Type: string(p.ProtoReflect().Descriptor().FullName()),
+  }
+  if b, err := proto.Marshal(p); err == nil { self.Data[key] = b }
+}
 
 func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {
   conf := util.LoadTestConf()
@@ -174,11 +181,7 @@ func TestRecordSnapshotSeqHead_Add(t *testing.T) {
   old_seq := dummySnapshotSequence("vol", "seq1")
   new_seq := dummySnapshotSequence("vol", "seq2")
   expect_head := dummySnapshotSeqHead(old_seq)
-  key := keyAndtype{
-    Key: expect_head.Uuid,
-    Type: string(expect_head.ProtoReflect().Descriptor().FullName()),
-  }
-  if b, err := proto.Marshal(expect_head); err == nil { client.Data[key] = b }
+  client.putForTest(expect_head.Uuid, expect_head)
   expect_head.CurSeqUuid = new_seq.Uuid
   expect_head.PrevSeqUuid = []string{old_seq.Uuid}
 
@@ -193,11 +196,7 @@ func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
   metadata, client := buildTestMetadata(t)
   new_seq := dummySnapshotSequence("vol", "seq")
   expect_head := dummySnapshotSeqHead(new_seq)
-  key := keyAndtype{
-    Key: expect_head.Uuid,
-    Type: string(expect_head.ProtoReflect().Descriptor().FullName()),
-  }
-  if b, err := proto.Marshal(expect_head); err == nil { client.Data[key] = b }
+  client.putForTest(expect_head.Uuid, expect_head)
 
   head, err := metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { t.Errorf("Returned error: %v", err) }

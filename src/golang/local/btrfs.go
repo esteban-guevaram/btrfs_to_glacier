@@ -78,27 +78,25 @@ func (a ByCGen) Len() int           { return len(a) }
 func (a ByCGen) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByCGen) Less(i, j int) bool { return a[i].GenAtCreation < a[j].GenAtCreation }
 
-func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) (*pb.SnapshotSequence, error) {
+func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([]*pb.SubVolume, error) {
   var vols []*pb.SubVolume
   var err error
   var last_gen uint64
   vols, err = self.btrfsutil.ListSubVolumesUnder(self.conf.RootSnapPath)
   if err != nil { return nil, err }
 
-  seq := pb.SnapshotSequence {
-    Snaps: make([]*pb.SubVolume, 0, 32),
-  }
+  seq := make([]*pb.SubVolume, 0, 32)
   sort.Sort(ByCGen(vols))
   for _,vol := range vols {
     if vol.ParentUuid == subvol.Uuid {
       if last_gen == vol.GenAtCreation {
         panic("Found 2 snapshots with the same creation gen belong to same parent")
       }
-      seq.Snaps = append(seq.Snaps, vol)
+      seq = append(seq, vol)
       last_gen = vol.GenAtCreation
     }
   }
-  return &seq, nil
+  return seq, nil
 }
 
 func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (<-chan types.SnapshotChangesOrError, error) {

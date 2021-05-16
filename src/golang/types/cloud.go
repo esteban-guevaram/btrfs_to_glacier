@@ -18,15 +18,16 @@ type Metadata interface {
   // Returns the new SnapshotSeqHead just persisted.
   RecordSnapshotSeqHead(ctx context.Context, new_seq *pb.SnapshotSequence) (*pb.SnapshotSeqHead, error)
 
-  //AppendSnapshotToSeq() error
+  // Adds `snap` to `seq` and persists `seq`.
+  // Returns the new state of the snapshot sequence.
+  // This should be called **after** the snapshot has been persisted.
+  // If `snap` is already the last snapshot in the sequence this is a noop.
+  AppendSnapshotToSeq(ctx context.Context, seq *pb.SnapshotSequence, snap *pb.SubVolume) (*pb.SnapshotSequence, error)
+
   //AppendChunkToSnapshot() error
 
   //ReadSnapshotSeqHead() error
   //ReadSnapshotSeq() error
-
-  //IterateAllSnapshotSeqHeads() error
-  //IterateAllSnapshotSeqs() error
-  //IterateAllSnapshotChunks() error
 }
 
 type DangerMetadata interface {
@@ -52,5 +53,9 @@ type Storage interface {
 
 type GarbageCollector interface {
   DeleteUnreachableFromSeqHead() error
+
+  //IterateAllSnapshotSeqHeads() error
+  //IterateAllSnapshotSeqs() error
+  //IterateAllSnapshotChunks() error
 }
 

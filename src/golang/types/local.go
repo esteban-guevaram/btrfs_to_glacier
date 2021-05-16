@@ -23,9 +23,9 @@ type VolumeManager interface {
   // May return nil if nothing was found.
   FindVolume(fs_root string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error)
   // Returns all snapshots whose parent is `subvol`.
-  // Returned snaps are soted by creation generation (oldest first).
+  // Returned snaps are sorted by creation generation (oldest first).
   // `received_uuid` will only be set if the snapshot was effectibely received.
-  GetSnapshotSeqForVolume(subvol *pb.SubVolume) (*pb.SnapshotSequence, error)
+  GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([]*pb.SubVolume, error)
   // Returns the changes between 2 snapshots of the same subvolume.
   // Both snaps must come from the same parent and `from` must be from a previous gen than `to`.
   GetChangesBetweenSnaps(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (<-chan SnapshotChangesOrError, error)

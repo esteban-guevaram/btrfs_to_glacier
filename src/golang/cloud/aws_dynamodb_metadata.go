@@ -212,12 +212,34 @@ func (self *dynamoMetadata) RecordSnapshotSeqHead(ctx context.Context, new_seq *
   if !is_new_head { head.PrevSeqUuid = append(head.PrevSeqUuid, head.CurSeqUuid) }
   head.CurSeqUuid = new_seq.Uuid
 
-  err = ValidateSnapshotSequenceBeforeAddingToHead(head, new_seq)
+  err = ValidateSnapshotSeqHead(head)
   if err != nil { return nil, err }
-
   err = self.WriteObject(ctx, new_seq.Volume.Uuid, head)
   if err != nil { return nil, err }
+
   util.PbInfof("Wrote head: %v", head)
   return head, nil
+}
+
+func (self *dynamoMetadata) AppendSnapshotToSeq(
+    ctx context.Context, seq *pb.SnapshotSequence, snap *pb.SubVolume) (*pb.SnapshotSequence, error) {
+  new_seq := proto.Clone(seq).(*pb.SnapshotSequence)
+  if len(seq.SnapUuids) > 0 {
+    last := seq.SnapUuids[len(seq.SnapUuids) - 1]
+    if last == snap.Uuid {
+      util.PbInfof("Noop already last snap in seq: %v", seq)
+      return new_seq, nil
+    }
+  }
+
+  new_seq.SnapUuids = append(new_seq.SnapUuids, snap.Uuid)
+
+  err := ValidateSnapshotSequence(seq)
+  if err != nil { return nil, err }
+  self.WriteObject(ctx, new_seq.Uuid, new_seq)
+  if err != nil { return nil, err }
+
+  util.PbInfof("Wrote sequence: %v", new_seq)
+  return new_seq, nil
 }
 
