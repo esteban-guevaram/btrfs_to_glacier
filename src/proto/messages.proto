@@ -14,7 +14,7 @@ message SubVolume {
   string  parent_uuid = 6; 
   string  received_uuid = 7; 
   bool    read_only = 8;
-  SnapshotChunks  chunks = 9;
+  SnapshotChunks  data = 9;
   SystemInfo      origin_sys = 10;
 }
 

@@ -13,6 +13,54 @@ import (
   "github.com/aws/aws-sdk-go-v2/aws"
 )
 
+func timedUuid(base_uuid string) string {
+  return fmt.Sprintf("%s-%d", base_uuid, time.Now().UnixNano())
+}
+
+func dummyChunks(chunk_uuid string) *pb.SnapshotChunks {
+  chunk := &pb.SnapshotChunks_Chunk {
+    Uuid: chunk_uuid,
+    Start: 0,
+    Size: 3,
+  }
+  return &pb.SnapshotChunks{
+    KeyFingerprint: "fp",
+    Chunks: []*pb.SnapshotChunks_Chunk{chunk},
+  }
+}
+
+func dummySubVolume(vol_uuid string) *pb.SubVolume {
+ return &pb.SubVolume{
+    Uuid: vol_uuid,
+    MountedPath: "/monkey/biz",
+    CreatedTs: 666,
+    OriginSys: &pb.SystemInfo{
+      KernMajor: 1,
+      BtrfsUsrMajor: 1,
+      ToolGitCommit: "commit_hash",
+    },
+  }
+}
+
+func dummySnapshot(snap_uuid string, vol_uuid string) *pb.SubVolume {
+  vol := dummySubVolume(snap_uuid)
+  vol.ParentUuid = vol_uuid
+  vol.ReadOnly = true
+  vol.CreatedTs += 111
+  vol.GenAtCreation = 777
+  return vol
+}
+
+func dummySnapshotSequence(vol_uuid string, seq_uuid string) *pb.SnapshotSequence {
+  vol := dummySubVolume(vol_uuid)
+  snap := fmt.Sprintf("%s_snap", vol_uuid)
+  return &pb.SnapshotSequence{
+    Uuid: seq_uuid,
+    Volume: vol,
+    SnapUuids: []string{snap},
+  }
+}
+
 func TestMetadataSetup(ctx context.Context, metadata types.Metadata) {
   done := metadata.SetupMetadata(ctx)
   select {
@@ -25,28 +73,10 @@ func TestMetadataSetup(ctx context.Context, metadata types.Metadata) {
 func TestRecordSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
   var err error
   var head1, head2, head3 *pb.SnapshotSeqHead
-  vol_uuid := fmt.Sprintf("salut-%d", time.Now().UnixNano())
-  snap_uuid := "coucou_snap"
-  vol := &pb.SubVolume{
-    Uuid: vol_uuid,
-    MountedPath: "/monkey/biz",
-    CreatedTs: 666,
-    OriginSys: &pb.SystemInfo{
-      KernMajor: 1,
-      BtrfsUsrMajor: 1,
-      ToolGitCommit: "commit_hash",
-    },
-  }
-  new_seq := &pb.SnapshotSequence{
-    Uuid: fmt.Sprintf("coucou-%d", time.Now().UnixNano()),
-    Volume: vol,
-    SnapUuids: []string{snap_uuid},
-  }
-  new_seq_2 := &pb.SnapshotSequence{
-    Uuid: fmt.Sprintf("coucou2-%d", time.Now().UnixNano()),
-    Volume: vol,
-    SnapUuids: []string{snap_uuid},
-  }
+  vol_uuid := timedUuid("vol")
+  new_seq := dummySnapshotSequence(vol_uuid, timedUuid("seq1"))
+  new_seq_2 := dummySnapshotSequence(vol_uuid, timedUuid("seq2"))
+
   head1, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie(head1.Uuid, new_seq.Volume.Uuid)
@@ -62,6 +92,35 @@ func TestRecordSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
 
   _, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err == nil { util.Fatalf("Adding an old sequence should be an error") }
+}
+
+func TestAppendSnapshotToSeq(ctx context.Context, metadata types.Metadata) {
+  var err error
+  var seq_1, seq_noop, seq_2 *pb.SnapshotSequence
+  vol_uuid := timedUuid("vol")
+  seq_uuid := timedUuid("seq")
+  snap1_uuid := timedUuid("snap1")
+  snap2_uuid := timedUuid("snap2")
+  snap_1 := dummySnapshot(snap1_uuid, vol_uuid)
+  snap_2 := dummySnapshot(snap2_uuid, vol_uuid)
+  expect_seq_0 := dummySnapshotSequence(vol_uuid, seq_uuid)
+  expect_seq_0.SnapUuids = nil
+  expect_seq_1 := dummySnapshotSequence(vol_uuid, seq_uuid)
+  expect_seq_1.SnapUuids = []string{snap1_uuid}
+  expect_seq_2 := dummySnapshotSequence(vol_uuid, seq_uuid)
+  expect_seq_2.SnapUuids = []string{snap1_uuid, snap2_uuid}
+
+  seq_1, err = metadata.AppendSnapshotToSeq(ctx, expect_seq_0, snap_1)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(seq_1, expect_seq_1)
+
+  seq_noop, err = metadata.AppendSnapshotToSeq(ctx, seq_1, snap_1)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(seq_noop, expect_seq_1)
+
+  seq_2, err = metadata.AppendSnapshotToSeq(ctx, expect_seq_1, snap_2)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(seq_2, expect_seq_2)
 }
 
 func main() {
@@ -80,6 +139,7 @@ func main() {
 
   TestMetadataSetup(ctx, metadata)
   TestRecordSnapshotSeqHead(ctx, metadata)
+  TestAppendSnapshotToSeq(ctx, metadata)
   util.Infof("ALL DONE")
 }
 

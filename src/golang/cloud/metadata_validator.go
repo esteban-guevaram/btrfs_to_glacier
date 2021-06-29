@@ -66,7 +66,7 @@ func ValidateSubVolume(check CheckType, sv *pb.SubVolume) error {
       if sv.GenAtCreation == 0 { return PbErrorf("Snapshot no creation generation: %v", sv) }
       if sv.CreatedTs == 0 { return PbErrorf("Snapshot no creation timestamp: %v", sv) }
       if sv.ReadOnly == false { return PbErrorf("Snapshot cannot be writable: %v", sv) }
-      err := ValidateSnapshotChunks(sv.Chunks)
+      err := ValidateSnapshotChunks(sv.Data)
       if err != nil { return err }
       return ValidateSystemInfo(sv.OriginSys)
     default:

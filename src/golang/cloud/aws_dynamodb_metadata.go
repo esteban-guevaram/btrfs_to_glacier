@@ -199,8 +199,11 @@ func (self *dynamoMetadata) WriteObject(ctx context.Context, key string, msg pro
 }
 
 func (self *dynamoMetadata) RecordSnapshotSeqHead(ctx context.Context, new_seq *pb.SnapshotSequence) (*pb.SnapshotSeqHead, error) {
+  err := ValidateSnapshotSequence(new_seq)
+  if err != nil { return nil, err }
+
   head := &pb.SnapshotSeqHead{}
-  err := self.ReadObject(ctx, new_seq.Volume.Uuid, head)
+  err = self.ReadObject(ctx, new_seq.Volume.Uuid, head)
   is_new_head := errors.Is(err, ErrNotFound)
   if err != nil && !is_new_head { return nil, err }
 
@@ -223,6 +226,9 @@ func (self *dynamoMetadata) RecordSnapshotSeqHead(ctx context.Context, new_seq *
 
 func (self *dynamoMetadata) AppendSnapshotToSeq(
     ctx context.Context, seq *pb.SnapshotSequence, snap *pb.SubVolume) (*pb.SnapshotSequence, error) {
+  err := ValidateSubVolume(CheckSnapNoContent, snap)
+  if err != nil { return nil, err }
+
   new_seq := proto.Clone(seq).(*pb.SnapshotSequence)
   if len(seq.SnapUuids) > 0 {
     last := seq.SnapUuids[len(seq.SnapUuids) - 1]
@@ -234,8 +240,14 @@ func (self *dynamoMetadata) AppendSnapshotToSeq(
 
   new_seq.SnapUuids = append(new_seq.SnapUuids, snap.Uuid)
 
-  err := ValidateSnapshotSequence(seq)
+  err = ValidateSnapshotSequence(new_seq)
   if err != nil { return nil, err }
+  if new_seq.Volume.Uuid != snap.ParentUuid {
+    return nil, PbErrorf("Sequence volume and snap parent do not match: %v, %v", new_seq, snap)
+  }
+  if new_seq.Volume.CreatedTs >= snap.CreatedTs {
+    return nil, PbErrorf("Sequence volume created after snap: %v, %v", new_seq, snap)
+  }
   self.WriteObject(ctx, new_seq.Uuid, new_seq)
   if err != nil { return nil, err }
 

@@ -2,10 +2,11 @@ package cloud
 
 import (
   "context"
+  "fmt"
   "testing"
   "time"
 
-  //pb "btrfs_to_glacier/messages"
+  pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
 
@@ -91,6 +92,17 @@ func (self *mockDynamoDbClient) putForTest(k string, p proto.Message) {
     Type: string(p.ProtoReflect().Descriptor().FullName()),
   }
   if b, err := proto.Marshal(p); err == nil { self.Data[key] = b }
+}
+func (self *mockDynamoDbClient) getForTest(k string, p proto.Message) bool {
+  key := keyAndtype{
+    Key: k,
+    Type: string(p.ProtoReflect().Descriptor().FullName()),
+  }
+  if b, found := self.Data[key]; found {
+    if err := proto.Unmarshal(b, p); err != nil { return false }
+    return true
+  }
+  return false
 }
 
 func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {
@@ -201,5 +213,31 @@ func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
   head, err := metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { t.Errorf("Returned error: %v", err) }
   util.EqualsOrFailTest(t, head, expect_head)
+}
+
+func TestAppendSnapshotToSeq_New(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, client := buildTestMetadata(t)
+  seq := dummySnapshotSequence("vol", "seq")
+  seq.SnapUuids = nil
+  expect_seq := dummySnapshotSequence("vol", "seq")
+  snap_to_add := dummySnapshot(expect_seq.SnapUuids[0], "vol")
+  new_seq, err := metadata.AppendSnapshotToSeq(ctx, seq, snap_to_add)
+
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  util.EqualsOrFailTest(t, new_seq, expect_seq)
+  if !client.getForTest("seq", &pb.SnapshotSequence{}) { t.Errorf("No sequence persisted") }
+}
+
+func TestAppendSnapshotToSeq_Noop(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, client := buildTestMetadata(t)
+  client.Err = fmt.Errorf("No methods on the client should have been called")
+  seq := dummySnapshotSequence("vol", "seq")
+  snap_to_add := dummySnapshot(seq.SnapUuids[0], "vol")
+  _, err := metadata.AppendSnapshotToSeq(ctx, seq, snap_to_add)
+  if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
