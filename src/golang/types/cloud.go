@@ -24,7 +24,11 @@ type Metadata interface {
   // If `snap` is already the last snapshot in the sequence this is a noop.
   AppendSnapshotToSeq(ctx context.Context, seq *pb.SnapshotSequence, snap *pb.SubVolume) (*pb.SnapshotSequence, error)
 
-  //AppendChunkToSnapshot() error
+  // Adds `chunk` and records it into the subvolume `snap`.
+  // If `chunk` is not the first, it must match the previous fingerprint.
+  // Returns the new state of the subvolume metadata.
+  // If `chunk` is already the last recorded in `snap` this is a noop.
+  AppendChunkToSnapshot(ctx context.Context, snap *pb.SubVolume, chunk *pb.SnapshotChunks) (*pb.SubVolume, error)
 
   //ReadSnapshotSeqHead() error
   //ReadSnapshotSeq() error

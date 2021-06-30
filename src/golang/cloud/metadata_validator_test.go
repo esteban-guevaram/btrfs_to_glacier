@@ -5,6 +5,7 @@ import (
   "testing"
 
   pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/util"
 )
 
 func dummyChunks(chunk_uuid string) *pb.SnapshotChunks {
@@ -65,11 +66,11 @@ func TestValidateSnapshotChunks(t *testing.T) {
   dupe_chunks := dummyChunks("skdfhk")
   dupe_chunks.Chunks = append(dupe_chunks.Chunks, dupe_chunks.Chunks[0])
 
-  err := ValidateSnapshotChunks(chunks)
+  err := ValidateSnapshotChunks(CheckChunkFromStart, chunks)
   if err != nil { t.Errorf("this should be ok: %v", chunks) }
-  err = ValidateSnapshotChunks(bad_chunks)
+  err = ValidateSnapshotChunks(CheckChunkFromStart, bad_chunks)
   if err == nil { t.Errorf("empty snap chunks should be ko: %v", bad_chunks) }
-  err = ValidateSnapshotChunks(dupe_chunks)
+  err = ValidateSnapshotChunks(CheckChunkFromStart, dupe_chunks)
   if err == nil { t.Errorf("duplicate chunks should be ko: %v", dupe_chunks) }
 }
 
@@ -82,6 +83,22 @@ func TestValidateSystemInfo(t *testing.T) {
   if err != nil { t.Errorf("this should be ok: %v", si) }
   err = ValidateSystemInfo(bad_si)
   if err == nil { t.Errorf("empty system info should be ko: %v", bad_si) }
+}
+
+func TestSubVolumeDataLen(t *testing.T) {
+  sv := dummySubVolume("vol")
+  sv.Data = dummyChunks("first")
+  first_len := SubVolumeDataLen(sv)
+  util.EqualsOrFailTest(t, first_len, sv.Data.Chunks[0].Size)
+
+  second := &pb.SnapshotChunks_Chunk {
+    Uuid: "second",
+    Start: 0,
+    Size: 3,
+  }
+  sv.Data.Chunks = append(sv.Data.Chunks, second)
+  data_len := SubVolumeDataLen(sv)
+  util.EqualsOrFailTest(t, data_len, first_len + second.Size)
 }
 
 func TestValidateSubVolume(t *testing.T) {

@@ -11,6 +11,7 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/aws"
+  "google.golang.org/protobuf/proto"
 )
 
 func timedUuid(base_uuid string) string {
@@ -123,6 +124,38 @@ func TestAppendSnapshotToSeq(ctx context.Context, metadata types.Metadata) {
   util.EqualsOrDie(seq_2, expect_seq_2)
 }
 
+func TestAppendChunkToSnapshot(ctx context.Context, metadata types.Metadata) {
+  snap := dummySnapshot("snap_uuid", "par_uuid")
+  chunk_1 := dummyChunks("chunk_uuid1")
+  chunk_2 := dummyChunks("chunk_uuid2")
+  chunk_2.Chunks[0].Start = chunk_1.Chunks[0].Size
+
+  expect_first := proto.Clone(snap).(*pb.SubVolume)
+  expect_first.Data = proto.Clone(chunk_1).(*pb.SnapshotChunks)
+  expect_second := proto.Clone(expect_first).(*pb.SubVolume)
+  expect_second.Data.Chunks = append(expect_second.Data.Chunks,
+                                     proto.Clone(chunk_2.Chunks[0]).(*pb.SnapshotChunks_Chunk))
+
+  var err error
+  var written_snap_1, written_snap_2, written_snap_3, written_snap_4 *pb.SubVolume
+  written_snap_1, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_1)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(written_snap_1, expect_first)
+
+  written_snap_2, err = metadata.AppendChunkToSnapshot(ctx, written_snap_1, chunk_1)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(written_snap_2, written_snap_1)
+
+  written_snap_3, err = metadata.AppendChunkToSnapshot(ctx, written_snap_1, chunk_2)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(written_snap_3, expect_second)
+
+  written_snap_4, err = metadata.AppendChunkToSnapshot(ctx, written_snap_3, chunk_2)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(written_snap_4, written_snap_3)
+
+}
+
 func main() {
   util.Infof("cloud_integration run")
 
@@ -140,6 +173,7 @@ func main() {
   TestMetadataSetup(ctx, metadata)
   TestRecordSnapshotSeqHead(ctx, metadata)
   TestAppendSnapshotToSeq(ctx, metadata)
+  TestAppendChunkToSnapshot(ctx, metadata)
   util.Infof("ALL DONE")
 }
 

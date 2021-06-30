@@ -255,3 +255,54 @@ func (self *dynamoMetadata) AppendSnapshotToSeq(
   return new_seq, nil
 }
 
+func isFullyContainedInSubvolume(snap *pb.SubVolume, chunk *pb.SnapshotChunks) bool {
+  if snap.Data == nil { return false }
+
+  for start_idx,chunk_snap := range snap.Data.Chunks {
+    if chunk_snap.Start == chunk.Chunks[0].Start {
+      for idx,chunk_chunk := range chunk.Chunks {
+        snap_idx := idx + start_idx
+        if snap_idx >= len(snap.Data.Chunks) { return false }
+        if snap.Data.Chunks[snap_idx].Start != chunk_chunk.Start { return false }
+        if snap.Data.Chunks[snap_idx].Size != chunk_chunk.Size { return false }
+      }
+      return true
+    }
+  }
+  return false
+}
+
+func (self *dynamoMetadata) AppendChunkToSnapshot(
+    ctx context.Context, snap *pb.SubVolume, chunk *pb.SnapshotChunks) (*pb.SubVolume, error) {
+  err := ValidateSnapshotChunks(CheckChunkNotFirst, chunk)
+  if err != nil { return nil, err }
+
+  if snap.Data != nil && snap.Data.KeyFingerprint != chunk.KeyFingerprint {
+    return nil, PbErrorf("Snapshot chunk key mismatch: %v, %v", snap, chunk)
+  }
+
+  new_snap := proto.Clone(snap).(*pb.SubVolume)
+  if isFullyContainedInSubvolume(snap, chunk) {
+    util.PbInfof("Noop already last chunk in snap: %v", snap)
+    return new_snap, nil
+  }
+
+  data_len := SubVolumeDataLen(snap)
+  if chunk.Chunks[0].Start != data_len {
+    return nil, PbErrorf("Snapshot chunk not contiguous: %v, %v", snap, chunk)
+  }
+
+  if new_snap.Data == nil {
+    new_snap.Data = &pb.SnapshotChunks { KeyFingerprint: chunk.KeyFingerprint }
+  }
+  new_snap.Data.Chunks = append(new_snap.Data.Chunks, chunk.Chunks...)
+
+  err = ValidateSubVolume(CheckSnapWithContent, new_snap)
+  if err != nil { return nil, err }
+  err = self.WriteObject(ctx, new_snap.Uuid, new_snap)
+  if err != nil { return nil, err }
+
+  util.PbInfof("Wrote chunk: %v", new_snap)
+  return new_snap, nil
+}
+

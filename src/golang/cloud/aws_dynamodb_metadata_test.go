@@ -241,3 +241,84 @@ func TestAppendSnapshotToSeq_Noop(t *testing.T) {
   if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
+func TestAppendSnapshotToChunk_New(t *testing.T) {
+  snap := dummySnapshot("snap_uuid", "par_uuid")
+  chunk := dummyChunks("chunk_uuid")
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  metadata, client := buildTestMetadata(t)
+  new_snap, err := metadata.AppendChunkToSnapshot(ctx, snap, chunk)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+
+  persisted_snap := &pb.SubVolume{}
+  if !client.getForTest("snap_uuid", persisted_snap) { t.Errorf("No snapshot persisted") }
+  util.EqualsOrFailTest(t, persisted_snap, new_snap)
+  util.EqualsOrFailTest(t, new_snap.Data, chunk)
+}
+
+func TestAppendSnapshotToChunk_Append(t *testing.T) {
+  snap := dummySnapshot("snap_uuid", "par_uuid")
+  snap.Data = dummyChunks("chunk_uuid1")
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  chunk := dummyChunks("chunk_uuid2")
+  chunk.Chunks[0].Start = SubVolumeDataLen(snap)
+
+  util.PbInfof("snap: %v", snap)
+  util.PbInfof("chunk: %v", chunk)
+  metadata, client := buildTestMetadata(t)
+  new_snap, err := metadata.AppendChunkToSnapshot(ctx, snap, chunk)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+
+  if !client.getForTest("snap_uuid", &pb.SubVolume{}) { t.Errorf("No snapshot persisted") }
+  expect_chunks := dummyChunks("chunk_uuid1")
+  expect_chunks.Chunks = append(expect_chunks.Chunks, chunk.Chunks[0])
+  util.EqualsOrFailTest(t, new_snap.Data, expect_chunks)
+}
+
+func TestAppendSnapshotToChunk_Noop(t *testing.T) {
+  snap := dummySnapshot("snap_uuid", "par_uuid")
+  chunk := dummyChunks("chunk_uuid")
+  snap.Data = chunk
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  metadata, client := buildTestMetadata(t)
+  client.Err = fmt.Errorf("No methods on the client should have been called")
+  new_snap, err := metadata.AppendChunkToSnapshot(ctx, snap, chunk)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  util.EqualsOrFailTest(t, snap, new_snap)
+}
+
+func TestAppendSnapshotToChunk_Errors(t *testing.T) {
+  var err error
+  snap := dummySnapshot("snap_uuid", "par_uuid")
+  snap.Data = dummyChunks("chunk_uuid")
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  metadata, _ := buildTestMetadata(t)
+
+  chunk_1 := dummyChunks("chunk_uuid1")
+  chunk_1.Chunks[0].Start += 1
+  _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_1)
+  if err == nil { t.Errorf("Expected error: %v", err) }
+
+  chunk_2 := dummyChunks("chunk_uuid2")
+  chunk_2.Chunks[0].Size += 1
+  _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_2)
+  if err == nil { t.Errorf("Expected error: %v", err) }
+
+  chunk_3 := dummyChunks("chunk_uuid3")
+  chunk_3.Chunks[0].Start = SubVolumeDataLen(snap) + 1
+  _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_3)
+  if err == nil { t.Errorf("Expected error: %v", err) }
+
+  chunk_4 := dummyChunks("chunk_uuid4")
+  chunk_4.KeyFingerprint = snap.Data.KeyFingerprint + "_wrong_keyfp"
+  _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_4)
+  if err == nil { t.Errorf("Expected error: %v", err) }
+}
+

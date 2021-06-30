@@ -14,27 +14,32 @@ const (
   CheckSvInSeq CheckType = iota
   CheckSnapNoContent CheckType = iota
   CheckSnapWithContent CheckType = iota
+  CheckChunkNotFirst CheckType = iota
+  CheckChunkFromStart CheckType = iota
 )
 
 func PbErrorf(format string, pbs ...proto.Message) error {
   return errors.New(util.PbPrintf(format, pbs...))
 }
 
-func ValidateSnapshotChunks(chunks *pb.SnapshotChunks) error {
+func ValidateSnapshotChunks(check CheckType, chunks *pb.SnapshotChunks) error {
   if chunks == nil { return errors.New("SnapshotChunks == nil") }
   if len(chunks.Chunks) < 1 { return PbErrorf("No chunks: %v", chunks) }
   if chunks.KeyFingerprint == "" { return PbErrorf("Chunks no key fingerprint: %v", chunks) }
 
-  var start_offset *uint64
+  var last_offset uint64 = 0
   uuids := make(map[string]bool)
   for _, chunk := range chunks.Chunks {
     if _,found := uuids[chunk.Uuid]; found { return PbErrorf("Chunk duplicate uuid: %v", chunk) }
     uuids[chunk.Uuid] = true
     if chunk.Uuid == "" { return PbErrorf("No chunk uuid: %v", chunk) }
     if chunk.Size == 0 { return PbErrorf("No chunk size: %v", chunk) }
-    if start_offset == nil && chunk.Start != 0 { return PbErrorf("Bad first chunk: %v", chunk) }
-    if start_offset != nil && chunk.Start <= *start_offset { return PbErrorf("Bad chunk order: %v", chunk) }
-    start_offset = &chunk.Start
+    switch check {
+      case CheckChunkFromStart:
+        if last_offset != chunk.Start { return PbErrorf("Bad chunk order: %v", chunk) }
+      default:
+    }
+    last_offset = chunk.Start + chunk.Size
   }
   return nil
 }
@@ -45,6 +50,15 @@ func ValidateSystemInfo(si *pb.SystemInfo) error {
   if si.BtrfsUsrMajor == 0 { return PbErrorf("SystemInfo no btrfs user lib version: %v", si) }
   if si.ToolGitCommit == "" { return PbErrorf("SystemInfo no git hash: %v", si) }
   return nil
+}
+
+func SubVolumeDataLen(sv *pb.SubVolume) uint64 {
+  if sv == nil { panic("SubVolume == nil") }
+  var data_len uint64= 0
+  if sv.Data != nil {
+    for _, chunk := range sv.Data.Chunks { data_len += chunk.Size }
+  }
+  return data_len
 }
 
 func ValidateSubVolume(check CheckType, sv *pb.SubVolume) error {
@@ -66,7 +80,7 @@ func ValidateSubVolume(check CheckType, sv *pb.SubVolume) error {
       if sv.GenAtCreation == 0 { return PbErrorf("Snapshot no creation generation: %v", sv) }
       if sv.CreatedTs == 0 { return PbErrorf("Snapshot no creation timestamp: %v", sv) }
       if sv.ReadOnly == false { return PbErrorf("Snapshot cannot be writable: %v", sv) }
-      err := ValidateSnapshotChunks(sv.Data)
+      err := ValidateSnapshotChunks(CheckChunkFromStart, sv.Data)
       if err != nil { return err }
       return ValidateSystemInfo(sv.OriginSys)
     default:
