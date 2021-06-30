@@ -2,6 +2,7 @@ package main
 
 import (
   "context"
+  "errors"
   "fmt"
   "time"
 
@@ -125,9 +126,9 @@ func TestAppendSnapshotToSeq(ctx context.Context, metadata types.Metadata) {
 }
 
 func TestAppendChunkToSnapshot(ctx context.Context, metadata types.Metadata) {
-  snap := dummySnapshot("snap_uuid", "par_uuid")
-  chunk_1 := dummyChunks("chunk_uuid1")
-  chunk_2 := dummyChunks("chunk_uuid2")
+  snap := dummySnapshot(timedUuid("snap"), timedUuid("par"))
+  chunk_1 := dummyChunks(timedUuid("chunk_1"))
+  chunk_2 := dummyChunks(timedUuid("chunk_2"))
   chunk_2.Chunks[0].Start = chunk_1.Chunks[0].Size
 
   expect_first := proto.Clone(snap).(*pb.SubVolume)
@@ -153,7 +154,64 @@ func TestAppendChunkToSnapshot(ctx context.Context, metadata types.Metadata) {
   written_snap_4, err = metadata.AppendChunkToSnapshot(ctx, written_snap_3, chunk_2)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie(written_snap_4, written_snap_3)
+}
 
+func TestReadSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
+  var err error
+  var expect_head, head *pb.SnapshotSeqHead
+  vol_uuid := timedUuid("vol")
+  seq := dummySnapshotSequence(vol_uuid, timedUuid("seq1"))
+
+  _, err = metadata.ReadSnapshotSeqHead(ctx, vol_uuid)
+  if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
+
+  expect_head, err = metadata.RecordSnapshotSeqHead(ctx, seq)
+  if err != nil { util.Fatalf("%v", err) }
+
+  head, err = metadata.ReadSnapshotSeqHead(ctx, vol_uuid)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(expect_head, head)
+}
+
+func TestReadSnapshotSeq(ctx context.Context, metadata types.Metadata) {
+  var err error
+  var empty_seq, expect_seq, seq *pb.SnapshotSequence
+  vol_uuid := timedUuid("vol")
+  seq_uuid := timedUuid("seq")
+  snap_uuid := timedUuid("snap")
+  snap := dummySnapshot(snap_uuid, vol_uuid)
+  empty_seq = dummySnapshotSequence(vol_uuid, seq_uuid)
+
+  _, err = metadata.ReadSnapshotSeq(ctx, empty_seq.Uuid)
+  if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
+
+  expect_seq, err = metadata.AppendSnapshotToSeq(ctx, empty_seq, snap)
+  if err != nil { util.Fatalf("%v", err) }
+
+  seq, err = metadata.ReadSnapshotSeq(ctx, empty_seq.Uuid)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(expect_seq, seq)
+}
+
+func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
+  var err error
+  var snap *pb.SubVolume
+  vol_uuid := timedUuid("vol")
+  snap_uuid := timedUuid("snap")
+  chunk_uuid := timedUuid("seq")
+  empty_snap := dummySnapshot(snap_uuid, vol_uuid)
+  expect_snap := dummySnapshot(snap_uuid, vol_uuid)
+  expect_snap.Data = dummyChunks(chunk_uuid)
+
+  _, err = metadata.ReadSnapshot(ctx, expect_snap.Uuid)
+  if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
+
+  expect_snap, err = metadata.AppendChunkToSnapshot(ctx, empty_snap, dummyChunks(chunk_uuid))
+  if err != nil { util.Fatalf("%v", err) }
+
+  snap, err = metadata.ReadSnapshot(ctx, expect_snap.Uuid)
+  if err != nil { util.Fatalf("%v", err) }
+  util.EqualsOrDie(expect_snap, snap)
 }
 
 func main() {
@@ -174,6 +232,9 @@ func main() {
   TestRecordSnapshotSeqHead(ctx, metadata)
   TestAppendSnapshotToSeq(ctx, metadata)
   TestAppendChunkToSnapshot(ctx, metadata)
+  TestReadSnapshotSeqHead(ctx, metadata)
+  TestReadSnapshotSeq(ctx, metadata)
+  TestReadSnapshot(ctx, metadata)
   util.Infof("ALL DONE")
 }
 

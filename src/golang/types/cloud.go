@@ -1,7 +1,10 @@
 package types
 
 import "context"
+import "errors"
 import pb "btrfs_to_glacier/messages"
+
+var ErrNotFound = errors.New("key_not_found_in_metadata")
 
 type Metadata interface {
   // Creates the storage objects (depend on implementation) that will contain the metadata.
@@ -30,8 +33,17 @@ type Metadata interface {
   // If `chunk` is already the last recorded in `snap` this is a noop.
   AppendChunkToSnapshot(ctx context.Context, snap *pb.SubVolume, chunk *pb.SnapshotChunks) (*pb.SubVolume, error)
 
-  //ReadSnapshotSeqHead() error
-  //ReadSnapshotSeq() error
+  // Reads sequence head for subvolume with `uuid`.
+  // If there is no head, returns `ErrNotFound`.
+  ReadSnapshotSeqHead(ctx context.Context, uuid string) (*pb.SnapshotSeqHead, error)
+
+  // Reads snapshot sequence with key `uuid`.
+  // If there is no sequence, returns `ErrNotFound`.
+  ReadSnapshotSeq(ctx context.Context, uuid string) (*pb.SnapshotSequence, error)
+
+  // Reads subvolume with `uuid`.
+  // If there is no subvolume, returns `ErrNotFound`.
+  ReadSnapshot(ctx context.Context, uuid string) (*pb.SubVolume, error)
 }
 
 type DangerMetadata interface {

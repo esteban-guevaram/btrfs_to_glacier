@@ -27,8 +27,6 @@ const (
   describe_retry_millis = 2000
 )
 
-var ErrNotFound = errors.New("key_not_found_in_dynamo")
-
 // The subset of the dynamodb client used.
 // Convenient for unittesting purposes.
 type usedDynamoDbIf interface {
@@ -171,7 +169,7 @@ func (self *dynamoMetadata) ReadObject(ctx context.Context, key string, msg prot
   result, err := self.client.GetItem(ctx, params)
   if err != nil { return err }
   abstract_val, found := result.Item[self.blob_col]
-  if !found { return ErrNotFound }
+  if !found { return types.ErrNotFound }
 
   switch v := abstract_val.(type) {
     case *dyn_types.AttributeValueMemberB:
@@ -204,7 +202,7 @@ func (self *dynamoMetadata) RecordSnapshotSeqHead(ctx context.Context, new_seq *
 
   head := &pb.SnapshotSeqHead{}
   err = self.ReadObject(ctx, new_seq.Volume.Uuid, head)
-  is_new_head := errors.Is(err, ErrNotFound)
+  is_new_head := errors.Is(err, types.ErrNotFound)
   if err != nil && !is_new_head { return nil, err }
 
   if head.CurSeqUuid == new_seq.Uuid {
@@ -304,5 +302,44 @@ func (self *dynamoMetadata) AppendChunkToSnapshot(
 
   util.PbInfof("Wrote chunk: %v", new_snap)
   return new_snap, nil
+}
+
+func (self *dynamoMetadata) ReadSnapshotSeqHead(
+    ctx context.Context, uuid string) (*pb.SnapshotSeqHead, error) {
+  if len(uuid) < 1 { return nil, fmt.Errorf("ReadSnapshotSeqHead: uuid is nil") }
+  head := &pb.SnapshotSeqHead{}
+  err := self.ReadObject(ctx, uuid, head)
+  if err != nil { return nil, err }
+  err = ValidateSnapshotSeqHead(head)
+  if err != nil { return nil, err }
+
+  util.PbInfof("Read head: %v", head)
+  return head, nil
+}
+
+func (self *dynamoMetadata) ReadSnapshotSeq(
+    ctx context.Context, uuid string) (*pb.SnapshotSequence, error) {
+  if len(uuid) < 1 { return nil, fmt.Errorf("ReadSnapshotSeq: uuid is nil") }
+  seq := &pb.SnapshotSequence{}
+  err := self.ReadObject(ctx, uuid, seq)
+  if err != nil { return nil, err }
+  err = ValidateSnapshotSequence(seq)
+  if err != nil { return nil, err }
+
+  util.PbInfof("Read sequence: %v", seq)
+  return seq, nil
+}
+
+func (self *dynamoMetadata) ReadSnapshot(
+    ctx context.Context, uuid string) (*pb.SubVolume, error) {
+  if len(uuid) < 1 { return nil, fmt.Errorf("ReadSnapshot: uuid is nil") }
+  snap := &pb.SubVolume{}
+  err := self.ReadObject(ctx, uuid, snap)
+  if err != nil { return nil, err }
+  err = ValidateSubVolume(CheckSnapWithContent, snap)
+  if err != nil { return nil, err }
+
+  util.PbInfof("Read subvolume: %v", snap)
+  return snap, nil
 }
 

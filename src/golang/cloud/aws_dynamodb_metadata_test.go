@@ -2,6 +2,7 @@ package cloud
 
 import (
   "context"
+  "errors"
   "fmt"
   "testing"
   "time"
@@ -320,5 +321,73 @@ func TestAppendSnapshotToChunk_Errors(t *testing.T) {
   chunk_4.KeyFingerprint = snap.Data.KeyFingerprint + "_wrong_keyfp"
   _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_4)
   if err == nil { t.Errorf("Expected error: %v", err) }
+}
+
+func TestReadSnapshotSeqHead(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, client := buildTestMetadata(t)
+  seq := dummySnapshotSequence("vol", "seq1")
+  expect_head := dummySnapshotSeqHead(seq)
+  client.putForTest(expect_head.Uuid, expect_head)
+
+  head, err := metadata.ReadSnapshotSeqHead(ctx, expect_head.Uuid)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  util.EqualsOrFailTest(t, head, expect_head)
+}
+
+func TestReadSnapshotSeqHead_NoHead(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, _ := buildTestMetadata(t)
+
+  _, err := metadata.ReadSnapshotSeqHead(ctx, "does_not_exist")
+  if errors.Is(err, types.ErrNotFound) { return }
+  if err != nil { t.Errorf("Returned error: %v", err) }
+}
+
+func TestReadSnapshotSeq(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, client := buildTestMetadata(t)
+  expect_seq := dummySnapshotSequence("vol", "seq1")
+  client.putForTest(expect_seq.Uuid, expect_seq)
+
+  seq, err := metadata.ReadSnapshotSeq(ctx, expect_seq.Uuid)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  util.EqualsOrFailTest(t, seq, expect_seq)
+}
+
+func TestReadSnapshotSeq_NoSequence(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, _ := buildTestMetadata(t)
+
+  _, err := metadata.ReadSnapshotSeq(ctx, "does_not_exist")
+  if errors.Is(err, types.ErrNotFound) { return }
+  if err != nil { t.Errorf("Returned error: %v", err) }
+}
+
+func TestReadSnapshot(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, client := buildTestMetadata(t)
+  expect_snap := dummySnapshot("snap_uuid", "vol_uuid")
+  expect_snap.Data = dummyChunks("chunk_uuid1")
+  client.putForTest(expect_snap.Uuid, expect_snap)
+
+  snap, err := metadata.ReadSnapshot(ctx, expect_snap.Uuid)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  util.EqualsOrFailTest(t, snap, expect_snap)
+}
+
+func TestReadSnapshotSeq_NoSnap(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, _ := buildTestMetadata(t)
+
+  _, err := metadata.ReadSnapshot(ctx, "does_not_exist")
+  if errors.Is(err, types.ErrNotFound) { return }
+  if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
