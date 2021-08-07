@@ -87,6 +87,20 @@ func (self *mockDynamoDbClient) PutItem(
   self.Data[key] = blobOrDie(params.Item, blob_col)
   return &dynamodb.PutItemOutput{}, nil
 }
+func (self *mockDynamoDbClient) DeleteItem(
+    ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+  key := keyAndtype{
+    Key: stringOrDie(params.Key, uuid_col),
+    Type: stringOrDie(params.Key, type_col),
+  }
+  _, found := self.Data[key]
+  if !found {
+    err := new(dyn_types.ConditionalCheckFailedException)
+    return &dynamodb.DeleteItemOutput{}, err
+  }
+  delete(self.Data, key)
+  return &dynamodb.DeleteItemOutput{}, nil
+}
 func (self *mockDynamoDbClient) putForTest(k string, p proto.Message) {
   key := keyAndtype{
     Key: k,
@@ -104,6 +118,15 @@ func (self *mockDynamoDbClient) getForTest(k string, p proto.Message) bool {
     return true
   }
   return false
+}
+func (self *mockDynamoDbClient) delForTest(k string, p proto.Message) bool {
+  key := keyAndtype{
+    Key: k,
+    Type: string(p.ProtoReflect().Descriptor().FullName()),
+  }
+  _, found := self.Data[key]
+  if found { delete(self.Data, key) }
+  return found
 }
 
 func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {

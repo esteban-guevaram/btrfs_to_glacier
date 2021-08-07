@@ -34,6 +34,7 @@ type usedDynamoDbIf interface {
   DescribeTable(ctx context.Context, params *dynamodb.DescribeTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
   GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
   PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+  DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
 }
 
 type dynamoMetadata struct {
@@ -48,7 +49,7 @@ type dynamoMetadata struct {
   describe_retry time.Duration
 }
 
-func NewMetadata(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (*dynamoMetadata, error) { //(types.Metadata, error) {
+func NewMetadata(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.Metadata, error) {
   meta := &dynamoMetadata{
     conf: conf,
     codec: codec,
@@ -300,7 +301,7 @@ func (self *dynamoMetadata) AppendChunkToSnapshot(
   err = self.WriteObject(ctx, new_snap.Uuid, new_snap)
   if err != nil { return nil, err }
 
-  util.PbInfof("Wrote chunk: %v", new_snap)
+  util.PbInfof("Wrote snapshot: %v", new_snap)
   return new_snap, nil
 }
 

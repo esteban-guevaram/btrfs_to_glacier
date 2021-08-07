@@ -214,27 +214,79 @@ func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
   util.EqualsOrDie(expect_snap, snap)
 }
 
+func TestDeleteSnapshot(ctx context.Context, metadata types.DeleteMetadata) {
+  snap := dummySnapshot(timedUuid("snap"), timedUuid("par"))
+  chunk_1 := dummyChunks(timedUuid("chunk_1"))
+
+  err := metadata.DeleteSnapshot(ctx, snap.Uuid)
+  if !errors.Is(err, types.ErrNotFound) {
+    util.Fatalf("TestDeleteSnapshot %s: %v", snap.Uuid, err)
+  }
+
+  _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_1)
+  if err != nil { util.Fatalf("%v", err) }
+
+  err = metadata.DeleteSnapshot(ctx, snap.Uuid)
+  if err != nil { util.Fatalf("%v", err) }
+}
+
+func TestDeleteSnapshotSeq(ctx context.Context, metadata types.DeleteMetadata) {
+  vol_uuid := timedUuid("vol")
+  snap := dummySnapshot(timedUuid("snap"), vol_uuid)
+  seq := dummySnapshotSequence(vol_uuid, timedUuid("seq"))
+
+  err := metadata.DeleteSnapshotSeq(ctx, seq.Uuid)
+  if !errors.Is(err, types.ErrNotFound) {
+    util.Fatalf("TestDeleteSnapshotSeq %s: %v", seq.Uuid, err)
+  }
+
+  _, err = metadata.AppendSnapshotToSeq(ctx, seq, snap)
+  if err != nil { util.Fatalf("%v", err) }
+
+  err = metadata.DeleteSnapshotSeq(ctx, seq.Uuid)
+  if err != nil { util.Fatalf("%v", err) }
+}
+
+func TestDeleteSnapshotSeqHead(ctx context.Context, metadata types.DeleteMetadata) {
+  vol_uuid := timedUuid("vol")
+  seq := dummySnapshotSequence(vol_uuid, timedUuid("seq"))
+
+  err := metadata.DeleteSnapshotSeqHead(ctx, vol_uuid)
+  if !errors.Is(err, types.ErrNotFound) {
+    util.Fatalf("TestDeleteSnapshotSeq %s: %v", vol_uuid, err)
+  }
+
+  _, err = metadata.RecordSnapshotSeqHead(ctx, seq)
+  if err != nil { util.Fatalf("%v", err) }
+
+  err = metadata.DeleteSnapshotSeqHead(ctx, vol_uuid)
+  if err != nil { util.Fatalf("%v", err) }
+}
+
 func main() {
   util.Infof("cloud_integration run")
 
   var err error
   var aws_conf *aws.Config
-  var metadata types.Metadata
+  var metadata types.DeleteMetadata
   ctx := context.Background()
   conf := util.LoadTestConf()
   codec := new(types.MockCodec)
   aws_conf, err = cloud.NewAwsConfig(ctx, conf)
   if err != nil { util.Fatalf("%v", err) }
-  metadata, err = cloud.NewMetadata(conf, aws_conf, codec)
+  metadata, err = cloud.NewDelMetadata(conf, aws_conf, codec)
   if err != nil { util.Fatalf("%v", err) }
 
-  TestMetadataSetup(ctx, metadata)
-  TestRecordSnapshotSeqHead(ctx, metadata)
-  TestAppendSnapshotToSeq(ctx, metadata)
-  TestAppendChunkToSnapshot(ctx, metadata)
-  TestReadSnapshotSeqHead(ctx, metadata)
-  TestReadSnapshotSeq(ctx, metadata)
-  TestReadSnapshot(ctx, metadata)
+  //TestMetadataSetup(ctx, metadata)
+  //TestRecordSnapshotSeqHead(ctx, metadata)
+  //TestAppendSnapshotToSeq(ctx, metadata)
+  //TestAppendChunkToSnapshot(ctx, metadata)
+  //TestReadSnapshotSeqHead(ctx, metadata)
+  //TestReadSnapshotSeq(ctx, metadata)
+  //TestReadSnapshot(ctx, metadata)
+  TestDeleteSnapshot(ctx, metadata)
+  TestDeleteSnapshotSeq(ctx, metadata)
+  TestDeleteSnapshotSeqHead(ctx, metadata)
   util.Infof("ALL DONE")
 }
 

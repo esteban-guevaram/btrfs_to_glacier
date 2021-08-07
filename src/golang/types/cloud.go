@@ -46,13 +46,23 @@ type Metadata interface {
   ReadSnapshot(ctx context.Context, uuid string) (*pb.SubVolume, error)
 }
 
-type DangerMetadata interface {
+// Separate from `Metadata` since it contains dangerous operations that should only be invoked during clean-up.
+type DeleteMetadata interface {
   Metadata
 
-  DeleteAllMetadata() error
-  DeleteSnapshotSeqHead() error
-  DeleteSnapshotSeq() error
-  DeleteSnapshotChunks() error
+  // Deletes sequence head for subvolume with `uuid`.
+  // If there is no head, returns `ErrNotFound`.
+  // This should be called **before** the snapshot sequences referenced by the head have been deleted.
+  DeleteSnapshotSeqHead(ctx context.Context, uuid string) error
+
+  // Deletes snapshot sequence with key `uuid`.
+  // If there is no sequence, returns `ErrNotFound`.
+  // This should be called **before** the snapshots referenced by the sequence have been deleted.
+  DeleteSnapshotSeq(ctx context.Context, uuid string) error
+
+  // Deletes subvolume with `uuid`.
+  // If there is no subvolume, returns `ErrNotFound`.
+  DeleteSnapshot(ctx context.Context, uuid string) error
 }
 
 // Implementation questions
