@@ -18,6 +18,7 @@ GO_PROTOC_INSTALL := $(STAGE_PATH)/gobin/protoc-gen-go
 GO_PROTO_GEN_SRCS := $(MYGOSRC)/messages/config.pb.go $(MYGOSRC)/messages/messages.pb.go
 MYDLVINIT         := $(STAGE_PATH)/dlv_init
 AWS_TEMP_CREDS    := $(STAGE_PATH)/aws_temp_creds
+AWS_TEMP_CREDS_SH := $(STAGE_PATH)/aws_temp_creds.sh
 PROTOSRC          := src/proto
 CC                := gcc
 CPPFLAGS          := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
@@ -44,10 +45,8 @@ clean:
 	fi
 	rm -rf bin/*
 
-dyn_integ: all $(AWS_TEMP_CREDS)
-	ACCESS=`cat "$(AWS_TEMP_CREDS)" | grep '"AccessKeyId":' | sed -r 's/.*"([^"]+)",?$$/\1/'`
-	SECRET=`cat "$(AWS_TEMP_CREDS)" | grep '"SecretAccessKey":' | sed -r 's/.*"([^"]+)",?$$/\1/'`
-	SESSION=`cat "$(AWS_TEMP_CREDS)" | grep '"SessionToken":' | sed -r 's/.*"([^"]+)",?$$/\1/'`
+dyn_integ: all $(AWS_TEMP_CREDS_SH)
+	source "$(AWS_TEMP_CREDS_SH)"
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./cloud/cloud_integration \
 		--access="$$ACCESS" --secret="$$SECRET" --session="$$SESSION" \
@@ -89,6 +88,12 @@ go_debug: go_code
 	  dlv test "btrfs_to_glacier/encryption" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
 		  -- --test.run='TestEncryptStream$$' --test.v
 
+go_upgrade_mods: $(GOENV)
+	pushd "$(MYGOSRC)"
+	GOENV="$(GOENV)" go list -u -m all
+	#GOENV="$(GOENV)" go get -t -u ./...
+	GOENV="$(GOENV)" go mod tidy
+
 $(GOENV): | bin
 	# Could also be achieved with linker flags to override global vars
 	# https://www.digitalocean.com/community/tutorials/using-ldflags-to-set-version-information-for-go-applications
@@ -115,13 +120,21 @@ $(MYGOSRC)/messages/%.pb.go: $(PROTOSRC)/%.proto $(GOENV) | $(GO_PROTOC_INSTALL)
 	export PATH="$(PATH):`GOENV="$(GOENV)" go env GOBIN`"
 	protoc '-I=$(PROTOSRC)' '--go_out=$(MYGOSRC)' "$<"
 
-$(AWS_TEMP_CREDS): | bin
-	aws --profile=dynamo_root sts get-session-token --duration-seconds=54000 \
+$(AWS_TEMP_CREDS_SH) $(AWS_TEMP_CREDS) &: | bin
+	aws --profile=btrfs_to_glacier_root sts get-session-token --duration-seconds=54000 \
 	  > "$(AWS_TEMP_CREDS)"
-	EXPIRE=`cat "$(AWS_TEMP_CREDS)" | grep '"Expiration":' | sed -r 's/.*"([^"]+)",?$$/\1/'`
-	EXP_SECS=`date --date="$$EXPIRE" +%s`
-	NOW_SECS=`date +%s`
-	[[ "$$NOW_SECS" -le "$$EXP_SECS" ]] || echo "ERROR expired creds"
+	gawk '
+	  function unquote(arg) { return gensub(/.*"([^"]+)",?/, "\"\\1\"", "g", arg); }
+		/"AccessKeyId":/     { print("ACCESS=" unquote($$2)); }
+		/"SecretAccessKey":/ { print("SECRET=" unquote($$2)); }
+		/"SessionToken":/    { print("SESSION=" unquote($$2)); }
+		/"Expiration":/      { print("EXP_SECS=`date --date=" unquote($$2) " +%s`"); }
+		END {
+		  print("NOW_SECS=`date +%s`");
+			print("[[ \$$NOW_SECS -le \$$EXP_SECS ]] || echo ERROR expired creds");
+		}
+	' "$(AWS_TEMP_CREDS)" > "$(AWS_TEMP_CREDS_SH)"
+	source "$(AWS_TEMP_CREDS_SH)"
 
 $(call c_lib,linux_utils): LDLIBS := -lcap
 $(call c_lib,linux_utils): bin/linux_utils.o bin/common.o
