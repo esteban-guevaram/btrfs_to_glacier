@@ -7,9 +7,9 @@ import pb "btrfs_to_glacier/messages"
 var ErrNotFound = errors.New("key_not_found_in_metadata")
 
 type Metadata interface {
-  // Creates the storage objects (depend on implementation) that will contain the metadata.
+  // Creates the infrastructure (depend on implementation) that will contain the metadata.
   // Creation can take some time so it is done asynchronously.
-  // If the channel contains a null error then the storage has been created ok and is ready to use.
+  // If the channel contains a null error then the infrastructure has been created ok and is ready to use.
   // It is a noop if they are already created.
   SetupMetadata(ctx context.Context) (<-chan error)
 
@@ -65,15 +65,20 @@ type DeleteMetadata interface {
   DeleteSnapshot(ctx context.Context, uuid string) error
 }
 
-// Implementation questions
-// * Use s3 with storage classes Vs glacier direct api
-//   * Same pricing (but s3 has cheaper deep class)
-//   * Direct glacier has eternal free tier
-//   * S3 implementation can use standard tier for testing
 type Storage interface {
+  // Creates the infrastructure (depend on implementation) that will contain the storage.
+  // Creation can take some time so it is done asynchronously.
+  // If the channel contains a null error then the infrastructure has been created ok and is ready to use.
+  // It is a noop if they are already created.
+  SetupStorage(ctx context.Context) (<-chan error)
+
   WriteStream() error
   SendRestoreRq() error
   ReadStream() error
+}
+
+type DeleteStorage interface {
+  Storage
   DeleteBlob() error
 }
 
