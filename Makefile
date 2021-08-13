@@ -91,7 +91,7 @@ go_debug: go_code
 go_upgrade_mods: $(GOENV)
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go list -u -m all
-	#GOENV="$(GOENV)" go get -t -u ./...
+	GOENV="$(GOENV)" go get -t -u ./...
 	GOENV="$(GOENV)" go mod tidy
 
 $(GOENV): | bin
