@@ -10,7 +10,16 @@ message Aws {
   string session_token = 3;
 
   string region = 4;
-  string dynamo_table_name = 5;
+
+  message DynamoDb {
+    string table_name = 6;
+  }
+  DynamoDb dynamo_db = 5;
+
+  message S3 {
+    string bucket_name = 6;
+  }
+  S3 s3 = 6;
 }
 
 message Config {

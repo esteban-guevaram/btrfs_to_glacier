@@ -72,7 +72,7 @@ func wrapInChan(err error) (<-chan error) {
 
 func (self *dynamoMetadata) describeTable(ctx context.Context, tabname string) (*dyn_types.TableDescription, error) {
   params := &dynamodb.DescribeTableInput{
-    TableName: &self.conf.Aws.DynamoTableName,
+    TableName: &self.conf.Aws.DynamoDb.TableName,
   }
   result, err := self.client.DescribeTable(ctx, params)
   if err != nil {
@@ -116,7 +116,7 @@ func (self *dynamoMetadata) waitForTableCreation(ctx context.Context, tabname st
 }
 
 func (self *dynamoMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
-  tabname := self.conf.Aws.DynamoTableName
+  tabname := self.conf.Aws.DynamoDb.TableName
 
   attrs := []dyn_types.AttributeDefinition{
     dyn_types.AttributeDefinition{&self.uuid_col, dyn_types.ScalarAttributeTypeS},
@@ -161,7 +161,7 @@ func getItemKey(key string, msg proto.Message) map[string]dyn_types.AttributeVal
 func (self *dynamoMetadata) ReadObject(ctx context.Context, key string, msg proto.Message) error {
   consistent := false
   params := &dynamodb.GetItemInput{
-    TableName: &self.conf.Aws.DynamoTableName,
+    TableName: &self.conf.Aws.DynamoDb.TableName,
     Key: getItemKey(key, msg),
     ProjectionExpression: &self.blob_col,
     ConsistentRead: &consistent,
@@ -190,7 +190,7 @@ func (self *dynamoMetadata) WriteObject(ctx context.Context, key string, msg pro
   if err != nil { return err }
   item[blob_col] = &dyn_types.AttributeValueMemberB{blob}
   params := &dynamodb.PutItemInput{
-    TableName: &self.conf.Aws.DynamoTableName,
+    TableName: &self.conf.Aws.DynamoDb.TableName,
     Item: item,
   }
   _, err = self.client.PutItem(ctx, params)

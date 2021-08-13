@@ -1,6 +1,3 @@
-# https://096187466395.signin.aws.amazon.com/console
-# arn:aws:iam::096187466395:user/root
-
 TAB_PREFIX="Metadata_Test"
 TAB_NAME="${TAB_PREFIX}_coucou2"
 PROTO_INCLUDE="src/proto"

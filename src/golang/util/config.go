@@ -36,7 +36,7 @@ func overwriteWithFlags(conf *pb.Config) {
   if secret_flag != "" { conf.Aws.SecretAccessKey = secret_flag }
   if session_flag != "" { conf.Aws.SessionToken = session_flag }
   if region_flag != "" { conf.Aws.Region = region_flag }
-  if table_flag != "" { conf.Aws.DynamoTableName = table_flag }
+  if table_flag != "" { conf.Aws.DynamoDb.TableName = table_flag }
 }
 
 func LoadTestConf() *pb.Config {
@@ -47,7 +47,7 @@ func LoadTestConf() *pb.Config {
       AccessKeyId: "coucou",
       SecretAccessKey: "coucou",
       Region: "coucou",
-      DynamoTableName: "coucou",
+      DynamoDb: &pb.Aws_DynamoDb{ TableName: "coucou", },
     },
   }
   overwriteWithFlags(&conf)
