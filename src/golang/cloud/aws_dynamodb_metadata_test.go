@@ -195,7 +195,7 @@ func TestTableCreation_Idempotent(t *testing.T) {
     case err := <-done:
       if err != nil { t.Errorf("Returned error: %v", err) }
     case <-ctx.Done():
-      t.Fatalf("TestTableCreation_Immediate timeout")
+      t.Fatalf("TestTableCreation_Wait timeout")
   }
 }
 
