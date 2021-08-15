@@ -133,13 +133,11 @@ func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {
   conf := util.LoadTestConf()
   client := new(mockDynamoDbClient)
   client.Data = make(map[keyAndtype][]byte)
-  codec := new(types.MockCodec)
   aws_conf, err := NewAwsConfig(context.TODO(), conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
 
   meta := &dynamoMetadata{
     conf: conf,
-    codec: codec,
     aws_conf: aws_conf,
     client: client,
     uuid_col: uuid_col,

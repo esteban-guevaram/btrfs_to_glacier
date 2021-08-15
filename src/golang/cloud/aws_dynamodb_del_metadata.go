@@ -20,8 +20,8 @@ type dynamoDelMetadata struct {
   *dynamoMetadata
 }
 
-func NewDelMetadata(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.DeleteMetadata, error) {
-  meta, err := NewMetadata(conf, aws_conf, codec)
+func NewDelMetadata(conf *pb.Config, aws_conf *aws.Config) (types.DeleteMetadata, error) {
+  meta, err := NewMetadata(conf, aws_conf)
   if err != nil { return nil, err }
   return &dynamoDelMetadata{ meta.(*dynamoMetadata) }, nil
 }

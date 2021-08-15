@@ -39,7 +39,6 @@ type usedDynamoDbIf interface {
 
 type dynamoMetadata struct {
   conf     *pb.Config
-  codec    types.Codec
   aws_conf *aws.Config
   client   usedDynamoDbIf
   // Needed because aws sdk requires pointers to string
@@ -49,10 +48,9 @@ type dynamoMetadata struct {
   describe_retry time.Duration
 }
 
-func NewMetadata(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.Metadata, error) {
+func NewMetadata(conf *pb.Config, aws_conf *aws.Config) (types.Metadata, error) {
   meta := &dynamoMetadata{
     conf: conf,
-    codec: codec,
     aws_conf: aws_conf,
     client: dynamodb.NewFromConfig(*aws_conf),
     uuid_col: uuid_col,

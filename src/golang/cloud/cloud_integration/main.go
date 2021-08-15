@@ -78,12 +78,14 @@ func main() {
   var metadata types.DeleteMetadata
   ctx := context.Background()
   conf := util.LoadTestConf()
-  codec := new(types.MockCodec)
+  //codec := new(types.MockCodec)
+
   aws_conf, err = cloud.NewAwsConfig(ctx, conf)
   if err != nil { util.Fatalf("%v", err) }
-  metadata, err = cloud.NewDelMetadata(conf, aws_conf, codec)
+  metadata, err = cloud.NewDelMetadata(conf, aws_conf)
   if err != nil { util.Fatalf("%v", err) }
 
+  TestMetadataSetup(ctx, metadata)
   TestAllReadWrite(ctx, metadata)
   TestAllDelete(ctx, metadata)
   util.Infof("ALL DONE")
