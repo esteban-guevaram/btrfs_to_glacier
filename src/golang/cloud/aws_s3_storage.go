@@ -20,10 +20,11 @@ import (
   "github.com/aws/aws-sdk-go-v2/aws"
   "github.com/aws/aws-sdk-go-v2/service/s3"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+  "github.com/aws/smithy-go"
 )
 
 const (
-  bucket_wait_secs = 5
+  bucket_wait_secs = 60
   deep_glacier_trans_days = 30
   remove_multipart_days = 3
   rule_name_suffix = "chunk.lifecycle"
@@ -34,8 +35,8 @@ const (
 type usedS3If interface {
   CreateBucket(context.Context, *s3.CreateBucketInput, ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
   HeadBucket  (context.Context, *s3.HeadBucketInput,   ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
-  ListBuckets (context.Context, *s3.ListBucketsInput,  ...func(*s3.Options)) (*s3.ListBucketsOutput, error)
   PutBucketLifecycleConfiguration(context.Context, *s3.PutBucketLifecycleConfigurationInput, ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
+  PutPublicAccessBlock(context.Context, *s3.PutPublicAccessBlockInput, ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error)
 }
 
 type s3Storage struct {
@@ -44,6 +45,7 @@ type s3Storage struct {
   aws_conf    *aws.Config
   client      usedS3If
   bucket_wait time.Duration
+  account_id  string
   deep_glacier_trans_days int32
   remove_multipart_days   int32
   rule_name_suffix        string
@@ -56,6 +58,7 @@ func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types
     aws_conf: aws_conf,
     client: s3.NewFromConfig(*aws_conf),
     bucket_wait: bucket_wait_secs * time.Second,
+    account_id: "", // lazy fetch
     deep_glacier_trans_days: deep_glacier_trans_days,
     remove_multipart_days: remove_multipart_days,
     rule_name_suffix: rule_name_suffix,
@@ -63,28 +66,36 @@ func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types
   return storage, nil
 }
 
+// Ugly fix because this does not do sh*t 
+// if errors.As(err, new(s3_types.NoSuchBucket)) { ... }
+func IsS3Error(fixed_err smithy.APIError, err error) bool {
+  if err != nil {
+    // Be careful it is a trap ! This will not take into account the underlying type
+    //if errors.As(err, &fixed_err) { ... }
+    var ae smithy.APIError
+    if errors.As(err, &ae) {
+      return ae.ErrorCode() == fixed_err.ErrorCode()
+    }
+  }
+  return false
+}
+
 // Returns false if the bucket does not exist.
 func (self *s3Storage) checkBucketExistsAndIsOwnedByMyAccount(ctx context.Context) (bool, error) {
   var err error
-  var list_out *s3.ListBucketsOutput
-
-  list_out, err = self.client.ListBuckets(ctx, &s3.ListBucketsInput{})
-  if err != nil { return false, err }
-  if list_out.Owner == nil {
-    return false, fmt.Errorf("Expected owner in response from HeadBucket")
+  if len(self.account_id) < 1 {
+    self.account_id, err = GetAccountId(ctx, self.aws_conf)
+    if err != nil { return false, err }
   }
-  // Horrible terminology, this ID is an obfuscated version of the account number.
-  canonical_account_id := *(list_out.Owner.ID)
 
   head_in := &s3.HeadBucketInput{
     Bucket: &self.conf.Aws.S3.BucketName,
-    ExpectedBucketOwner: &canonical_account_id,
+    ExpectedBucketOwner: &self.account_id,
   }
   _, err = self.client.HeadBucket(ctx, head_in)
 
-  no_bucket_err := new(s3_types.NoSuchBucket)
-  if errors.As(err, &no_bucket_err) {
-    util.Debugf("'%s' does not exist", self.conf.Aws.S3.BucketName)
+  if IsS3Error(new(s3_types.NotFound), err) || IsS3Error(new(s3_types.NoSuchBucket), err) {
+    util.Debugf("Bucket '%s' does not exist", self.conf.Aws.S3.BucketName)
     return false, nil
   }
   if err != nil { return false, err }
@@ -126,6 +137,18 @@ func (self *s3Storage) createBucket(ctx context.Context) error {
   wait_rq := &s3.HeadBucketInput{ Bucket: &self.conf.Aws.S3.BucketName, }
   err = waiter.Wait(ctx, wait_rq, self.bucket_wait)
   if err != nil { return err }
+
+  access_in := &s3.PutPublicAccessBlockInput{
+    Bucket: &self.conf.Aws.S3.BucketName,
+    PublicAccessBlockConfiguration: &s3_types.PublicAccessBlockConfiguration{
+      BlockPublicAcls: true,
+      IgnorePublicAcls: true,
+      BlockPublicPolicy: true,
+      RestrictPublicBuckets: true,
+    },
+  }
+  _, err = self.client.PutPublicAccessBlock(ctx, access_in)
+  if err != nil { return err }
   return nil
 }
 
@@ -141,10 +164,11 @@ func (self *s3Storage) createLifecycleRule(ctx context.Context) error {
     Days: self.deep_glacier_trans_days,
     StorageClass: s3_types.TransitionStorageClassDeepArchive,
   }
+  global_filter := &s3_types.LifecycleRuleFilterMemberPrefix{ Value: "", }
   rule := s3_types.LifecycleRule{
     ID: &name,
     Status: s3_types.ExpirationStatusEnabled,
-    Filter: nil, //global
+    Filter: global_filter,
     AbortIncompleteMultipartUpload: &s3_types.AbortIncompleteMultipartUpload{
       DaysAfterInitiation: self.remove_multipart_days,
     },
@@ -170,9 +194,9 @@ func (self *s3Storage) SetupStorage(ctx context.Context) (<-chan error) {
   done := make(chan error, 1)
   go func() {
     defer close(done)
-    not_exist, err := self.checkBucketExistsAndIsOwnedByMyAccount(ctx)
+    exists, err := self.checkBucketExistsAndIsOwnedByMyAccount(ctx)
     if err != nil { done <- err ; return }
-    if !not_exist { done <- nil ; return }
+    if exists { done <- nil ; return }
 
     err = self.createBucket(ctx)
     if err != nil { done <- err ; return }

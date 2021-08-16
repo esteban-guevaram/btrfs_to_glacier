@@ -1,9 +1,10 @@
 package main
 
 import (
-  "fmt"
-  "time"
   "context"
+  "fmt"
+  "strconv"
+  "time"
 
   "btrfs_to_glacier/cloud"
   pb "btrfs_to_glacier/messages"
@@ -11,6 +12,10 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/aws"
+  "github.com/aws/aws-sdk-go-v2/service/s3"
+  s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+  "google.golang.org/protobuf/proto"
 )
 
 func timedUuid(base_uuid string) string {
@@ -70,24 +75,89 @@ func TestMetadataSetup(ctx context.Context, metadata types.Metadata) {
   }
 }
 
-func main() {
-  util.Infof("cloud_integration run")
+func TestStorageSetup(ctx context.Context, conf *pb.Config, aws_conf *aws.Config, storage types.Storage) {
+  client := s3.NewFromConfig(*aws_conf)
+  _, err := client.DeleteBucket(ctx, &s3.DeleteBucketInput{
+    Bucket: &conf.Aws.S3.BucketName,
+  })
 
-  var err error
-  var aws_conf *aws.Config
-  var metadata types.DeleteMetadata
-  ctx := context.Background()
-  conf := util.LoadTestConf()
-  //codec := new(types.MockCodec)
+  if err != nil {
+    if !cloud.IsS3Error(new(s3_types.NoSuchBucket), err) {
+      util.Fatalf("%v", err)
+    }
+    util.Infof("TestStorageSetup '%s' not exist", conf.Aws.S3.BucketName)
+  } else {
+    waiter := s3.NewBucketNotExistsWaiter(client)
+    wait_rq := &s3.HeadBucketInput{ Bucket: &conf.Aws.S3.BucketName, }
+    err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
+    if err != nil { util.Fatalf("%v", err) }
+    util.Infof("TestStorageSetup '%s' deleted", conf.Aws.S3.BucketName)
+  }
 
-  aws_conf, err = cloud.NewAwsConfig(ctx, conf)
+  done := storage.SetupStorage(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("%v", err) }
+    case <-ctx.Done():
+  }
+
+  done = storage.SetupStorage(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("Not idempotent %v", err) }
+    case <-ctx.Done():
+  }
+}
+
+func TestAllStorage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
+  codec := new(types.MockCodec)
+  storage, err := cloud.NewStorage(conf, aws_conf, codec)
   if err != nil { util.Fatalf("%v", err) }
-  metadata, err = cloud.NewDelMetadata(conf, aws_conf)
+
+  TestStorageSetup(ctx, conf, aws_conf, storage)
+}
+
+func TestAllMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
+  metadata, err := cloud.NewDelMetadata(conf, aws_conf)
   if err != nil { util.Fatalf("%v", err) }
 
   TestMetadataSetup(ctx, metadata)
   TestAllReadWrite(ctx, metadata)
   TestAllDelete(ctx, metadata)
+}
+
+func TestCallerIdentity(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
+  var err error
+  var id_int int
+  var account_id string
+  account_id, err = cloud.GetAccountId(ctx, aws_conf)
+  if err != nil { util.Fatalf("%v", err) }
+  id_int, err = strconv.Atoi(account_id)
+  if err != nil || id_int < 1 { util.Fatalf("invalid account id") }
+}
+
+func useUniqueInfrastructureNames(conf *pb.Config) *pb.Config {
+  new_conf := proto.Clone(conf).(*pb.Config)
+  new_conf.Aws.DynamoDb.TableName = fmt.Sprintf("%s%d", conf.Aws.DynamoDb.TableName,
+                                                time.Now().Unix())
+  new_conf.Aws.S3.BucketName = fmt.Sprintf("%s%d", conf.Aws.S3.BucketName,
+                                           time.Now().Unix())
+  return new_conf
+}
+
+func main() {
+  util.Infof("cloud_integration run")
+
+  ctx := context.Background()
+  //conf := useUniqueInfrastructureNames(util.LoadTestConf())
+  conf := util.LoadTestConf()
+
+  aws_conf, err := cloud.NewAwsConfig(ctx, conf)
+  if err != nil { util.Fatalf("%v", err) }
+
+  //TestCallerIdentity(ctx, conf, aws_conf)
+  TestAllStorage(ctx, conf, aws_conf)
+  //TestAllMetadata(ctx, conf, aws_conf)
   util.Infof("ALL DONE")
 }
 

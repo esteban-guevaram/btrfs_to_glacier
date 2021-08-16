@@ -15,12 +15,13 @@ import (
 
 type mockS3Client struct {
   Err error
-  CanonId string
+  AccountId string
   Data map[string][]byte
   Buckets map[string]bool
   HeadAlwaysEmpty bool
   HeadAlwaysAccessDenied bool
   LastLifecycleIn *s3.PutBucketLifecycleConfigurationInput
+  LastPublicAccessBlockIn *s3.PutPublicAccessBlockInput
 }
 
 func (self *mockS3Client) CreateBucket(
@@ -28,25 +29,13 @@ func (self *mockS3Client) CreateBucket(
   self.Buckets[*in.Bucket] = true
   return &s3.CreateBucketOutput{}, self.Err
 }
-func (self *mockS3Client) ListBuckets (
-    context.Context, *s3.ListBucketsInput, ...func(*s3.Options)) (*s3.ListBucketsOutput, error) {
-  buckets := make([]s3_types.Bucket, 0, len(self.Buckets))
-  for name,_ := range self.Buckets {
-    buckets = append(buckets, s3_types.Bucket{ Name: &name, })
-  }
-  rs := &s3.ListBucketsOutput{
-    Buckets: buckets,
-    Owner: &s3_types.Owner{ ID: &self.CanonId, },
-  }
-  return rs, self.Err
-}
 func (self *mockS3Client) HeadBucket(
     ctx context.Context, in *s3.HeadBucketInput, opts ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {
   _,found := self.Buckets[*(in.Bucket)]
   if self.HeadAlwaysEmpty || !found {
     return nil, new(s3_types.NoSuchBucket)
   }
-  bad_owner := in.ExpectedBucketOwner != nil && *(in.ExpectedBucketOwner) != self.CanonId
+  bad_owner := in.ExpectedBucketOwner != nil && *(in.ExpectedBucketOwner) != self.AccountId
   if self.HeadAlwaysAccessDenied || bad_owner {
     // Error model is too complex to mock
     // https://aws.github.io/aws-sdk-go-v2/docs/handling-errors/#api-error-responses
@@ -60,11 +49,16 @@ func (self *mockS3Client) PutBucketLifecycleConfiguration(
   rs := &s3.PutBucketLifecycleConfigurationOutput{}
   return rs, self.Err
 }
+func (self *mockS3Client) PutPublicAccessBlock(
+    ctx context.Context, in *s3.PutPublicAccessBlockInput, opts ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error) {
+  self.LastPublicAccessBlockIn = in
+  return &s3.PutPublicAccessBlockOutput{}, self.Err
+}
 
 func buildTestStorage(t *testing.T) (*s3Storage, *mockS3Client) {
   conf := util.LoadTestConf()
   client := &mockS3Client {
-    CanonId: "some_random_string",
+    AccountId: "some_random_string",
     Data: make(map[string][]byte),
     Buckets: make(map[string]bool),
     HeadAlwaysEmpty: false,
@@ -80,6 +74,7 @@ func buildTestStorage(t *testing.T) (*s3Storage, *mockS3Client) {
     aws_conf: aws_conf,
     client: client,
     bucket_wait: 10 * time.Millisecond,
+    account_id: client.AccountId,
     deep_glacier_trans_days: deep_glacier_trans_days,
     remove_multipart_days: remove_multipart_days,
     rule_name_suffix: rule_name_suffix,
@@ -90,9 +85,14 @@ func buildTestStorage(t *testing.T) (*s3Storage, *mockS3Client) {
 func TestBucketCreation_Immediate(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  storage,_ := buildTestStorage(t)
+  storage,client := buildTestStorage(t)
   err := storage.createBucket(ctx)
   if err != nil { t.Fatalf("Failed aws create bucket: %v", err) }
+  if _,ok := client.Buckets[storage.conf.Aws.S3.BucketName]; !ok {
+    t.Fatalf("Create bucket did not do a thing: %v", err)
+  }
+  block_conf := client.LastPublicAccessBlockIn.PublicAccessBlockConfiguration
+  if !block_conf.BlockPublicAcls { t.Fatalf("Malformed request: %v", *(client.LastPublicAccessBlockIn)) }
 }
 
 func TestBucketCreation_Timeout(t *testing.T) {
@@ -139,7 +139,6 @@ func TestCreateLifecycleRule(t *testing.T) {
   storage,client := buildTestStorage(t)
   err := storage.createLifecycleRule(ctx)
   if err != nil { t.Fatalf("Failed lifecycle creation: %v", err) }
-  if client.LastLifecycleIn.LifecycleConfiguration == nil { t.Fatalf("Malformed request: %v", *(client.LastLifecycleIn)) }
   lf_conf := client.LastLifecycleIn.LifecycleConfiguration
   if len(lf_conf.Rules) != 1 { t.Fatalf("Malformed request: %v", *(client.LastLifecycleIn)) }
 }

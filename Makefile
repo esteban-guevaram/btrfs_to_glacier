@@ -45,12 +45,12 @@ clean:
 	fi
 	rm -rf bin/*
 
-dyn_integ: all $(AWS_TEMP_CREDS_SH)
+cloud_integ: all $(AWS_TEMP_CREDS_SH)
 	source "$(AWS_TEMP_CREDS_SH)"
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./cloud/cloud_integration \
 		--access="$$ACCESS" --secret="$$SECRET" --session="$$SESSION" \
-		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)"
+		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)" --bucket="$(AWS_BUCKET)"
 
 test: all go_unittest | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1

@@ -10,6 +10,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.2.2
 	github.com/aws/aws-sdk-go-v2/service/iam v1.8.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.5.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.3.0
+	github.com/aws/smithy-go v1.7.0
 	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2
 	google.golang.org/protobuf v1.25.0
 )
