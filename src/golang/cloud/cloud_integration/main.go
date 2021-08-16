@@ -2,6 +2,7 @@ package main
 
 import (
   "context"
+  "errors"
   "fmt"
   "strconv"
   "time"
@@ -12,6 +13,8 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/aws"
+  "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+  dyn_types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
   "github.com/aws/aws-sdk-go-v2/service/s3"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
@@ -66,11 +69,35 @@ func dummySnapshotSequence(vol_uuid string, seq_uuid string) *pb.SnapshotSequenc
   }
 }
 
-func TestMetadataSetup(ctx context.Context, metadata types.Metadata) {
+func TestMetadataSetup(ctx context.Context, conf *pb.Config, aws_conf *aws.Config, metadata types.Metadata) {
+  client := dynamodb.NewFromConfig(*aws_conf)
+  _, err := client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+    TableName: &conf.Aws.DynamoDb.TableName,
+  })
+
+  if err != nil {
+    apiErr := new(dyn_types.ResourceNotFoundException)
+    if !errors.As(err, &apiErr) { util.Fatalf("%v", err) }
+    util.Infof("TestMetadataSetup '%s' not exist", conf.Aws.DynamoDb.TableName)
+  } else {
+    waiter := dynamodb.NewTableNotExistsWaiter(client)
+    wait_rq := &dynamodb.DescribeTableInput{ TableName: &conf.Aws.DynamoDb.TableName, }
+    err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
+    if err != nil { util.Fatalf("%v", err) }
+    util.Infof("TestMetadataSetup '%s' deleted", conf.Aws.DynamoDb.TableName)
+  }
+
   done := metadata.SetupMetadata(ctx)
   select {
     case err := <-done:
       if err != nil { util.Fatalf("%v", err) }
+    case <-ctx.Done():
+  }
+
+  done = metadata.SetupMetadata(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("Idempotent err: %v", err) }
     case <-ctx.Done():
   }
 }
@@ -121,7 +148,7 @@ func TestAllMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config)
   metadata, err := cloud.NewDelMetadata(conf, aws_conf)
   if err != nil { util.Fatalf("%v", err) }
 
-  TestMetadataSetup(ctx, metadata)
+  TestMetadataSetup(ctx, conf, aws_conf, metadata)
   TestAllReadWrite(ctx, metadata)
   TestAllDelete(ctx, metadata)
 }
@@ -156,8 +183,8 @@ func main() {
   if err != nil { util.Fatalf("%v", err) }
 
   //TestCallerIdentity(ctx, conf, aws_conf)
-  TestAllStorage(ctx, conf, aws_conf)
-  //TestAllMetadata(ctx, conf, aws_conf)
+  //TestAllStorage(ctx, conf, aws_conf)
+  TestAllMetadata(ctx, conf, aws_conf)
   util.Infof("ALL DONE")
 }
 

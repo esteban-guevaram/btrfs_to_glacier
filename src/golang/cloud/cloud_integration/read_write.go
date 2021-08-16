@@ -154,7 +154,6 @@ func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
 }
 
 func TestAllReadWrite(ctx context.Context, metadata types.DeleteMetadata) {
-  TestMetadataSetup(ctx, metadata)
   TestRecordSnapshotSeqHead(ctx, metadata)
   TestAppendSnapshotToSeq(ctx, metadata)
   TestAppendChunkToSnapshot(ctx, metadata)

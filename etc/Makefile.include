@@ -10,5 +10,5 @@ SUBVOL_PATH       := $(MOUNT_TESTVOL_SRC)/$(SUBVOL_NAME)
 SNAP1_PATH        := $(SNAP_DIRPATH)/$(SNAP1_NAME)
 SNAP2_PATH        := $(SNAP_DIRPATH)/$(SNAP2_NAME)
 AWS_REGION        := eu-central-1
-AWS_DYN_TAB       := Metadata_Test_Makefile2
+AWS_DYN_TAB       := metadata.integration.test
 AWS_BUCKET        := storage.integration.test
