@@ -13,12 +13,16 @@ import (
   "btrfs_to_glacier/util"
 )
 
+// xor_key=`sha256sum <(echo -n "dummy_pw") | cut -f1 -d' ' | sed -r 's/(..)/\\\\x\1/g'`
 const dummy_pw = "chocolat"
-const persisted_key_1 = "vT9bzXu2/8V0/Ufy1159//v9fa773/P/bn/f9+vf338="
-const fp_persisted_key_1 = "eXEGy9DCOk0nKu4xwfcIhw=="
+// persisted=`python3 -c "print(b''.join((b'$secret'[i] ^ b'$xor_key'[i]).to_bytes(1,'big') for i in range(32)).hex(), end='')" | xxd -r -p | base64`
+const persisted_key_1 = "OC0aSSg2woV0bUfw0Ew1+ej5fYCzzIPcTnqbtuKXzk8="
+// fp=`sha512sum <(printf 'secret') | head -c 32 | xxd -r -p | base64`
+const fp_persisted_key_1 = "vcshfZbP1EYCcGE66Cznmg=="
 const secret_key_1 = "\xb5\x3b\x53\xcd\x7b\x86\xff\xc1\x54\xb4\x44\x92\x07\x52\x59\xcf\x53\xec\x19\x2e\x59\x9f\x70\xb3\x6e\x1d\xdd\x51\x29\xcd\x9f\x3a"
-const persisted_key_2 = "7/dL5Fezv1Ss+0vv915s/r8fZf/+1/tvaGfW7+v/2Xc="
+const persisted_key_2 = "auMCZBaDihSsq0rN8loA/i4OBdWcxcsLSEeWbmD/mDI="
 const secret_key_2 = "\xe7\xf5\x4b\xe0\x45\x33\xb7\x50\x8c\x72\x49\xaf\x25\x44\x6c\xc8\x95\x1b\x61\x7b\x76\x96\x38\x64\x68\x20\xd0\x89\xab\xa5\xc9\x47"
+const fp_persisted_key_2 = "RWgSa2EIDmUr5FFExM7AgQ=="
 
 func buildTestCodec(t *testing.T) *aesGzipCodec {
   keys := []string {persisted_key_1, persisted_key_2,}
@@ -28,24 +32,82 @@ func buildTestCodec(t *testing.T) *aesGzipCodec {
 func buildTestCodecChooseEncKey(t *testing.T, keys []string) *aesGzipCodec {
   conf := util.LoadTestConf()
   conf.EncryptionKeys = keys
-  fixed_pw := func() (string, error) { return dummy_pw, nil }
+  fixed_pw := func() ([]byte, error) { return []byte(dummy_pw), nil }
   codec, err := NewCodecHelper(conf, fixed_pw)
   if err != nil { t.Fatalf("Could not create codec: %v", err) }
   return codec.(*aesGzipCodec)
 }
 
-func TestGenerateEncryptionKey(t *testing.T) {
+func TestKeyCodec(t *testing.T) {
   codec := buildTestCodec(t)
-  secret, persisted := codec.GenerateEncryptionKey()
-  t.Logf("secret:%x, persisted:%s", secret.B, persisted.S)
-  if len(codec.xor_key.B) < 1 { t.Errorf("Bad xor key") }
-  if len(secret.B) < 1 { t.Errorf("Bad secret key") }
+  secret := codec.decodeEncryptionKey(types.PersistableKey{persisted_key_1})
+  persisted := codec.encodeEncryptionKey(types.SecretKey{[]byte(secret_key_1)})
+  if bytes.Compare(secret.B, []byte(secret_key_1)) != 0 {
+    t.Errorf("Bad persisted key decoding: %x != %x", secret.B, secret_key_1)
+  }
+  if persisted.S != persisted_key_1 {
+    t.Errorf("Bad secret key encoding: %x != %x", persisted.S, persisted_key_1)
+  }
+  if len(codec.xor_key.B) != len(secret.B) { t.Errorf("Bad xor key") }
+}
+
+func TestCodecDefaultKey(t *testing.T) {
+  codec := buildTestCodec(t)
+  first_persisted := types.PersistableKey{codec.conf.EncryptionKeys[0]}
+  first_secret := codec.decodeEncryptionKey(first_persisted)
+  first_fp := codec.FingerprintKey(first_secret)
+  if codec.cur_fp.S != first_fp.S { t.Errorf("Wrong default fingerprint, must be first in config.") }
+}
+
+func TestCreateNewEncryptionKey(t *testing.T) {
+  codec := buildTestCodec(t)
+  old_fp := codec.CurrentKeyFingerprint()
+  old_key,found := codec.keyring[old_fp]
+  if !found { t.Fatalf("There is no current key ?!") }
+
+  persisted, err := codec.CreateNewEncryptionKey()
+  if err != nil { t.Fatalf("Could not create new key: %v", err) }
   if len(persisted.S) < 1 { t.Errorf("Bad persisted key") }
+  if old_fp.S == codec.cur_fp.S || len(codec.cur_fp.S) < 1 {
+    t.Errorf("Bad new fingerprint")
+  }
+  if bytes.Compare(old_key.B, codec.keyring[codec.cur_fp].B) == 0 || len(codec.keyring[codec.cur_fp].B) < 1 {
+    t.Errorf("Bad new secret key")
+  }
+}
+
+func TestReEncryptKeyring(t *testing.T) {
+  new_pw := func() ([]byte, error) { return []byte("salut_mrmonkey"), nil }
+  expect_plain := types.SecretString{"chocoloco plain text"}
+  codec := buildTestCodec(t)
+  obfus := codec.EncryptString(expect_plain)
+
+  persisted_keys, err := codec.ReEncryptKeyring(new_pw)
+  if err != nil { t.Fatalf("Could not re-encrypt: %v", err) }
+  if len(persisted_keys) != len(codec.keyring) { t.Fatalf("Bad number of keys") }
+
+  new_conf := util.LoadTestConf()
+  for _,k := range persisted_keys {
+    new_conf.EncryptionKeys = append(new_conf.EncryptionKeys, k.S)
+    for _,old_k := range codec.conf.EncryptionKeys {
+      if old_k == k.S { t.Fatalf("Re-encrypted keys are the same: %v", k.S) }
+    }
+  }
+  new_codec, err2 := NewCodecHelper(new_conf, new_pw)
+  if err2 != nil { t.Fatalf("Could not create codec: %v", err2) }
+
+  plain, err3 := new_codec.DecryptString(types.CurKeyFp, obfus)
+  if err3 != nil { t.Fatalf("Could not decrypt: %v", err3) }
+  if util.EqualsOrFailTest(t, plain, expect_plain) != 0 {
+    t.Errorf("Bad decryption expected:%s, got:%s", expect_plain, plain)
+  }
 }
 
 func TestSecretToPersistedKey(t *testing.T) {
   codec := buildTestCodec(t)
-  secret, persisted := codec.GenerateEncryptionKey()
+  persisted, err := codec.CreateNewEncryptionKey()
+  if err != nil { t.Fatalf("Could not create new key: %v", err) }
+  secret := codec.keyring[codec.CurrentKeyFingerprint()]
   t.Logf("secret:%x, persisted:%s", secret.B, persisted.S)
 
   dec_persisted := codec.decodeEncryptionKey(persisted)
@@ -68,9 +130,9 @@ func TestSecretToPersistedKey(t *testing.T) {
 
 func TestFingerprintKey(t *testing.T) {
   codec := buildTestCodec(t)
-  fp := codec.FingerprintKey(types.PersistableKey{persisted_key_1})
+  fp := codec.FingerprintKey(types.SecretKey{[]byte(secret_key_1)})
   t.Logf("persisted:%s, fingerprint:%s", persisted_key_1, fp)
-  if fp != fp_persisted_key_1 { t.Errorf("Bad fingerprint calculation: %s != %s", fp, fp_persisted_key_1) }
+  if fp.S != fp_persisted_key_1 { t.Errorf("Bad fingerprint calculation: %s != %s", fp, fp_persisted_key_1) }
 }
 
 func TestEncryptString(t *testing.T) {
@@ -82,7 +144,7 @@ func TestEncryptString(t *testing.T) {
     t.Errorf("Encrypt of the same string should not produce the same obfuscated bytes")
   }
 
-  plain, err := codec.DecryptString("", obfus)
+  plain, err := codec.DecryptString(types.CurKeyFp, obfus)
   if err != nil { t.Fatalf("Could not decrypt: %v", err) }
 
   t.Logf("obfuscated:%x, plain:%s", obfus, plain)
@@ -96,7 +158,7 @@ func TestEncryptString_Fingerprint(t *testing.T) {
   keys := []string {persisted_key_2, persisted_key_1,}
   codec := buildTestCodec(t)
   codec_2 := buildTestCodecChooseEncKey(t, keys)
-  fp := codec.FingerprintKey(types.PersistableKey{persisted_key_2})
+  fp := codec.FingerprintKey(types.SecretKey{[]byte(secret_key_2)})
   obfus := codec_2.EncryptString(expect_plain)
 
   plain, err := codec.DecryptString(fp, obfus)
@@ -119,7 +181,7 @@ func TestEncryptStream(t *testing.T) {
   var encoded_pipe, decoded_pipe types.PipeReadEnd
   encoded_pipe, err = codec.EncryptStream(ctx, read_pipe)
   if err != nil { t.Fatalf("Could not encrypt: %v", err) }
-  decoded_pipe, err = codec.DecryptStream(ctx, "", encoded_pipe)
+  decoded_pipe, err = codec.DecryptStream(ctx, types.CurKeyFp, encoded_pipe)
   if err != nil { t.Fatalf("Could not decrypt: %v", err) }
 
   done := make(chan []byte)
@@ -150,7 +212,7 @@ func TestEncryptStream_MoreData(t *testing.T) {
   var encoded_pipe, decoded_pipe types.PipeReadEnd
   encoded_pipe, err = codec.EncryptStream(ctx, read_pipe)
   if err != nil { t.Fatalf("Could not encrypt: %v", err) }
-  decoded_pipe, err = codec.DecryptStream(ctx, "", encoded_pipe)
+  decoded_pipe, err = codec.DecryptStream(ctx, types.CurKeyFp, encoded_pipe)
   if err != nil { t.Fatalf("Could not decrypt: %v", err) }
 
   done := make(chan []byte)

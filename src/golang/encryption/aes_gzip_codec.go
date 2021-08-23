@@ -4,9 +4,9 @@ import (
   "context"
   "crypto/aes"
   "crypto/cipher"
-  "crypto/md5"
   "crypto/rand"
   "crypto/sha256"
+  "crypto/sha512"
   "encoding/base64"
   "fmt"
   "io"
@@ -23,22 +23,23 @@ import (
 )
 
 // This class uses "Explicit initialization vectors" by prepending a single random block to the plaintext.
-// This way the Init Vector does not need to be stoed anywhere.
+// This way the Init Vector does not need to be stored anywhere.
 type aesGzipCodec struct {
   conf    *pb.Config
-  keyring map[string]types.SecretKey
+  keyring map[types.PersistableString]types.SecretKey
   xor_key types.SecretKey
   block   cipher.Block
+  cur_fp  types.PersistableString
 }
 
 func NewCodec(conf *pb.Config) (types.Codec, error) {
   return NewCodecHelper(conf, requestPassphrase)
 }
 
-func NewCodecHelper(conf *pb.Config, pw_prompt func() (string, error)) (types.Codec, error) {
+func NewCodecHelper(conf *pb.Config, pw_prompt func() ([]byte, error)) (types.Codec, error) {
   codec := &aesGzipCodec{
     conf: conf,
-    keyring: make(map[string]types.SecretKey),
+    keyring: make(map[types.PersistableString]types.SecretKey),
   }
   passphrase, err := pw_prompt()
   if err != nil { return nil, err }
@@ -49,38 +50,40 @@ func NewCodecHelper(conf *pb.Config, pw_prompt func() (string, error)) (types.Co
   }
   for _,k := range conf.EncryptionKeys {
     enc_key := types.PersistableKey{k}
-    fp := codec.FingerprintKey(enc_key)
+    dec_key := codec.decodeEncryptionKey(enc_key)
+    fp := codec.FingerprintKey(dec_key)
     if _,found := codec.keyring[fp]; found {
       return nil, fmt.Errorf("Fingerprint duplicated: '%s'", fp)
     }
-    codec.keyring[fp] = codec.decodeEncryptionKey(enc_key)
+    codec.keyring[fp] = dec_key
     // Use the first key in the keyring to encrypt.
     if codec.block == nil {
       codec.block, err = aes.NewCipher(codec.keyring[fp].B)
       if err != nil { return nil, err }
+      codec.cur_fp = fp
     }
   }
   return codec, nil
 }
 
-func requestPassphrase() (string, error) {
+func requestPassphrase() ([]byte, error) {
   fmt.Print("Enter passphrase to decrypt encryption keys: ")
   byte_pass, err := terminal.ReadPassword(int(syscall.Stdin))
-  if err != nil { return "", err }
-  if len(byte_pass) < 8 { return "", fmt.Errorf("Password is too short") }
+  if err != nil { return nil, err }
+  if len(byte_pass) < 12 { return nil, fmt.Errorf("Password is too short") }
 
   pass := string(byte_pass)
-  if !utf8.ValidString(pass) { return "", fmt.Errorf("Password is not valid unicode") }
+  if !utf8.ValidString(pass) { return nil, fmt.Errorf("Password is not valid unicode") }
   for _,codept := range pass {
     if codept > unicode.MaxASCII || unicode.IsControl(codept) {
-      return "", fmt.Errorf("Password is has invalid characters (only ascii non control are allowed)")
+      return nil, fmt.Errorf("Password is has invalid characters (only ascii non control are allowed)")
     }
   }
-  return pass, nil
+  return byte_pass, nil
 }
 
-func derivatePassphrase(passphrase string) types.SecretKey {
-  raw_key := sha256.Sum256([]byte(passphrase))
+func derivatePassphrase(passphrase []byte) types.SecretKey {
+  raw_key := sha256.Sum256(passphrase)
   return types.SecretKey{raw_key[:]}
 }
 
@@ -100,23 +103,51 @@ func (self *aesGzipCodec) encodeEncryptionKey(enc_key types.SecretKey) types.Per
   return types.PersistableKey{ base64.StdEncoding.EncodeToString(enc_bytes) }
 }
 
-// Generates a random encryption key of a suitable length for the encryption algo.
-// Then it derives a second key of the same length from `self.passphrase`.
-// That second key is ORed with the first and encoded into a string that can be stored in the config.
-// Neither `passphrase` nor the first encryption key should be persisted anywhere.
-func (self *aesGzipCodec) GenerateEncryptionKey() (types.SecretKey, types.PersistableKey) {
+func (self *aesGzipCodec) CreateNewEncryptionKey() (types.PersistableKey, error) {
   const AES_256_KEY_LEN = 32
+  null_key := types.PersistableKey{""}
   raw_key := make([]byte, AES_256_KEY_LEN)
   _, err := rand.Read(raw_key)
   if err != nil { util.Fatalf("Could not generate random key: %v", err) }
   secret := types.SecretKey{raw_key}
-  return secret, self.encodeEncryptionKey(secret)
+  persistable := self.encodeEncryptionKey(secret)
+  fp := self.FingerprintKey(secret)
+
+  if _,found := self.keyring[fp]; found {
+    return null_key, fmt.Errorf("Fingerprint duplicated: '%s'", fp)
+  }
+  self.keyring[fp] = secret
+  self.block, err = aes.NewCipher(self.keyring[fp].B)
+  if err != nil { return null_key, err }
+  self.cur_fp = fp
+  return persistable, nil
 }
 
-func (self *aesGzipCodec) FingerprintKey(key types.PersistableKey) string {
-  raw_fp := md5.Sum([]byte(key.S))
+func (self *aesGzipCodec) CurrentKeyFingerprint() types.PersistableString {
+  return self.cur_fp
+}
+
+func (self *aesGzipCodec) FingerprintKey(key types.SecretKey) types.PersistableString {
+  const fp_size = sha512.Size / 4
+  if fp_size * 2 > len(key.B) {
+    util.Fatalf("Fingerprinting a key that is too small.")
+  }
+  full_fp := sha512.Sum512(key.B)
   //return fmt.Sprintf("%x", raw_fp)
-  return base64.StdEncoding.EncodeToString(raw_fp[:])
+  raw_fp := base64.StdEncoding.EncodeToString(full_fp[:fp_size])
+  return types.PersistableString{raw_fp}
+}
+
+func (self *aesGzipCodec) ReEncryptKeyring(pw_prompt func() ([]byte, error)) ([]types.PersistableKey, error) {
+  persisted_keys := make([]types.PersistableKey, 0, len(self.keyring))
+  passphrase, err := pw_prompt()
+  if err != nil { return nil, err }
+  self.xor_key = derivatePassphrase(passphrase)
+
+  for _,secret := range self.keyring {
+    persisted_keys = append(persisted_keys, self.encodeEncryptionKey(secret))
+  }
+  return persisted_keys, nil
 }
 
 func NoCopyByteSliceToString(bytes []byte) string {
@@ -144,9 +175,9 @@ func (self *aesGzipCodec) getStreamEncrypter() cipher.Stream {
   return cipher.NewCFBEncrypter(self.block, iv)
 }
 
-func (self *aesGzipCodec) getStreamDecrypter(key_fp string) (cipher.Block, cipher.Stream, error) {
+func (self *aesGzipCodec) getStreamDecrypter(key_fp types.PersistableString) (cipher.Block, cipher.Stream, error) {
   block := self.block
-  if len(key_fp) > 0 {
+  if len(key_fp.S) > 0 {
     k, found := self.keyring[key_fp]
     if !found  {
       return nil, nil, fmt.Errorf("%s does not exist in the keyring", key_fp)
@@ -168,7 +199,7 @@ func (self *aesGzipCodec) EncryptString(clear types.SecretString) types.Persista
   return types.PersistableString{base64.StdEncoding.EncodeToString(padded_obfus)}
 }
 
-func (self *aesGzipCodec) DecryptString(key_fp string, obfus types.PersistableString) (types.SecretString, error) {
+func (self *aesGzipCodec) DecryptString(key_fp types.PersistableString, obfus types.PersistableString) (types.SecretString, error) {
   null_str := types.SecretString{""}
   obfus_bytes, err_dec := base64.StdEncoding.DecodeString(obfus.S)
   if err_dec != nil { return null_str, err_dec }
@@ -228,7 +259,7 @@ func (self *aesGzipCodec) EncryptStream(ctx context.Context, input types.PipeRea
   return pipe.ReadEnd(), nil
 }
 
-func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp string, input types.PipeReadEnd) (types.PipeReadEnd, error) {
+func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.PersistableString, input types.PipeReadEnd) (types.PipeReadEnd, error) {
   if input.GetErr() != nil {
     return nil, fmt.Errorf("DecryptStream input has an error")
   }
