@@ -73,7 +73,7 @@ func (self *mockDynamoDbClient) GetItem(
     return &dynamodb.GetItemOutput{ Item: nil }, self.Err
   }
   item := map[string]dyn_types.AttributeValue{
-    blob_col: &dyn_types.AttributeValueMemberB{data},
+    blob_col: &dyn_types.AttributeValueMemberB{Value: data,},
   }
   result := &dynamodb.GetItemOutput{ Item: item, }
   return result, self.Err

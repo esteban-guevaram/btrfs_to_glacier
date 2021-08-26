@@ -117,12 +117,24 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
   tabname := self.conf.Aws.DynamoDb.TableName
 
   attrs := []dyn_types.AttributeDefinition{
-    dyn_types.AttributeDefinition{&self.uuid_col, dyn_types.ScalarAttributeTypeS},
-    dyn_types.AttributeDefinition{&self.type_col, dyn_types.ScalarAttributeTypeS},
+    dyn_types.AttributeDefinition{
+      AttributeName: &self.uuid_col,
+      AttributeType: dyn_types.ScalarAttributeTypeS,
+    },
+    dyn_types.AttributeDefinition{
+      AttributeName: &self.type_col,
+      AttributeType: dyn_types.ScalarAttributeTypeS,
+    },
   }
   schema := []dyn_types.KeySchemaElement{
-    dyn_types.KeySchemaElement{&self.uuid_col, dyn_types.KeyTypeHash},
-    dyn_types.KeySchemaElement{&self.type_col, dyn_types.KeyTypeRange},
+    dyn_types.KeySchemaElement{
+      AttributeName: &self.uuid_col,
+      KeyType: dyn_types.KeyTypeHash,
+    },
+    dyn_types.KeySchemaElement{
+      AttributeName: &self.type_col,
+      KeyType: dyn_types.KeyTypeRange,
+    },
   }
   params := &dynamodb.CreateTableInput{
     TableName: &tabname,
@@ -149,8 +161,8 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
 func getItemKey(key string, msg proto.Message) map[string]dyn_types.AttributeValue {
   typename := msg.ProtoReflect().Descriptor().FullName()
   composite_k := map[string]dyn_types.AttributeValue{
-    uuid_col: &dyn_types.AttributeValueMemberS{key},
-    type_col: &dyn_types.AttributeValueMemberS{string(typename)},
+    uuid_col: &dyn_types.AttributeValueMemberS{Value: key,},
+    type_col: &dyn_types.AttributeValueMemberS{Value: string(typename),},
   }
   return composite_k
 }
@@ -186,7 +198,7 @@ func (self *dynamoMetadata) WriteObject(ctx context.Context, key string, msg pro
   item := getItemKey(key, msg)
   blob, err = proto.Marshal(msg)
   if err != nil { return err }
-  item[blob_col] = &dyn_types.AttributeValueMemberB{blob}
+  item[blob_col] = &dyn_types.AttributeValueMemberB{Value: blob,}
   params := &dynamodb.PutItemInput{
     TableName: &self.conf.Aws.DynamoDb.TableName,
     Item: item,

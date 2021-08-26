@@ -88,9 +88,11 @@ go_debug: go_code
 	  dlv test "btrfs_to_glacier/encryption" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
 		  -- --test.run='TestEncryptStream$$' --test.v
 
-go_upgrade_mods: $(GOENV)
+# Fails with a linker error if missing `c_code`
+go_upgrade_mods: $(GOENV) c_code
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go list -u -m all
+	#GOENV="$(GOENV)" go mod graph
 	GOENV="$(GOENV)" go get -t -u ./...
 	GOENV="$(GOENV)" go mod tidy
 
