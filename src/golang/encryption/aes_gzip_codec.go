@@ -41,9 +41,9 @@ func NewCodecHelper(conf *pb.Config, pw_prompt func() ([]byte, error)) (types.Co
     conf: conf,
     keyring: make(map[types.PersistableString]types.SecretKey),
   }
-  passphrase, err := pw_prompt()
+  var err error
+  codec.xor_key, err = derivatePassphrase(pw_prompt)
   if err != nil { return nil, err }
-  codec.xor_key = derivatePassphrase(passphrase)
 
   if len(conf.EncryptionKeys) == 0 {
     return nil, fmt.Errorf("No encryption keys in the configuration")
@@ -82,9 +82,12 @@ func requestPassphrase() ([]byte, error) {
   return byte_pass, nil
 }
 
-func derivatePassphrase(passphrase []byte) types.SecretKey {
+func derivatePassphrase(pw_prompt func() ([]byte, error)) (types.SecretKey, error) {
+  null_key := types.SecretKey{[]byte("")}
+  passphrase, err := pw_prompt()
+  if err != nil { return null_key, err }
   raw_key := sha256.Sum256(passphrase)
-  return types.SecretKey{raw_key[:]}
+  return types.SecretKey{raw_key[:]}, nil
 }
 
 func (self *aesGzipCodec) decodeEncryptionKey(enc_key types.PersistableKey) types.SecretKey {
@@ -140,11 +143,17 @@ func (self *aesGzipCodec) FingerprintKey(key types.SecretKey) types.PersistableS
 
 func (self *aesGzipCodec) ReEncryptKeyring(pw_prompt func() ([]byte, error)) ([]types.PersistableKey, error) {
   persisted_keys := make([]types.PersistableKey, 0, len(self.keyring))
-  passphrase, err := pw_prompt()
+  var err error
+  self.xor_key, err = derivatePassphrase(pw_prompt)
   if err != nil { return nil, err }
-  self.xor_key = derivatePassphrase(passphrase)
 
-  for _,secret := range self.keyring {
+  // Put the current encryption key first.
+  cur_key, found := self.keyring[self.CurrentKeyFingerprint()]
+  if !found { return nil, fmt.Errorf("keyring invalid state.") }
+  persisted_keys = append(persisted_keys, self.encodeEncryptionKey(cur_key))
+
+  for fp,secret := range self.keyring {
+    if fp.S == self.CurrentKeyFingerprint().S { continue }
     persisted_keys = append(persisted_keys, self.encodeEncryptionKey(secret))
   }
   return persisted_keys, nil

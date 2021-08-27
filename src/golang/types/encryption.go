@@ -35,6 +35,7 @@ type Codec interface {
   EncryptString(clear SecretString) PersistableString
   // Re-encrypts all secret keys in the keyring with a new password.
   // Any new key added will use the new password.
+  // The first key returned is the current encryption key used by the codec.
   ReEncryptKeyring(pw_prompt func() ([]byte, error)) ([]PersistableKey, error)
   // Decrypts a textual string. Does not provide a no-tamper guarantee.
   // `key_fp` may be left empty to use the current encryption key.

@@ -81,13 +81,15 @@ func TestReEncryptKeyring(t *testing.T) {
   expect_plain := types.SecretString{"chocoloco plain text"}
   codec := buildTestCodec(t)
   obfus := codec.EncryptString(expect_plain)
+  expect_key_count := len(codec.keyring)
 
   persisted_keys, err := codec.ReEncryptKeyring(new_pw)
   if err != nil { t.Fatalf("Could not re-encrypt: %v", err) }
-  if len(persisted_keys) != len(codec.keyring) { t.Fatalf("Bad number of keys") }
+  if len(persisted_keys) != expect_key_count { t.Fatalf("Bad number of keys") }
 
   new_conf := util.LoadTestConf()
   for _,k := range persisted_keys {
+    t.Logf("Adding persisted key: %x", k.S)
     new_conf.EncryptionKeys = append(new_conf.EncryptionKeys, k.S)
     for _,old_k := range codec.conf.EncryptionKeys {
       if old_k == k.S { t.Fatalf("Re-encrypted keys are the same: %v", k.S) }
@@ -95,11 +97,12 @@ func TestReEncryptKeyring(t *testing.T) {
   }
   new_codec, err2 := NewCodecHelper(new_conf, new_pw)
   if err2 != nil { t.Fatalf("Could not create codec: %v", err2) }
+  t.Logf("xor key: %x", codec.xor_key)
 
   plain, err3 := new_codec.DecryptString(types.CurKeyFp, obfus)
   if err3 != nil { t.Fatalf("Could not decrypt: %v", err3) }
   if util.EqualsOrFailTest(t, plain, expect_plain) != 0 {
-    t.Errorf("Bad decryption expected:%s, got:%s", expect_plain, plain)
+    t.Errorf("Bad decryption expected:%x, got:%x", expect_plain, plain)
   }
 }
 
