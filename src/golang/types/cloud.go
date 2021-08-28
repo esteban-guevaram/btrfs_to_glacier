@@ -5,6 +5,12 @@ import "errors"
 import pb "btrfs_to_glacier/messages"
 
 var ErrNotFound = errors.New("key_not_found_in_metadata")
+var ErrMissingChunks = errors.New("not_all_chunks_uploaded")
+
+type ChunksOrError struct {
+  Val *pb.SnapshotChunks
+  Err error
+}
 
 type Metadata interface {
   // Creates the infrastructure (depend on implementation) that will contain the metadata.
@@ -72,11 +78,20 @@ type Storage interface {
   // It is a noop if they are already created.
   SetupStorage(ctx context.Context) (<-chan error)
 
-  WriteStream() error
+  // Reads `read_pipe` and uploads its content in equally sized chunks.
+  // If `offset` > 0 then the first part of the stream is dropped and the rest will be uploaded.
+  // Data may be filtered by a codec depending on the implementation.
+  // Chunk length is determined by configuration.
+  // Returns the ids of all chunks uploaded. If some error prevented all pipe content from being uploaded,
+  // then ChunksOrError.Err will contain ErrMissingChunks as well as the chunks that got uploaded.
+  // Takes ownership of `read_pipe` and will close it once done.
+  WriteStream(ctx context.Context, offset uint64, read_pipe PipeReadEnd) (<-chan ChunksOrError, error)
+
   SendRestoreRq() error
   ReadStream() error
 }
 
+// Separate from `Storage` since it contains dangerous operations that should only be invoked during clean-up.
 type DeleteStorage interface {
   Storage
   DeleteBlob() error

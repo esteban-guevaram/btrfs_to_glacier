@@ -51,7 +51,7 @@ func LoadTestConf() *pb.Config {
       SecretAccessKey: "coucou",
       Region: "eu-central-1", // needs to be valid for unittests
       DynamoDb: &pb.Aws_DynamoDb{ TableName: "coucou", },
-      S3: &pb.Aws_S3{ BucketName: "coucou", },
+      S3: &pb.Aws_S3{ BucketName: "coucou", ChunkLen: 1024*1024, },
     },
   }
   overwriteWithFlags(&conf)

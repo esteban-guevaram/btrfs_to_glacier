@@ -26,12 +26,21 @@ func EqualsOrDie(val interface{}, expected interface{}) {
   }
 }
 
+func EqualsOrDieTest(t *testing.T, err_msg string, val interface{}, expected interface{}) {
+  val_str, expected_str := asJsonStrings(val, expected)
+  comp_res := strings.Compare(val_str, expected_str)
+  if comp_res != 0 {
+    t.Fatalf("%s:\ngot: %s\n !=\nexp: %s", err_msg, val_str, expected_str)
+  }
+}
+
 // Returns 0 if equal
 func EqualsOrFailTest(t *testing.T, val interface{}, expected interface{}) int {
   val_str, expected_str := asJsonStrings(val, expected)
-  if strings.Compare(val_str, expected_str) != 0 {
+  comp_res := strings.Compare(val_str, expected_str)
+  if comp_res != 0 {
     t.Errorf("\n%s\n !=\n%s", val_str, expected_str)
-    return -1
+    return comp_res
   }
   return 0
 }

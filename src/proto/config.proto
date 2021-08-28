@@ -12,12 +12,13 @@ message Aws {
   string region = 4;
 
   message DynamoDb {
-    string table_name = 6;
+    string table_name = 1;
   }
   DynamoDb dynamo_db = 5;
 
   message S3 {
-    string bucket_name = 6;
+    string bucket_name = 1;
+    uint64 chunk_len = 2;
   }
   S3 s3 = 6;
 }
@@ -27,7 +28,7 @@ message Config {
   repeated string subvol_paths = 1;
   // The absolute path of the directory where all snapshots from `subvol_paths` are.
   string root_snap_path = 2;
-  // The absolute path of the direcrory where all restored snapshots should be stored.
+  // The absolute path of the directory where all restored snapshots should be stored.
   string root_restore_path = 3;
   // The first element is used to encrypt new content.
   // Key length may be imposed by the encryption algorithm.

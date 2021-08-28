@@ -3,13 +3,16 @@ package cloud
 import (
   "context"
   "fmt"
+  "io"
   "testing"
   "time"
 
+  pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/service/s3"
+  s3mgr "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
@@ -54,9 +57,32 @@ func (self *mockS3Client) PutPublicAccessBlock(
   self.LastPublicAccessBlockIn = in
   return &s3.PutPublicAccessBlockOutput{}, self.Err
 }
+func (self *mockS3Client) Upload(
+    ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3mgr.Uploader)) (*s3mgr.UploadOutput, error) {
+  if in.Bucket == nil || len(*in.Bucket) < 1 { return nil, fmt.Errorf("malormed request") }
+  if in.Key == nil || len(*in.Key) < 1 { return nil, fmt.Errorf("malormed request") }
+  if self.Err == nil {
+    buf, err := io.ReadAll(in.Body)
+    if err != nil { return nil, err }
+    if _,found := self.Data[*in.Key]; found { return nil, fmt.Errorf("overwritting key") }
+    self.Data[*in.Key] = buf
+    return &s3mgr.UploadOutput{}, self.Err
+  }
+  return nil, self.Err
+}
 
 func buildTestStorage(t *testing.T) (*s3Storage, *mockS3Client) {
   conf := util.LoadTestConf()
+  return buildTestStorageWithConf(t, conf)
+}
+
+func buildTestStorageWithChunkLen(t *testing.T, chunk_len uint64) (*s3Storage, *mockS3Client) {
+  conf := util.LoadTestConf()
+  conf.Aws.S3.ChunkLen = chunk_len
+  return buildTestStorageWithConf(t, conf)
+}
+
+func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *mockS3Client) {
   client := &mockS3Client {
     AccountId: "some_random_string",
     Data: make(map[string][]byte),
@@ -73,6 +99,7 @@ func buildTestStorage(t *testing.T) (*s3Storage, *mockS3Client) {
     codec: codec,
     aws_conf: aws_conf,
     client: client,
+    uploader: client,
     bucket_wait: 10 * time.Millisecond,
     account_id: client.AccountId,
     deep_glacier_trans_days: deep_glacier_trans_days,
@@ -168,5 +195,67 @@ func TestSetupStorage_Fail(t *testing.T) {
     case <-ctx.Done():
       t.Fatalf("TestSetupStorage timeout")
   }
+}
+
+func TestUploadSummary(t *testing.T) {
+}
+
+func TestWriteOneChunk_PipeError(t *testing.T) {
+}
+
+func TestWriteOneChunk_LessThanFullContent(t *testing.T) {
+  const offset = 0
+  const chunk_len = 32
+  const total_len = 48
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage,client := buildTestStorageWithChunkLen(t, chunk_len)
+  data := util.GenerateRandomTextData(total_len)
+  expect_chunk := make([]byte, chunk_len)
+  expect_rest := make([]byte, total_len - chunk_len)
+  copy(expect_chunk, data)
+  copy(expect_rest, data[chunk_len:])
+  pipe := types.NewMockPreloadedPipe(data)
+
+  chunk_pb, more, err := storage.writeOneChunk(ctx, offset, pipe.ReadEnd())
+  if err != nil { t.Fatalf("writeOneChunk err: %v", err) }
+  if !more { t.Fatalf("expected more data after chunk write") }
+  if len(chunk_pb.Uuid) < 1 { t.Fatalf("empty key written") }
+  if chunk_pb.Start != offset { t.Fatalf("bad offset written") }
+  if chunk_pb.Size != chunk_len { t.Fatalf("bad chunk length written") }
+
+  var rest []byte
+  rest, err = io.ReadAll(pipe.ReadEnd())
+  util.EqualsOrDieTest(t, "Bad remaining data", rest, expect_rest)
+  chunk,found := client.Data[chunk_pb.Uuid]
+  if !found { t.Errorf("nothing written to S3") }
+  util.EqualsOrDieTest(t, "Bad object data", chunk, expect_chunk)
+}
+
+func TestWriteOneChunk_EqualToFullContent(t *testing.T) {
+}
+
+func TestWriteOneChunk_MoreThanFullContent(t *testing.T) {
+}
+
+func TestWriteOneChunk_EmptyContent(t *testing.T) {
+}
+
+func TestWriteStream_PipeError(t *testing.T) {
+}
+
+func TestWriteStream_SingleSmallChunk(t *testing.T) {
+}
+
+func TestWriteStream_WithOffset_SingleSmallChunk(t *testing.T) {
+}
+
+func TestWriteStream_WithOffset_Empty(t *testing.T) {
+}
+
+func TestWriteStream_WithOffset_MultiChunk(t *testing.T) {
+}
+
+func TestWriteStream_MultipleChunkLen(t *testing.T) {
 }
 
