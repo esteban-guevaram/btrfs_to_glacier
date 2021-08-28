@@ -205,7 +205,7 @@ func TestRecordSnapshotSeqHead_New(t *testing.T) {
   expect_head := dummySnapshotSeqHead(new_seq)
   head, err := metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { t.Errorf("Returned error: %v", err) }
-  util.EqualsOrFailTest(t, head, expect_head)
+  util.EqualsOrFailTest(t, "SnapshotSeqHead", head, expect_head)
 }
 
 func TestRecordSnapshotSeqHead_Add(t *testing.T) {
@@ -221,7 +221,7 @@ func TestRecordSnapshotSeqHead_Add(t *testing.T) {
 
   head, err := metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { t.Errorf("Returned error: %v", err) }
-  util.EqualsOrFailTest(t, head, expect_head)
+  util.EqualsOrFailTest(t, "SnapshotSeqHead", head, expect_head)
 }
 
 func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
@@ -234,7 +234,7 @@ func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
 
   head, err := metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { t.Errorf("Returned error: %v", err) }
-  util.EqualsOrFailTest(t, head, expect_head)
+  util.EqualsOrFailTest(t, "SnapshotSeqHead", head, expect_head)
 }
 
 func TestAppendSnapshotToSeq_New(t *testing.T) {
@@ -248,7 +248,7 @@ func TestAppendSnapshotToSeq_New(t *testing.T) {
   new_seq, err := metadata.AppendSnapshotToSeq(ctx, seq, snap_to_add)
 
   if err != nil { t.Errorf("Returned error: %v", err) }
-  util.EqualsOrFailTest(t, new_seq, expect_seq)
+  util.EqualsOrFailTest(t, "SnapshotSequence", new_seq, expect_seq)
   if !client.getForTest("seq", &pb.SnapshotSequence{}) { t.Errorf("No sequence persisted") }
 }
 
@@ -275,8 +275,8 @@ func TestAppendSnapshotToChunk_New(t *testing.T) {
 
   persisted_snap := &pb.SubVolume{}
   if !client.getForTest("snap_uuid", persisted_snap) { t.Errorf("No snapshot persisted") }
-  util.EqualsOrFailTest(t, persisted_snap, new_snap)
-  util.EqualsOrFailTest(t, new_snap.Data, chunk)
+  util.EqualsOrFailTest(t, "Snapshot", persisted_snap, new_snap)
+  util.EqualsOrFailTest(t, "SnapshotChunk", new_snap.Data, chunk)
 }
 
 func TestAppendSnapshotToChunk_Append(t *testing.T) {
@@ -297,7 +297,7 @@ func TestAppendSnapshotToChunk_Append(t *testing.T) {
   if !client.getForTest("snap_uuid", &pb.SubVolume{}) { t.Errorf("No snapshot persisted") }
   expect_chunks := dummyChunks("chunk_uuid1")
   expect_chunks.Chunks = append(expect_chunks.Chunks, chunk.Chunks[0])
-  util.EqualsOrFailTest(t, new_snap.Data, expect_chunks)
+  util.EqualsOrFailTest(t, "SnapshotChunk", new_snap.Data, expect_chunks)
 }
 
 func TestAppendSnapshotToChunk_Noop(t *testing.T) {
@@ -311,7 +311,7 @@ func TestAppendSnapshotToChunk_Noop(t *testing.T) {
   client.Err = fmt.Errorf("No methods on the client should have been called")
   new_snap, err := metadata.AppendChunkToSnapshot(ctx, snap, chunk)
   if err != nil { t.Errorf("Returned error: %v", err) }
-  util.EqualsOrFailTest(t, snap, new_snap)
+  util.EqualsOrFailTest(t, "Snapshot", snap, new_snap)
 }
 
 func TestAppendSnapshotToChunk_Errors(t *testing.T) {
@@ -354,7 +354,7 @@ func TestReadSnapshotSeqHead(t *testing.T) {
 
   head, err := metadata.ReadSnapshotSeqHead(ctx, expect_head.Uuid)
   if err != nil { t.Errorf("Returned error: %v", err) }
-  util.EqualsOrFailTest(t, head, expect_head)
+  util.EqualsOrFailTest(t, "SnapshotSeqHead", head, expect_head)
 }
 
 func TestReadSnapshotSeqHead_NoHead(t *testing.T) {
@@ -376,7 +376,7 @@ func TestReadSnapshotSeq(t *testing.T) {
 
   seq, err := metadata.ReadSnapshotSeq(ctx, expect_seq.Uuid)
   if err != nil { t.Errorf("Returned error: %v", err) }
-  util.EqualsOrFailTest(t, seq, expect_seq)
+  util.EqualsOrFailTest(t, "SnapshotSequence", seq, expect_seq)
 }
 
 func TestReadSnapshotSeq_NoSequence(t *testing.T) {
@@ -399,7 +399,7 @@ func TestReadSnapshot(t *testing.T) {
 
   snap, err := metadata.ReadSnapshot(ctx, expect_snap.Uuid)
   if err != nil { t.Errorf("Returned error: %v", err) }
-  util.EqualsOrFailTest(t, snap, expect_snap)
+  util.EqualsOrFailTest(t, "Snapshot", snap, expect_snap)
 }
 
 func TestReadSnapshotSeq_NoSnap(t *testing.T) {

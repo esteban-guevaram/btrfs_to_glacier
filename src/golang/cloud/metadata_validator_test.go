@@ -89,7 +89,7 @@ func TestSubVolumeDataLen(t *testing.T) {
   sv := dummySubVolume("vol")
   sv.Data = dummyChunks("first")
   first_len := SubVolumeDataLen(sv)
-  util.EqualsOrFailTest(t, first_len, sv.Data.Chunks[0].Size)
+  util.EqualsOrFailTest(t, "Bad subvol len", first_len, sv.Data.Chunks[0].Size)
 
   second := &pb.SnapshotChunks_Chunk {
     Uuid: "second",
@@ -98,7 +98,7 @@ func TestSubVolumeDataLen(t *testing.T) {
   }
   sv.Data.Chunks = append(sv.Data.Chunks, second)
   data_len := SubVolumeDataLen(sv)
-  util.EqualsOrFailTest(t, data_len, first_len + second.Size)
+  util.EqualsOrFailTest(t, "Bad subvol len2", data_len, first_len + second.Size)
 }
 
 func TestValidateSubVolume(t *testing.T) {

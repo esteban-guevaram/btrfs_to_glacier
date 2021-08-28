@@ -35,11 +35,11 @@ func EqualsOrDieTest(t *testing.T, err_msg string, val interface{}, expected int
 }
 
 // Returns 0 if equal
-func EqualsOrFailTest(t *testing.T, val interface{}, expected interface{}) int {
+func EqualsOrFailTest(t *testing.T, err_msg string, val interface{}, expected interface{}) int {
   val_str, expected_str := asJsonStrings(val, expected)
   comp_res := strings.Compare(val_str, expected_str)
   if comp_res != 0 {
-    t.Errorf("\n%s\n !=\n%s", val_str, expected_str)
+    t.Errorf("%s:\ngot: %s\n !=\nexp: %s", err_msg, val_str, expected_str)
     return comp_res
   }
   return 0

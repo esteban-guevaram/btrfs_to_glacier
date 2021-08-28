@@ -226,10 +226,10 @@ func TestWriteOneChunk_LessThanFullContent(t *testing.T) {
 
   var rest []byte
   rest, err = io.ReadAll(pipe.ReadEnd())
-  util.EqualsOrDieTest(t, "Bad remaining data", rest, expect_rest)
+  util.EqualsOrFailTest(t, "Bad remaining data", rest, expect_rest)
   chunk,found := client.Data[chunk_pb.Uuid]
   if !found { t.Errorf("nothing written to S3") }
-  util.EqualsOrDieTest(t, "Bad object data", chunk, expect_chunk)
+  util.EqualsOrFailTest(t, "Bad object data", chunk, expect_chunk)
 }
 
 func TestWriteOneChunk_EqualToFullContent(t *testing.T) {
