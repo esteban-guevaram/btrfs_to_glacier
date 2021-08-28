@@ -83,7 +83,9 @@ func (self *MockCodec) EncryptStream(ctx context.Context, input PipeReadEnd) (Pi
   go func() {
     defer pipe.WriteEnd().Close()
     if ctx.Err() != nil { return }
+    pipe.WriteEnd().PutErr(input.GetErr())
     io.Copy(pipe.WriteEnd(), input)
+    pipe.WriteEnd().PutErr(input.GetErr())
   }()
   return pipe.ReadEnd(), nil
 }

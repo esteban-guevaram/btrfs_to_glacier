@@ -6,6 +6,10 @@ package cloud
 //   * Can use Standard class for testing without waiting for restores.
 // * All objects can be listed no matter the storage class.
 //   * Convenient but comes at a cost of 40Kb (see S3 docs)
+//
+// WTF is the deal between Bucket/Object ACLs, Bucket policies, IAM policies ?
+// TL;DR only use IAM policies attached to AWS users/groups
+// https://aws.amazon.com/blogs/security/iam-policies-and-bucket-policies-and-acls-oh-my-controlling-access-to-s3-resources
 
 import (
   "context"
@@ -229,8 +233,8 @@ func (self *s3Storage) uploadSummary(result types.ChunksOrError) string {
     uuids.WriteString(c.Uuid)
     uuids.WriteString(", ")
   }
-  return fmt.Sprintf("Wrote %d chunks: %s\nError: %v",
-                     total_size, uuids.String(), result.Err)
+  return fmt.Sprintf("Wrote %d bytes in %d chunks: %s\nError: %v",
+                     total_size, len(result.Val.Chunks), uuids.String(), result.Err)
 }
 
 // Each chunk should be encrypted with a different IV,
@@ -292,7 +296,7 @@ func (self *s3Storage) WriteStream(
     if err != nil { done <- types.ChunksOrError{Err:err,}; return }
 
     more_data := true
-    start_offset := uint64(0)
+    start_offset := uint64(offset)
     result := types.ChunksOrError{
       Val: &pb.SnapshotChunks{ KeyFingerprint: self.codec.CurrentKeyFingerprint().S, },
     }
