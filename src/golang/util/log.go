@@ -3,6 +3,7 @@ package util
 import (
   "fmt"
   "log"
+  "runtime"
 
   "google.golang.org/protobuf/proto"
   "google.golang.org/protobuf/encoding/prototext"
@@ -20,7 +21,10 @@ func PbPrintf(format string, pbs ...proto.Message) string {
 }
 
 func Fatalf(format string, v ...interface{}) {
-  log.Fatalf(format, v...)
+  log.Printf("[FATAL] " + format, v...)
+  buf := make([]byte, 4096)
+  cnt := runtime.Stack(buf, /*all=*/false)
+  log.Fatalf("Stack:\n%s", buf[:cnt])
 }
 
 func Infof(format string, v ...interface{}) {

@@ -3,6 +3,7 @@ package util
 import "context"
 import "encoding/base64"
 import "encoding/json"
+import "fmt"
 import "math/rand"
 import "strings"
 import "testing"
@@ -19,10 +20,16 @@ func asJsonStrings(val interface{}, expected interface{}) (string, string) {
   return string(val_str), string(expected_str)
 }
 
-func EqualsOrDie(val interface{}, expected interface{}) {
+func fmtAssertMsg(err_msg string, got string, expected string) string {
+  const max_len = 1024
+  return fmt.Sprintf("%s:\ngot: %s\n !=\nexp: %s\n",
+                     err_msg, got[:max_len], expected[:max_len])
+}
+
+func EqualsOrDie(err_msg string, val interface{}, expected interface{}) {
   val_str, expected_str := asJsonStrings(val, expected)
   if strings.Compare(val_str, expected_str) != 0 {
-    Fatalf("\n%s\n !=\n%s", val_str, expected_str)
+    Fatalf(fmtAssertMsg(err_msg, val_str, expected_str))
   }
 }
 
@@ -30,7 +37,7 @@ func EqualsOrDieTest(t *testing.T, err_msg string, val interface{}, expected int
   val_str, expected_str := asJsonStrings(val, expected)
   comp_res := strings.Compare(val_str, expected_str)
   if comp_res != 0 {
-    t.Fatalf("%s:\ngot: %s\n !=\nexp: %s", err_msg, val_str, expected_str)
+    t.Fatal(fmtAssertMsg(err_msg, val_str, expected_str))
   }
 }
 
@@ -39,7 +46,7 @@ func EqualsOrFailTest(t *testing.T, err_msg string, val interface{}, expected in
   val_str, expected_str := asJsonStrings(val, expected)
   comp_res := strings.Compare(val_str, expected_str)
   if comp_res != 0 {
-    t.Errorf("%s:\ngot: %s\n !=\nexp: %s", err_msg, val_str, expected_str)
+    t.Error(fmtAssertMsg(err_msg, val_str, expected_str))
     return comp_res
   }
   return 0
