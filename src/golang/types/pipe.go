@@ -78,6 +78,26 @@ func NewMockPreloadedPipe(data []byte) *MockPreloadedPipe {
   }
   return pipe
 }
+// Use when there is too much data for the pipe buffer
+func NewMockBigPreloadedPipe(ctx context.Context, data []byte) *MockPreloadedPipe {
+  pipe := &MockPreloadedPipe{*NewMockPipe()}
+
+  done := make(chan bool, 1)
+  go func() {
+    defer close(done)
+    cnt, err := pipe.write_end.Write(data)
+    if err != nil || cnt != len(data) { panic(fmt.Sprintf("failed to write %v", err)) }
+    done <- true
+  }()
+  go func() {
+    defer pipe.write_end.Close()
+    select {
+      case <-done:
+      case <-ctx.Done():
+    }
+  }()
+  return pipe
+}
 
 
 type MockDiscardPipe struct { MockPipe }

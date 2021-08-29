@@ -102,8 +102,7 @@ func TestMetadataSetup(ctx context.Context, conf *pb.Config, aws_conf *aws.Confi
   }
 }
 
-func TestStorageSetup(ctx context.Context, conf *pb.Config, aws_conf *aws.Config, storage types.Storage) {
-  client := s3.NewFromConfig(*aws_conf)
+func TestStorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.Storage) {
   _, err := client.DeleteBucket(ctx, &s3.DeleteBucketInput{
     Bucket: &conf.Aws.S3.BucketName,
   })
@@ -137,11 +136,18 @@ func TestStorageSetup(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
 }
 
 func TestAllStorage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
+  new_conf := proto.Clone(conf).(*pb.Config)
+  // A bigger chunk, will make tests slow+expensive
+  new_conf.Aws.S3.ChunkLen = 128*1024
+
   codec := new(types.MockCodec)
-  storage, err := cloud.NewStorage(conf, aws_conf, codec)
+  codec.Fingerprint = types.PersistableString{"some_fp"}
+  storage, err := cloud.NewStorage(new_conf, aws_conf, codec)
+  client := s3.NewFromConfig(*aws_conf)
   if err != nil { util.Fatalf("%v", err) }
 
-  TestStorageSetup(ctx, conf, aws_conf, storage)
+  //TestStorageSetup(ctx, new_conf, client, storage)
+  TestAllS3ReadWrite(ctx, new_conf, client, storage)
 }
 
 func TestAllMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
@@ -183,8 +189,8 @@ func main() {
   if err != nil { util.Fatalf("%v", err) }
 
   //TestCallerIdentity(ctx, conf, aws_conf)
-  //TestAllStorage(ctx, conf, aws_conf)
-  TestAllMetadata(ctx, conf, aws_conf)
+  TestAllStorage(ctx, conf, aws_conf)
+  //TestAllMetadata(ctx, conf, aws_conf)
   util.Infof("ALL DONE")
 }
 

@@ -20,16 +20,16 @@ func TestRecordSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
 
   head1, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(head1.Uuid, new_seq.Volume.Uuid)
-  util.EqualsOrDie(head1.CurSeqUuid, new_seq.Uuid)
+  util.EqualsOrDie("Bad subvol uuid", head1.Uuid, new_seq.Volume.Uuid)
+  util.EqualsOrDie("Bad sequence uuid", head1.CurSeqUuid, new_seq.Uuid)
 
   head2, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(head2, head1)
+  util.EqualsOrDie("Bad SnapshotSeqHead", head2, head1)
 
   head3, err = metadata.RecordSnapshotSeqHead(ctx, new_seq_2)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(head3.CurSeqUuid, new_seq_2.Uuid)
+  util.EqualsOrDie("Bad sequence uuid2", head3.CurSeqUuid, new_seq_2.Uuid)
 
   _, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err == nil { util.Fatalf("Adding an old sequence should be an error") }
@@ -53,15 +53,15 @@ func TestAppendSnapshotToSeq(ctx context.Context, metadata types.Metadata) {
 
   seq_1, err = metadata.AppendSnapshotToSeq(ctx, expect_seq_0, snap_1)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(seq_1, expect_seq_1)
+  util.EqualsOrDie("Bad SnapshotSequence", seq_1, expect_seq_1)
 
   seq_noop, err = metadata.AppendSnapshotToSeq(ctx, seq_1, snap_1)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(seq_noop, expect_seq_1)
+  util.EqualsOrDie("Bad SnapshotSequence2", seq_noop, expect_seq_1)
 
   seq_2, err = metadata.AppendSnapshotToSeq(ctx, expect_seq_1, snap_2)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(seq_2, expect_seq_2)
+  util.EqualsOrDie("Bad SnapshotSequence3", seq_2, expect_seq_2)
 }
 
 func TestAppendChunkToSnapshot(ctx context.Context, metadata types.Metadata) {
@@ -80,19 +80,19 @@ func TestAppendChunkToSnapshot(ctx context.Context, metadata types.Metadata) {
   var written_snap_1, written_snap_2, written_snap_3, written_snap_4 *pb.SubVolume
   written_snap_1, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_1)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(written_snap_1, expect_first)
+  util.EqualsOrDie("Bad Snapshot", written_snap_1, expect_first)
 
   written_snap_2, err = metadata.AppendChunkToSnapshot(ctx, written_snap_1, chunk_1)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(written_snap_2, written_snap_1)
+  util.EqualsOrDie("Bad Snapshot2", written_snap_2, written_snap_1)
 
   written_snap_3, err = metadata.AppendChunkToSnapshot(ctx, written_snap_1, chunk_2)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(written_snap_3, expect_second)
+  util.EqualsOrDie("Bad Snapshot3", written_snap_3, expect_second)
 
   written_snap_4, err = metadata.AppendChunkToSnapshot(ctx, written_snap_3, chunk_2)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(written_snap_4, written_snap_3)
+  util.EqualsOrDie("Bad Snapshot4", written_snap_4, written_snap_3)
 }
 
 func TestReadSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
@@ -109,7 +109,7 @@ func TestReadSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
 
   head, err = metadata.ReadSnapshotSeqHead(ctx, vol_uuid)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(expect_head, head)
+  util.EqualsOrDie("Bad SnapshotSeqHead", expect_head, head)
 }
 
 func TestReadSnapshotSeq(ctx context.Context, metadata types.Metadata) {
@@ -129,7 +129,7 @@ func TestReadSnapshotSeq(ctx context.Context, metadata types.Metadata) {
 
   seq, err = metadata.ReadSnapshotSeq(ctx, empty_seq.Uuid)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(expect_seq, seq)
+  util.EqualsOrDie("Bad SnapshotSequence", expect_seq, seq)
 }
 
 func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
@@ -150,7 +150,7 @@ func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
 
   snap, err = metadata.ReadSnapshot(ctx, expect_snap.Uuid)
   if err != nil { util.Fatalf("%v", err) }
-  util.EqualsOrDie(expect_snap, snap)
+  util.EqualsOrDie("Bad Snapshot", expect_snap, snap)
 }
 
 func TestAllDynamoDbReadWrite(ctx context.Context, metadata types.Metadata) {

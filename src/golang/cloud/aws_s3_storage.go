@@ -233,6 +233,10 @@ func (self *s3Storage) uploadSummary(result types.ChunksOrError) string {
     uuids.WriteString(c.Uuid)
     uuids.WriteString(", ")
   }
+  if result.Err == nil {
+    return fmt.Sprintf("Wrote OK %d bytes in %d chunks: %s",
+                       total_size, len(result.Val.Chunks), uuids.String())
+  }
   return fmt.Sprintf("Wrote %d bytes in %d chunks: %s\nError: %v",
                      total_size, len(result.Val.Chunks), uuids.String(), result.Err)
 }
