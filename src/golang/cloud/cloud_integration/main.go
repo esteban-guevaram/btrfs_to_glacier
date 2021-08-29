@@ -149,8 +149,8 @@ func TestAllMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config)
   if err != nil { util.Fatalf("%v", err) }
 
   TestMetadataSetup(ctx, conf, aws_conf, metadata)
-  TestAllReadWrite(ctx, metadata)
-  TestAllDelete(ctx, metadata)
+  TestAllDynamoDbReadWrite(ctx, metadata)
+  TestAllDynamoDbDelete(ctx, metadata)
 }
 
 func TestCallerIdentity(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {

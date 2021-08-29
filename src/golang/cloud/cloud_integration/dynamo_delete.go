@@ -57,7 +57,7 @@ func TestDeleteSnapshotSeqHead(ctx context.Context, metadata types.DeleteMetadat
   if err != nil { util.Fatalf("%v", err) }
 }
 
-func TestAllDelete(ctx context.Context, metadata types.DeleteMetadata) {
+func TestAllDynamoDbDelete(ctx context.Context, metadata types.DeleteMetadata) {
   TestDeleteSnapshot(ctx, metadata)
   TestDeleteSnapshotSeq(ctx, metadata)
   TestDeleteSnapshotSeqHead(ctx, metadata)

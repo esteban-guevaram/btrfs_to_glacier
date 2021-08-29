@@ -153,7 +153,7 @@ func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
   util.EqualsOrDie(expect_snap, snap)
 }
 
-func TestAllReadWrite(ctx context.Context, metadata types.DeleteMetadata) {
+func TestAllDynamoDbReadWrite(ctx context.Context, metadata types.Metadata) {
   TestRecordSnapshotSeqHead(ctx, metadata)
   TestAppendSnapshotToSeq(ctx, metadata)
   TestAppendChunkToSnapshot(ctx, metadata)
