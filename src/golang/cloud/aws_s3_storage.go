@@ -98,6 +98,18 @@ func IsS3Error(fixed_err smithy.APIError, err error) bool {
   return false
 }
 
+// Although operations on objects have read-after-write consistency, that does not apply to buckets.
+// Deleting and creating buckets in quick succession and reading objects on that bucket
+// with a **different client object** may return NoSuchBucket errors.
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel
+func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Client {
+  s3_impl,ok := storage.(*s3Storage)
+  if !ok { util.Fatalf("called with the wrong impl") }
+  client,ok := s3_impl.client.(*s3.Client)
+  if !ok { util.Fatalf("storage does not contain a real aws client") }
+  return client
+}
+
 // Returns false if the bucket does not exist.
 func (self *s3Storage) checkBucketExistsAndIsOwnedByMyAccount(ctx context.Context) (bool, error) {
   var err error

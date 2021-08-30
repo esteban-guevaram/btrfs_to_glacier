@@ -3,13 +3,26 @@ package main
 import (
   "context"
   "errors"
+  "time"
 
+  "btrfs_to_glacier/cloud"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
 
+  "github.com/aws/aws-sdk-go-v2/aws"
+  "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+  dyn_types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
   "google.golang.org/protobuf/proto"
 )
+
+func deleteTable(ctx context.Context, conf *pb.Config, client *dynamodb.Client) {
+  _, err := client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+    TableName: &conf.Aws.DynamoDb.TableName,
+  })
+  if err != nil { util.Fatalf("Failed table delete: %v", err) }
+}
 
 func TestRecordSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
   var err error
@@ -153,6 +166,38 @@ func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
   util.EqualsOrDie("Bad Snapshot", expect_snap, snap)
 }
 
+func TestDynamoDbMetadataSetup(ctx context.Context, conf *pb.Config, client *dynamodb.Client, metadata types.Metadata) {
+  _, err := client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+    TableName: &conf.Aws.DynamoDb.TableName,
+  })
+
+  if err != nil {
+    apiErr := new(dyn_types.ResourceNotFoundException)
+    if !errors.As(err, &apiErr) { util.Fatalf("%v", err) }
+    util.Infof("TestMetadataSetup '%s' not exist", conf.Aws.DynamoDb.TableName)
+  } else {
+    waiter := dynamodb.NewTableNotExistsWaiter(client)
+    wait_rq := &dynamodb.DescribeTableInput{ TableName: &conf.Aws.DynamoDb.TableName, }
+    err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
+    if err != nil { util.Fatalf("%v", err) }
+    util.Infof("TestMetadataSetup '%s' deleted", conf.Aws.DynamoDb.TableName)
+  }
+
+  done := metadata.SetupMetadata(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("%v", err) }
+    case <-ctx.Done():
+  }
+
+  done = metadata.SetupMetadata(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("Idempotent err: %v", err) }
+    case <-ctx.Done():
+  }
+}
+
 func TestAllDynamoDbReadWrite(ctx context.Context, metadata types.Metadata) {
   TestRecordSnapshotSeqHead(ctx, metadata)
   TestAppendSnapshotToSeq(ctx, metadata)
@@ -160,5 +205,16 @@ func TestAllDynamoDbReadWrite(ctx context.Context, metadata types.Metadata) {
   TestReadSnapshotSeqHead(ctx, metadata)
   TestReadSnapshotSeq(ctx, metadata)
   TestReadSnapshot(ctx, metadata)
+}
+
+func TestAllDynamoDbMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
+  client := dynamodb.NewFromConfig(*aws_conf)
+  metadata, err := cloud.NewDelMetadata(conf, aws_conf)
+  if err != nil { util.Fatalf("%v", err) }
+
+  TestDynamoDbMetadataSetup(ctx, conf, client, metadata)
+  TestAllDynamoDbReadWrite(ctx, metadata)
+  TestAllDynamoDbDelete(ctx, metadata)
+  deleteTable(ctx, conf, client)
 }
 
