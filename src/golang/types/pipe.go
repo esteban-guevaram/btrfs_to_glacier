@@ -7,23 +7,13 @@ import "io/ioutil"
 import "os"
 import "time"
 
-type PipeReadEnd interface {
-  io.ReadCloser
-  Fd() uintptr
-  GetErr() error
-}
-
-type PipeWriteEnd interface {
-  io.WriteCloser
-  Fd() uintptr
-  PutErr(err error)
-}
+type HasFileDescriptorIf interface { Fd() uintptr }
+type CloseWithErrIf interface { CloseWithError(err error) error }
 
 // Encapsulates both sides of a pipe.
 type Pipe interface {
-  io.Closer
-  ReadEnd() PipeReadEnd
-  WriteEnd() PipeWriteEnd
+  ReadEnd() io.ReadCloser
+  WriteEnd() io.WriteCloser
 }
 
 // Dummy type to implement both pipe ends with a standard os.File
@@ -31,8 +21,19 @@ type pipeFile struct {
   *os.File
   Common *MockPipe
 }
-func (file *pipeFile) PutErr(err error) { file.Common.Err = err }
-func (file *pipeFile) GetErr() error { return file.Common.Err }
+func (file *pipeFile) CloseWithError(err error) error {
+  if file.Common.Err == nil { file.Common.Err = err }
+  file.Close()
+  return nil
+}
+func (file *pipeFile) Read(data []byte) (n int, err error) {
+  if file.Common.Err != nil { return 0, file.Common.Err }
+  return file.File.Read(data)
+}
+func (file *pipeFile) ReadFrom(inner io.Reader) (n int64, err error) {
+  if file.Common.Err != nil { return 0, file.Common.Err }
+  return file.File.ReadFrom(inner)
+}
 
 type MockPipe struct {
   read_end  *pipeFile
@@ -47,13 +48,8 @@ func NewMockPipe() *MockPipe {
   pipe.write_end = &pipeFile{write_end,pipe}
   return pipe
 }
-func (self *MockPipe) Close() error {
-  if self.read_end.File != nil { self.read_end.Close() }
-  if self.write_end.File != nil { self.write_end.Close() }
-  return nil
-}
-func (self *MockPipe) ReadEnd() PipeReadEnd { return self.read_end }
-func (self *MockPipe) WriteEnd() PipeWriteEnd { return self.write_end }
+func (self *MockPipe) ReadEnd() io.ReadCloser { return self.read_end }
+func (self *MockPipe) WriteEnd() io.WriteCloser { return self.write_end }
 
 
 type MockPreloadedPipe struct { MockPipe }

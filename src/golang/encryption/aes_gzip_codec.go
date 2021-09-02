@@ -224,13 +224,10 @@ func (self *aesGzipCodec) DecryptString(key_fp types.PersistableString, obfus ty
   return types.SecretString{plain}, nil
 }
 
-func (self *aesGzipCodec) EncryptStream(ctx context.Context, input types.PipeReadEnd) (types.PipeReadEnd, error) {
-  if input.GetErr() != nil {
-    return nil, fmt.Errorf("EncryptStream input has an error")
-  }
+func (self *aesGzipCodec) EncryptStream(ctx context.Context, input io.ReadCloser) (io.ReadCloser, error) {
   var err error
   pipe := util.NewFileBasedPipe()
-  defer util.CloseIfProblemo(pipe, &err)
+  defer func() { util.OnlyCloseWhenError(pipe, err) }()
 
   stream := self.getStreamEncrypter()
   block_buffer := make([]byte, 128 * self.block.BlockSize())
@@ -243,38 +240,30 @@ func (self *aesGzipCodec) EncryptStream(ctx context.Context, input types.PipeRea
   if err != nil { return nil, err }
 
   go func() {
-    done := false
-    writer := pipe.WriteEnd()
-    defer writer.Close()
+    var err error
+    defer func() { util.CloseWithError(pipe, err) }()
     defer input.Close()
+    done := false
 
     for !done && ctx.Err() == nil {
-      count, err := input.Read(block_buffer)
-      if err != nil && err != io.EOF {
-        writer.PutErr(fmt.Errorf("EncryptStream failed reading"))
-        return
-      }
+      var count int
+      count, err = input.Read(block_buffer)
+      if err != nil && err != io.EOF { return }
       done = (err == io.EOF)
 
       stream.XORKeyStream(block_buffer[:count], block_buffer[:count])
-      _, err = writer.Write(block_buffer[:count])
-      if err != nil {
-        writer.PutErr(fmt.Errorf("EncryptStream failed writing: %v", err))
-        return
-      }
+      _, err = pipe.WriteEnd().Write(block_buffer[:count])
+      if err != nil { return }
       //util.Debugf("encrypt count=%d done=%v bytes=%x", count, done, block_buffer[:count])
     }
   }()
   return pipe.ReadEnd(), nil
 }
 
-func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.PersistableString, input types.PipeReadEnd) (types.PipeReadEnd, error) {
-  if input.GetErr() != nil {
-    return nil, fmt.Errorf("DecryptStream input has an error")
-  }
+func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
   var err error
   pipe := util.NewFileBasedPipe()
-  defer util.CloseIfProblemo(pipe, &err)
+  defer func() { util.OnlyCloseWhenError(pipe, err) }()
 
   block, stream, err := self.getStreamDecrypter(key_fp)
   if err != nil { return nil, err }
@@ -292,28 +281,22 @@ func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.Persis
 
   go func() {
     var err error
+    defer func() { util.CloseWithError(pipe, err) }()
+    defer input.Close()
     done := false
     block_buffer := make([]byte, 128 * block.BlockSize())
     writer := pipe.WriteEnd()
-    defer writer.Close()
-    defer input.Close()
 
     first_block := block_buffer[0:block.BlockSize()]
     done, _, err = decrypt_helper(first_block)
-    if err != nil && err != io.EOF {
-      writer.PutErr(err)
-      return
-    }
+    if err != nil && err != io.EOF { return }
 
     for !done && ctx.Err() == nil {
       var count int
       done, count, err = decrypt_helper(block_buffer)
 
       _, err = writer.Write(block_buffer[:count])
-      if err != nil {
-        writer.PutErr(fmt.Errorf("DecryptStream failed writing: %v", err))
-        return
-      }
+      if err != nil { return }
       //util.Debugf("decrypt count=%d done=%v bytes=%x", count, done, block_buffer[:count])
     }
   }()

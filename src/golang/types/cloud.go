@@ -2,6 +2,7 @@ package types
 
 import "context"
 import "errors"
+import "io"
 import pb "btrfs_to_glacier/messages"
 
 var ErrNotFound = errors.New("key_not_found_in_metadata")
@@ -85,7 +86,7 @@ type Storage interface {
   // Returns the ids of all chunks uploaded. If some error prevented all pipe content from being uploaded,
   // then ChunksOrError.Err will contain ErrMissingChunks as well as the chunks that got uploaded.
   // Takes ownership of `read_pipe` and will close it once done.
-  WriteStream(ctx context.Context, offset uint64, read_pipe PipeReadEnd) (<-chan ChunksOrError, error)
+  WriteStream(ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan ChunksOrError, error)
 
   SendRestoreRq() error
   ReadStream() error

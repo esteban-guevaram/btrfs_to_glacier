@@ -8,6 +8,7 @@ import (
   "btrfs_to_glacier/cloud"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
+  "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/aws"
@@ -187,7 +188,7 @@ func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
   // A bigger chunk, will make tests slow+expensive
   new_conf.Aws.S3.ChunkLen = 128*1024
 
-  codec := new(types.MockCodec)
+  codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
   storage, err := cloud.NewStorage(new_conf, aws_conf, codec)
   //client := s3.NewFromConfig(*aws_conf)

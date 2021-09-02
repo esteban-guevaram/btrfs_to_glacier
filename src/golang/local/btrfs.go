@@ -3,6 +3,7 @@ package local
 import (
   "context"
   "fmt"
+  "io"
   fpmod "path/filepath"
   "sort"
   "time"
@@ -114,9 +115,8 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from
     defer close(changes_chan)
     defer read_end.Close()
     dump_ops := self.btrfsutil.ReadAndProcessSendStream(read_end)
-    if dump_ops.Err != nil || read_end.GetErr() != nil {
-      err = fmt.Errorf("src_err:%v dst_err:%v", read_end.GetErr(), dump_ops.Err)
-      changes_chan <- types.SnapshotChangesOrError{nil, err}
+    if dump_ops.Err != nil {
+      changes_chan <- types.SnapshotChangesOrError{nil, dump_ops.Err}
       return
     }
     changes_chan <- types.SnapshotChangesOrError{
@@ -127,7 +127,7 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from
   return changes_chan, nil
 }
 
-func (self *btrfsVolumeManager) GetSnapshotStream(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (types.PipeReadEnd, error) {
+func (self *btrfsVolumeManager) GetSnapshotStream(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (io.ReadCloser, error) {
   if from != nil && from.ParentUuid != to.ParentUuid {
     return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
   }
@@ -164,7 +164,7 @@ func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
   return nil
 }
 
-func (self *btrfsVolumeManager) ReceiveSendStream(ctx context.Context, src_subvol *pb.SubVolume, read_pipe types.PipeReadEnd)  (<-chan types.SubVolumeOrError, error) {
+func (self *btrfsVolumeManager) ReceiveSendStream(ctx context.Context, src_subvol *pb.SubVolume, read_pipe io.ReadCloser)  (<-chan types.SubVolumeOrError, error) {
   ch := make(chan types.SubVolumeOrError, 1)
   go func() {
     var err error

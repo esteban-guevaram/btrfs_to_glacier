@@ -137,7 +137,7 @@ func TestBtrfsUtil_ReceiveSendStream(conf *pb.Config, linuxutil types.Linuxutil,
   }
   restore_dir := GetRestoreDir(conf)
   preload_pipe := LoadPipeFromBase64SendData(send_stream)
-  defer preload_pipe.Close()
+  defer preload_pipe.WriteEnd().Close()
   ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
   defer cancel()
 

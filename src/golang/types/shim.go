@@ -2,6 +2,7 @@ package types
 
 import (
   "context"
+  "io"
   pb "btrfs_to_glacier/messages"
 )
 
@@ -39,16 +40,17 @@ type Btrfsutil interface {
   // If the subvolume is not a snapshot then the corresponding fields will be empty.
   // @path must be the root of the subvolume or root_volume.
   ListSubVolumesUnder(path string) ([]*pb.SubVolume, error)
-  // Reads a file generated from `btrfs send --no-data` and returns a record of the operations.
-  ReadAndProcessSendStream(dump PipeReadEnd) *SendDumpOperations
+  // Reads a stream generated from `btrfs send --no-data` and returns a record of the operations.
+  // Takes ownership of `read_pipe` and will close it once done.
+  ReadAndProcessSendStream(dump io.ReadCloser) *SendDumpOperations
   // Starts a separate `btrfs send` and returns the read end of the pipe.
   // `no_data` is the same option as for `btrfs send`.
   // `from` can be null to get the full contents of the subvolume.
   // When `ctx` is done/cancelled the write end of the pipe should be closed and the forked process killed.
-  StartSendStream(ctx context.Context, from string, to string, no_data bool) (PipeReadEnd, error)
+  StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error)
   // Wrapper around `btrfs receive`
   // Takes ownership of `read_pipe` and will close it once done.
-  ReceiveSendStream(ctx context.Context, to_dir string, read_pipe PipeReadEnd) error
+  ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error
   // Calls `btrfs_util_create_snapshot()` to create a snapshot of `subvol` in `snap` path.
   // Sets the read-only flag.
   // Note async subvolume is no longer possible.
@@ -87,10 +89,10 @@ func (self *MockBtrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
 func (self *MockBtrfsutil) ListSubVolumesUnder(path string) ([]*pb.SubVolume, error) {
   return self.Snaps, self.Err
 }
-func (self *MockBtrfsutil) ReadAndProcessSendStream(dump PipeReadEnd) *SendDumpOperations {
+func (self *MockBtrfsutil) ReadAndProcessSendStream(dump io.ReadCloser) *SendDumpOperations {
   return self.DumpOps
 }
-func (self *MockBtrfsutil) StartSendStream(ctx context.Context, from string, to string, no_data bool) (PipeReadEnd, error) {
+func (self *MockBtrfsutil) StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error) {
   return self.SendStream.ReadEnd(), self.Err
 }
 func (self *MockBtrfsutil) CreateSnapshot(subvol string, snap string) error {
@@ -102,7 +104,7 @@ func (self *MockBtrfsutil) DeleteSubvolume(subvol string) error {
 func (self *MockBtrfsutil) WaitForTransactionId(root_fs string, tid uint64) error {
   return self.Err
 }
-func (self *MockBtrfsutil) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe PipeReadEnd) error {
+func (self *MockBtrfsutil) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error {
   return self.Err
 }
 

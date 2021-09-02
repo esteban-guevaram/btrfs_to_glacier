@@ -6,65 +6,38 @@ import "fmt"
 import "io"
 import "os"
 import "os/exec"
-import "sync"
 import "btrfs_to_glacier/types"
 
-type pipeFile struct {
-  *os.File
-  pipe *FileBasedPipe
-}
-
 type FileBasedPipe struct {
-  read_end  *pipeFile
-  write_end *pipeFile
-  err_mu sync.Mutex
-  err    error
+  read_end  *os.File
+  write_end *os.File
 }
 
 func NewFileBasedPipe() *FileBasedPipe {
   read_end, write_end, err := os.Pipe()
-  if err != nil { panic(fmt.Sprintf("failed os.Pipe %v", err)) }
+  if err != nil { Fatalf("failed os.Pipe %v", err) }
   pipe := &FileBasedPipe{ }
-  pipe.read_end =  &pipeFile{read_end, pipe}
-  pipe.write_end = &pipeFile{write_end, pipe}
+  pipe.read_end =  read_end
+  pipe.write_end = write_end
   return pipe
 }
 
-func (self *FileBasedPipe) Close() error {
-  if self.read_end != nil { self.read_end.Close() }
-  if self.write_end != nil { self.write_end.Close() }
-  return nil
-}
-func (self *FileBasedPipe) ReadEnd()  *pipeFile { return self.read_end }
-func (self *FileBasedPipe) WriteEnd() *pipeFile { return self.write_end }
-
-func (self *pipeFile) PutErr(err error) {
-  self.pipe.err_mu.Lock()
-  defer self.pipe.err_mu.Unlock()
-  self.pipe.err = err
-}
-func (self *pipeFile) GetErr() error {
-  self.pipe.err_mu.Lock()
-  defer self.pipe.err_mu.Unlock()
-  return self.pipe.err
-}
+func (self *FileBasedPipe) ReadEnd()  io.ReadCloser { return self.read_end }
+func (self *FileBasedPipe) WriteEnd() io.WriteCloser { return self.write_end }
 
 
 // Synchronous, waits for the command to finish
 // Takes ownership of `input` and will close it once done.
-func StartCmdWithPipedInput(ctx context.Context, input types.PipeReadEnd, args []string) error {
+func StartCmdWithPipedInput(ctx context.Context, input io.ReadCloser, args []string) error {
   var err error
   buf_err := new(bytes.Buffer)
   buf_out := new(bytes.Buffer)
   defer input.Close()
 
   command := exec.CommandContext(ctx, args[0], args[1:]...)
+  command.Stdin = input
   command.Stdout = buf_out
   command.Stderr = buf_err
-  switch pipe_impl := input.(type) {
-    case *pipeFile: command.Stdin = pipe_impl.File
-    default: command.Stdin = pipe_impl
-  }
 
   err = command.Start()
   if err != nil {
@@ -73,9 +46,6 @@ func StartCmdWithPipedInput(ctx context.Context, input types.PipeReadEnd, args [
   Infof("%v started as pid %d", args, command.Process.Pid)
 
   err = command.Wait()
-  if input.GetErr() != nil {
-    return fmt.Errorf("Input pipe had error: %s", input.GetErr())
-  }
   if err != nil && ctx.Err() == nil {
     return fmt.Errorf("%v failed: %v\nstderr: %s", args, err, buf_err.Bytes())
   }
@@ -83,10 +53,10 @@ func StartCmdWithPipedInput(ctx context.Context, input types.PipeReadEnd, args [
   return nil
 }
 
-func StartCmdWithPipedOutput(ctx context.Context, args []string) (types.PipeReadEnd, error) {
+func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser, error) {
   var err error
   pipe := NewFileBasedPipe()
-  defer CloseIfProblemo(pipe, &err)
+  defer func() { OnlyCloseWhenError(pipe, err) }()
 
   buf_err := new(bytes.Buffer)
   command := exec.CommandContext(ctx, args[0], args[1:]...)
@@ -100,17 +70,29 @@ func StartCmdWithPipedOutput(ctx context.Context, args []string) (types.PipeRead
   Infof("%v started as pid %d", args, command.Process.Pid)
 
   go func() {
-    defer pipe.WriteEnd().Close()
-    err := command.Wait()
+    var err error
+    defer func() { CloseWithError(pipe, err) }()
+    err = command.Wait()
     if err != nil && ctx.Err() == nil {
       err = fmt.Errorf("%v failed: %v\nstderr: %s", args, err, buf_err.Bytes())
     }
-    pipe.WriteEnd().PutErr(err) // do this before closing stream
   }()
   return pipe.ReadEnd(), nil
 }
 
-func CloseIfProblemo(obj io.Closer, err_ptr *error) {
-  if *err_ptr != nil { obj.Close() }
+func CloseWithError(pipe types.Pipe, err error) {
+  obj := pipe.WriteEnd()
+  if err != nil {
+    if adv_obj,ok := obj.(types.CloseWithErrIf); ok {
+      adv_obj.CloseWithError(err)
+      return
+    }
+  }
+  obj.Close()
+}
+
+func OnlyCloseWhenError(pipe types.Pipe, err error) {
+  if err == nil { return }
+  CloseWithError(pipe, err)
 }
 

@@ -9,6 +9,7 @@ import (
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
+  "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -90,7 +91,7 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *mockS
     HeadAlwaysEmpty: false,
     HeadAlwaysAccessDenied: false,
   }
-  codec := new(types.MockCodec)
+  codec := new(mocks.Codec)
   aws_conf, err := NewAwsConfig(context.TODO(), conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
 
@@ -206,7 +207,7 @@ func TestWriteOneChunk_PipeError(t *testing.T) {
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
   pipe := types.NewMockPreloadedPipe(data)
-  pipe.WriteEnd().PutErr(fmt.Errorf("oopsie"))
+  util.CloseWithError(pipe, fmt.Errorf("oopsie"))
 
   chunk_pb, more, err := storage.writeOneChunk(ctx, offset, pipe.ReadEnd())
   if err == nil { t.Fatalf("expected call to fail") }
@@ -223,7 +224,7 @@ func TestWriteStream_PipeError(t *testing.T) {
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
   pipe := types.NewMockPreloadedPipe(data)
-  pipe.WriteEnd().PutErr(fmt.Errorf("oopsie"))
+  util.CloseWithError(pipe, fmt.Errorf("oopsie"))
 
   done, err := storage.WriteStream(ctx, offset, pipe.ReadEnd())
   if err != nil { t.Fatalf("expected to fail but not right now: %v", err) }
@@ -323,7 +324,7 @@ func helper_TestWriteStream_SingleChunk(t *testing.T, offset uint64, chunk_len u
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
-  storage.codec.(*types.MockCodec).Fingerprint = types.PersistableString{expect_fp}
+  storage.codec.(*mocks.Codec).Fingerprint = types.PersistableString{expect_fp}
   data := util.GenerateRandomTextData(int(total_len))
   expect_data := make([]byte, total_len - offset)
   copy(expect_data, data[offset:])
@@ -374,7 +375,7 @@ func helper_TestWriteStream_MultiChunk(t *testing.T, offset uint64, chunk_len ui
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
-  storage.codec.(*types.MockCodec).Fingerprint = types.PersistableString{expect_fp}
+  storage.codec.(*mocks.Codec).Fingerprint = types.PersistableString{expect_fp}
   data := util.GenerateRandomTextData(int(total_len))
   expect_data := make([]byte, total_len)
   copy(expect_data, data)

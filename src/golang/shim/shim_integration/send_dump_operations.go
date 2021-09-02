@@ -5,7 +5,7 @@ import "context"
 import "encoding/base64"
 import "encoding/json"
 import "fmt"
-import "io/ioutil"
+import "io"
 import "time"
 import "btrfs_to_glacier/types"
 import "btrfs_to_glacier/util"
@@ -192,7 +192,7 @@ func TestSendDump(btrfsutil types.Btrfsutil, dumpname string, dump_base64 string
   var json_str []byte
   var changes *types.SendDumpOperations
   preload_pipe := LoadPipeFromBase64SendData(dump_base64)
-  defer preload_pipe.Close()
+  defer preload_pipe.WriteEnd().Close()
 
   changes = btrfsutil.ReadAndProcessSendStream(preload_pipe.ReadEnd())
   json_str, err = json.MarshalIndent(changes, "", "  ")
@@ -214,7 +214,7 @@ func TestBtrfsSendStreamAll(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil
 // Requires CAP_SYS_ADMIN
 func TestBtrfsSendStream(btrfsutil types.Btrfsutil, snap_old string, snap_new string, no_data bool) {
   var err error
-  var read_end types.PipeReadEnd
+  var read_end io.ReadCloser
   header := []byte("btrfs-stream\x00")
   ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
   defer cancel()
@@ -226,7 +226,7 @@ func TestBtrfsSendStream(btrfsutil types.Btrfsutil, snap_old string, snap_new st
   go func() {
     defer read_end.Close()
     defer close(done)
-    data, err := ioutil.ReadAll(read_end)
+    data, err := io.ReadAll(read_end)
     util.Infof("snap_old='%s' snap_new='%s' no_data=%v data_len=%d err=%v",
                snap_old, snap_new, no_data, len(data), err)
     done <- data
@@ -248,7 +248,7 @@ func TestBtrfsSendStream(btrfsutil types.Btrfsutil, snap_old string, snap_new st
 // Requires CAP_SYS_ADMIN
 func TestBtrfsSendAndReceiveStreamDump(btrfsutil types.Btrfsutil, snap_old string, snap_new string) {
   var err error
-  var read_end types.PipeReadEnd
+  var read_end io.ReadCloser
   ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
   defer cancel()
 

@@ -4,10 +4,10 @@ import "context"
 import "encoding/base64"
 import "encoding/json"
 import "fmt"
+import "io"
 import "math/rand"
 import "strings"
 import "testing"
-import "btrfs_to_glacier/types"
 
 func asJsonStrings(val interface{}, expected interface{}) (string, string) {
   var val_str, expected_str []byte
@@ -61,20 +61,15 @@ func GenerateRandomTextData(size int) []byte {
   return buffer_txt[:size]
 }
 
-func ProduceRandomTextIntoPipe(ctx context.Context, chunk int, iterations int) types.PipeReadEnd {
-  var err error
+func ProduceRandomTextIntoPipe(ctx context.Context, chunk int, iterations int) io.ReadCloser {
   pipe := NewFileBasedPipe()
-  defer CloseIfProblemo(pipe, &err)
 
   go func() {
     defer pipe.WriteEnd().Close()
     for i:=0; ctx.Err() == nil && i < iterations; i+=1 {
       data := GenerateRandomTextData(chunk)
       _, err := pipe.WriteEnd().Write(data)
-      if err != nil {
-        pipe.WriteEnd().PutErr(err)
-        return
-      }
+      if err != nil { return }
     }
   }()
   return pipe.ReadEnd()

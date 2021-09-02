@@ -198,20 +198,6 @@ func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
   if ch != nil { t.Errorf("Expected nil channel on error") }
 }
 
-func TestGetChangesBetweenSnaps_ErrReadingStream(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
-  btrfsutil.SendStream.WriteEnd().PutErr(fmt.Errorf("problemo"))
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
-  if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
-  select {
-    case changes := <-ch:
-      if changes.Err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
-}
-
 func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
   btrfsutil.DumpOps.Err = fmt.Errorf("problemo")

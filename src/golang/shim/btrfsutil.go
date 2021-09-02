@@ -9,6 +9,8 @@ package shim
 import "C"
 import (
   "context"
+  "io"
+  "os"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
   "btrfs_to_glacier/types"
@@ -144,11 +146,21 @@ func (self *btrfsUtilImpl) ListSubVolumesUnder(path string) ([]*pb.SubVolume, er
   return vols, nil
 }
 
-func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump types.PipeReadEnd) *types.SendDumpOperations {
-  return readAndProcessSendStreamHelper(dump.Fd())
+func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump io.ReadCloser) *types.SendDumpOperations {
+  defer dump.Close()
+  if file_pipe,ok := dump.(types.HasFileDescriptorIf); ok {
+    return readAndProcessSendStreamHelper(file_pipe.Fd())
+  }
+  pipe := util.NewFileBasedPipe()
+  defer pipe.ReadEnd().Close()
+  go func() {
+    defer pipe.WriteEnd().Close()
+    io.Copy(pipe.WriteEnd(), dump)
+  }()
+  return readAndProcessSendStreamHelper(pipe.ReadEnd().(*os.File).Fd())
 }
 
-func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (types.PipeReadEnd, error) {
+func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error) {
   if len(from) > 0 && !fpmod.IsAbs(from) {
     return nil, fmt.Errorf("'from' needs an absolute path, got: %s", from)
   }
@@ -217,7 +229,7 @@ func (self *btrfsUtilImpl) DeleteSubvolume(subvol string) error {
   return nil
 }
 
-func (self *btrfsUtilImpl) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe types.PipeReadEnd) error {
+func (self *btrfsUtilImpl) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error {
   defer read_pipe.Close()
   if !fpmod.IsAbs(to_dir) {
     return fmt.Errorf("'to_dir' needs an absolute path, got: %s", to_dir)

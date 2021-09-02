@@ -256,7 +256,7 @@ func (self *s3Storage) uploadSummary(result types.ChunksOrError) string {
 // Each chunk should be encrypted with a different IV,
 // `start_offset` is NOT used to advance the stream only to return a correct return value.
 func (self *s3Storage) writeOneChunk(
-    ctx context.Context, start_offset uint64, encrypted_stream types.PipeReadEnd) (*pb.SnapshotChunks_Chunk, bool, error) {
+    ctx context.Context, start_offset uint64, encrypted_stream io.ReadCloser) (*pb.SnapshotChunks_Chunk, bool, error) {
   content_type := "application/octet-stream"
   chunk_len := int64(self.conf.Aws.S3.ChunkLen)
   key, err := uuid.NewRandom()
@@ -273,11 +273,10 @@ func (self *s3Storage) writeOneChunk(
     StorageClass: s3_types.StorageClassStandard,
   }
 
-  _, err = self.uploader.Upload(ctx, upload_in)
-  if err != nil { return nil, false, err }
   // Maybe we managed to read some data and actually wrote an object to S3.
   // Just forget about it, that object should remain orphan.
-  if encrypted_stream.GetErr() != nil { return nil, false, encrypted_stream.GetErr() }
+  _, err = self.uploader.Upload(ctx, upload_in)
+  if err != nil { return nil, false, err }
   write_cnt := chunk_len - chunk_reader.N
   if write_cnt == 0 { return nil, false, fmt.Errorf("What happens if send file is a multiple of chunk size?") }
 
@@ -292,7 +291,7 @@ func (self *s3Storage) writeOneChunk(
 // Since codec uses random IV for block cipher we cannot just resume failed uploads.
 // (It would result in a chunk having stream encoded with different IVs).
 func (self *s3Storage) WriteStream(
-    ctx context.Context, offset uint64, read_pipe types.PipeReadEnd) (<-chan types.ChunksOrError, error) {
+    ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan types.ChunksOrError, error) {
   if self.conf.Aws.S3.ChunkLen < 1 { return nil, fmt.Errorf("Bad config: no chunk length.") }
   done := make(chan types.ChunksOrError, 1)
 

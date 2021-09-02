@@ -175,7 +175,7 @@ func TestEncryptStream(t *testing.T) {
   defer cancel()
 
   var err error
-  var encoded_pipe, decoded_pipe types.PipeReadEnd
+  var encoded_pipe, decoded_pipe io.ReadCloser
   encoded_pipe, err = codec.EncryptStream(ctx, read_pipe)
   if err != nil { t.Fatalf("Could not encrypt: %v", err) }
   decoded_pipe, err = codec.DecryptStream(ctx, types.CurKeyFp, encoded_pipe)
@@ -187,7 +187,6 @@ func TestEncryptStream(t *testing.T) {
     defer decoded_pipe.Close()
     data, err := ioutil.ReadAll(decoded_pipe)
     if err != nil { t.Errorf("ReadAll: %v", err) }
-    if decoded_pipe.GetErr() != nil { t.Errorf("decoded_pipe.GetErr(): %v", decoded_pipe.GetErr()) }
     done <- data
   }()
 
@@ -206,7 +205,7 @@ func TestEncryptStream_MoreData(t *testing.T) {
   read_pipe := util.ProduceRandomTextIntoPipe(ctx, 4096, 32)
 
   var err error
-  var encoded_pipe, decoded_pipe types.PipeReadEnd
+  var encoded_pipe, decoded_pipe io.ReadCloser
   encoded_pipe, err = codec.EncryptStream(ctx, read_pipe)
   if err != nil { t.Fatalf("Could not encrypt: %v", err) }
   decoded_pipe, err = codec.DecryptStream(ctx, types.CurKeyFp, encoded_pipe)
@@ -218,7 +217,6 @@ func TestEncryptStream_MoreData(t *testing.T) {
     defer decoded_pipe.Close()
     data, err := ioutil.ReadAll(decoded_pipe)
     if err != nil { t.Errorf("ReadAll: %v", err) }
-    if decoded_pipe.GetErr() != nil { t.Errorf("decoded_pipe.GetErr(): %v", decoded_pipe.GetErr()) }
     done <- data
   }()
 

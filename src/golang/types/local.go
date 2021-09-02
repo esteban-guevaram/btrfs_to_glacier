@@ -2,6 +2,7 @@ package types
 
 import (
   "context"
+  "io"
   pb "btrfs_to_glacier/messages"
 )
 
@@ -38,7 +39,7 @@ type VolumeSource interface {
   CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, error)
   // Create a pipe with the data from the delta between `from` and `to` snapshots.
   // `from` can be nil to get the full snapshot content.
-  GetSnapshotStream(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (PipeReadEnd, error)
+  GetSnapshotStream(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (io.ReadCloser, error)
 }
 
 type VolumeDestination interface {
@@ -48,7 +49,7 @@ type VolumeDestination interface {
   // Reads subvolume data from the pipe and creates a subvolume using `btrfs receive`.
   // The path for the new subvolume will be determined by configuration.
   // Takes ownership of `read_pipe` and will close it once done.
-  ReceiveSendStream(ctx context.Context, src_subvol *pb.SubVolume, read_pipe PipeReadEnd) (<-chan SubVolumeOrError, error)
+  ReceiveSendStream(ctx context.Context, src_subvol *pb.SubVolume, read_pipe io.ReadCloser) (<-chan SubVolumeOrError, error)
 }
 
 func ByUuid(uuid string) func(*pb.SubVolume) bool {
