@@ -195,9 +195,11 @@ func TestSendDump(btrfsutil types.Btrfsutil, dumpname string, dump_base64 string
   preload_pipe := LoadPipeFromBase64SendData(dump_base64)
   defer preload_pipe.WriteEnd().Close()
 
-  changes = btrfsutil.ReadAndProcessSendStream(preload_pipe.ReadEnd())
+  changes,err = btrfsutil.ReadAndProcessSendStream(preload_pipe.ReadEnd())
+  if err != nil { util.Fatalf("btrfsutil.ReadAndProcessSendStream: %v", err) }
   json_str, err = json.MarshalIndent(changes, "", "  ")
-  util.Infof("err=%v\n%s = %s", err, dumpname, json_str)
+  if err != nil { util.Fatalf("json.MarshalIndent %v", err) }
+  util.Infof("\n%s = %s", dumpname, json_str)
 }
 
 func TestBtrfsSendStreamAll(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
@@ -263,9 +265,11 @@ func TestBtrfsSendAndReceiveStreamDump(btrfsutil types.Btrfsutil, snap_old strin
     var changes *types.SendDumpOperations
     defer read_end.Close()
     defer close(done)
-    changes = btrfsutil.ReadAndProcessSendStream(read_end)
+    changes, err = btrfsutil.ReadAndProcessSendStream(read_end)
+    if err != nil { util.Fatalf("btrfsutil.ReadAndProcessSendStream: %v", err) }
     json_str, err = json.MarshalIndent(changes, "", "  ")
-    util.Infof("err=%v\nsnap_old:'%s' snap_new:'%s' = %s", err, snap_old, snap_new, json_str)
+    if err != nil { util.Fatalf("json.MarshalIndent %v", err) }
+    util.Infof("\nsnap_old:'%s' snap_new:'%s' = %s", snap_old, snap_new, json_str)
     done <- true
   }()
 

@@ -38,7 +38,6 @@ func TestGetChangesBetweenSnaps_NewTree(t *testing.T) {
     },
     ToUuid: "72124d274e1e67428b7eed6909b00537",
     FromUuid: "5196e8fc2aa495499e24d9df818ba8c7",
-    Err: nil,
   }
   expect_changes := &pb.SnapshotChanges{
     FromUuid: dump_ops.FromUuid,
@@ -101,7 +100,6 @@ func TestGetChangesBetweenSnaps_DelTree(t *testing.T) {
     },
     ToUuid: "b370a17d42dc5444a8e688d0962d85b2",
     FromUuid: "72124d274e1e67428b7eed6909b00537",
-    Err: nil,
   }
   expect_changes := &pb.SnapshotChanges{
     FromUuid: dump_ops.FromUuid,
@@ -162,7 +160,6 @@ func TestGetChangesBetweenSnaps_MovTree(t *testing.T) {
     },
     ToUuid: "7d26d0a22c93e5438787b0a675a4db92",
     FromUuid: "e0366499f02a9d48a8e0e2355f9c43a6",
-    Err: nil,
   }
   expect_changes := &pb.SnapshotChanges{
     FromUuid: dump_ops.FromUuid,

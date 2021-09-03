@@ -70,7 +70,12 @@ import "syscall"
 import "unsafe"
 import "btrfs_to_glacier/types"
 
-func callback_harness(user unsafe.Pointer, body func(state *types.SendDumpOperations)) C.int {
+type SendDumpOpsAndErr struct {
+  types.SendDumpOperations
+  Err error
+}
+
+func callback_harness(user unsafe.Pointer, body func(state *SendDumpOpsAndErr)) C.int {
   state := getSendDumpOpsFromHandle(user)
   if state.Err != nil { return 1 }
   body(state)
@@ -83,7 +88,7 @@ func go_subvol_cb        (path *C.char, uuid *C.u8, ctransid C.u64, user unsafe.
 //export go_snapshot_cb
 func go_snapshot_cb      (path *C.char, uuid *C.u8, ctransid C.u64,
                           parent_uuid *C.u8, parent_ctransid C.u64, user unsafe.Pointer) C.int {
-  return callback_harness(user, func(state *types.SendDumpOperations) {
+  return callback_harness(user, func(state *SendDumpOpsAndErr) {
     if len(state.ToUuid) > 0 || len(state.FromUuid) > 0 {
       state.Err = fmt.Errorf("Overwriting to_uuid=%s, from_uuid=%s", state.ToUuid, state.FromUuid)
     }
@@ -94,7 +99,7 @@ func go_snapshot_cb      (path *C.char, uuid *C.u8, ctransid C.u64,
 
 //export go_mkfile_cb
 func go_mkfile_cb        (path *C.char, user unsafe.Pointer) C.int {
-  return callback_harness(user, func(state *types.SendDumpOperations) {
+  return callback_harness(user, func(state *SendDumpOpsAndErr) {
     go_path := C.GoString(path)
     state.New[go_path]= true
   })
@@ -102,7 +107,7 @@ func go_mkfile_cb        (path *C.char, user unsafe.Pointer) C.int {
 
 //export go_mkdir_cb
 func go_mkdir_cb         (path *C.char, user unsafe.Pointer) C.int {
-  return callback_harness(user, func(state *types.SendDumpOperations) {
+  return callback_harness(user, func(state *SendDumpOpsAndErr) {
     go_path := C.GoString(path)
     state.NewDir[go_path]= true
   })
@@ -118,7 +123,7 @@ func go_mksock_cb        (path *C.char, user unsafe.Pointer) C.int { return 0 }
 func go_symlink_cb       (path *C.char, lnk *C.char, user unsafe.Pointer) C.int { return 0 }
 //export go_rename_cb
 func go_rename_cb        (from *C.char, to *C.char, user unsafe.Pointer) C.int {
-  return callback_harness(user, func(state *types.SendDumpOperations) {
+  return callback_harness(user, func(state *SendDumpOpsAndErr) {
     go_from := C.GoString(from)
     go_to := C.GoString(to)
     if _, found := state.FromTo[go_from]; found {
@@ -135,7 +140,7 @@ func go_link_cb          (path *C.char, lnk *C.char, user unsafe.Pointer) C.int 
 
 //export go_unlink_cb
 func go_unlink_cb        (path *C.char, user unsafe.Pointer) C.int {
-  return callback_harness(user, func(state *types.SendDumpOperations) {
+  return callback_harness(user, func(state *SendDumpOpsAndErr) {
     go_path := C.GoString(path)
     state.Deleted[go_path]= true
   })
@@ -143,7 +148,7 @@ func go_unlink_cb        (path *C.char, user unsafe.Pointer) C.int {
 
 //export go_rmdir_cb
 func go_rmdir_cb         (path *C.char, user unsafe.Pointer) C.int {
-  return callback_harness(user, func(state *types.SendDumpOperations) {
+  return callback_harness(user, func(state *SendDumpOpsAndErr) {
     go_path := C.GoString(path)
     state.DelDir[go_path] = true
   })
@@ -152,7 +157,7 @@ func go_rmdir_cb         (path *C.char, user unsafe.Pointer) C.int {
 //export go_write_cb
 func go_write_cb         (path *C.char, data unsafe.Pointer, offset C.u64, len_ C.u64,
                           user unsafe.Pointer) C.int {
-  return callback_harness(user, func(state *types.SendDumpOperations) {
+  return callback_harness(user, func(state *SendDumpOpsAndErr) {
     state.Err = fmt.Errorf("Did not expect go_write_cb for %s (len=%d)", C.GoString(path), len_)
   })
 }
@@ -179,33 +184,36 @@ func go_utimes_cb        (path *C.char, at *C.struct_timespec,
                           mt *C.struct_timespec, ct *C.struct_timespec, user unsafe.Pointer) C.int { return 0 }
 //export go_update_extent_cb
 func go_update_extent_cb (path *C.char, offset C.u64, len_ C.u64, user unsafe.Pointer) C.int {
-  return callback_harness(user, func(state *types.SendDumpOperations) {
+  return callback_harness(user, func(state *SendDumpOpsAndErr) {
     go_path := C.GoString(path)
     state.Written[go_path]= true
   })
 }
 
 type stateTable struct {
-  slots map[int32]*types.SendDumpOperations
+  slots map[int32]*SendDumpOpsAndErr
   free int32
 }
 
 var static_table stateTable
 func init() {
   static_table = stateTable {
-    slots: make(map[int32]*types.SendDumpOperations),
+    slots: make(map[int32]*SendDumpOpsAndErr),
   }
 }
 
 func allocateSendDumpOps() int32 {
   slot_idx := atomic.AddInt32(&static_table.free, 1)
-  static_table.slots[slot_idx] = &types.SendDumpOperations{
-    Written: make(map[string]bool),
-    New: make(map[string]bool),
-    NewDir: make(map[string]bool),
-    Deleted: make(map[string]bool),
-    DelDir: make(map[string]bool),
-    FromTo: make(map[string]string),
+  static_table.slots[slot_idx] = &SendDumpOpsAndErr{
+    types.SendDumpOperations{
+      Written: make(map[string]bool),
+      New: make(map[string]bool),
+      NewDir: make(map[string]bool),
+      Deleted: make(map[string]bool),
+      DelDir: make(map[string]bool),
+      FromTo: make(map[string]string),
+    },
+    nil,
   }
   return slot_idx
 }
@@ -214,11 +222,11 @@ func deallocateSendDumpOps(slot_idx int32) {
   delete(static_table.slots, slot_idx)
 }
 
-func getSendDumpOpsFromHandle(handle unsafe.Pointer) *types.SendDumpOperations {
+func getSendDumpOpsFromHandle(handle unsafe.Pointer) *SendDumpOpsAndErr {
   slot_idx := *(*int32)(handle)
   return getSendDumpOpsFromKey(slot_idx)
 }
-func getSendDumpOpsFromKey(idx int32) *types.SendDumpOperations {
+func getSendDumpOpsFromKey(idx int32) *SendDumpOpsAndErr {
   state, ok := static_table.slots[idx]
   if !ok { panic("could not find state in static table") }
   return state
@@ -230,7 +238,7 @@ func bytePtrToUuid(uuid *C.u8) string {
   return bytesToUuid(a)
 }
 
-func readAndProcessSendStreamHelper(dump_fd uintptr) *types.SendDumpOperations {
+func readAndProcessSendStreamHelper(dump_fd uintptr) (*types.SendDumpOperations, error) {
   const IGNORE_ERR = 0
   const PROPAGATE_LAST_CMD_ERR = 1
   slot_idx := allocateSendDumpOps()
@@ -243,6 +251,6 @@ func readAndProcessSendStreamHelper(dump_fd uintptr) *types.SendDumpOperations {
   if ret != 0 && ret != 1 {
     state.Err = fmt.Errorf("btrfs_read_and_process_send_stream: %d=%s", ret, syscall.Errno(ret))
   }
-  return state
+  return &state.SendDumpOperations, state.Err
 }
 

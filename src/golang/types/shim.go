@@ -28,7 +28,6 @@ type SendDumpOperations struct {
   FromTo map[string]string
   ToUuid string
   FromUuid string
-  Err error
 }
 
 type Btrfsutil interface {
@@ -42,7 +41,7 @@ type Btrfsutil interface {
   ListSubVolumesUnder(path string) ([]*pb.SubVolume, error)
   // Reads a stream generated from `btrfs send --no-data` and returns a record of the operations.
   // Takes ownership of `read_pipe` and will close it once done.
-  ReadAndProcessSendStream(dump io.ReadCloser) *SendDumpOperations
+  ReadAndProcessSendStream(dump io.ReadCloser) (*SendDumpOperations, error)
   // Starts a separate `btrfs send` and returns the read end of the pipe.
   // `no_data` is the same option as for `btrfs send`.
   // `from` can be null to get the full contents of the subvolume.

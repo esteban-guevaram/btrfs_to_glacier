@@ -114,9 +114,9 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from
   go func() {
     defer close(changes_chan)
     defer read_end.Close()
-    dump_ops := self.btrfsutil.ReadAndProcessSendStream(read_end)
-    if dump_ops.Err != nil {
-      changes_chan <- types.SnapshotChangesOrError{nil, dump_ops.Err}
+    dump_ops, err := self.btrfsutil.ReadAndProcessSendStream(read_end)
+    if err != nil {
+      changes_chan <- types.SnapshotChangesOrError{nil, err}
       return
     }
     changes_chan <- types.SnapshotChangesOrError{

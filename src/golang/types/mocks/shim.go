@@ -22,7 +22,8 @@ func (self *Linuxutil) ProjectVersion() string { return self.SysInfo.ToolGitComm
 
 
 type Btrfsutil struct {
-  Err error
+  Err        error
+  DumpErr    error
   Subvol     *pb.SubVolume
   Snaps      []*pb.SubVolume
   DumpOps    *types.SendDumpOperations
@@ -34,8 +35,8 @@ func (self *Btrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
 func (self *Btrfsutil) ListSubVolumesUnder(path string) ([]*pb.SubVolume, error) {
   return self.Snaps, self.Err
 }
-func (self *Btrfsutil) ReadAndProcessSendStream(dump io.ReadCloser) *types.SendDumpOperations {
-  return self.DumpOps
+func (self *Btrfsutil) ReadAndProcessSendStream(dump io.ReadCloser) (*types.SendDumpOperations, error) {
+  return self.DumpOps, self.DumpErr
 }
 func (self *Btrfsutil) StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error) {
   return self.SendStream.ReadEnd(), self.Err

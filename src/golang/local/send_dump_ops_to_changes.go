@@ -26,7 +26,6 @@ func (a ByPath) Less(i, j int) bool { return a[i].Path < a[j].Path }
 // * DelDir'   = (ToFrom'[k] for k in DelDir)  | (ToFrom'[dir]/base for dir,base in DelDir)  | remaining keys in DelDir
 // * DelDir''  = DelDir' - Move'.values
 func sendDumpOpsToSnapChanges(state *types.SendDumpOperations) *pb.SnapshotChanges {
-  if state.Err != nil { panic(fmt.Sprintf("SendDumpOperations has an error: %v", state.Err)) }
   to_from    := invert(state.FromTo)
   to_from_p  := replaceTempNamesInValues(to_from)
   new_p      := union(diff(state.New, state.FromTo), project(state.New, state.FromTo))

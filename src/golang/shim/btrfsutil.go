@@ -146,7 +146,7 @@ func (self *btrfsUtilImpl) ListSubVolumesUnder(path string) ([]*pb.SubVolume, er
   return vols, nil
 }
 
-func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump io.ReadCloser) *types.SendDumpOperations {
+func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump io.ReadCloser) (*types.SendDumpOperations, error) {
   defer dump.Close()
   if file_pipe,ok := dump.(types.HasFileDescriptorIf); ok {
     return readAndProcessSendStreamHelper(file_pipe.Fd())
