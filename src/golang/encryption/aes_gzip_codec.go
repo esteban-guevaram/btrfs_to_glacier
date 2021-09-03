@@ -271,7 +271,7 @@ func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.Persis
   decrypt_helper := func(buffer []byte) (bool, int, error) {
     count, err := input.Read(buffer)
     if err != nil && err != io.EOF {
-      return true, count, fmt.Errorf("DecryptStream failed reading")
+      return true, count, fmt.Errorf("DecryptStream failed reading: %v", err)
     }
     // it is valid to reuse slice for output if offsets are the same
     stream.XORKeyStream(buffer, buffer)
@@ -288,12 +288,15 @@ func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.Persis
     writer := pipe.WriteEnd()
 
     first_block := block_buffer[0:block.BlockSize()]
-    done, _, err = decrypt_helper(first_block)
-    if err != nil && err != io.EOF { return }
+    // The first block should always be there, if we get EOF something went really wrong.
+    _, err = io.ReadFull(input, first_block)
+    if err != nil { return }
+    stream.XORKeyStream(first_block, first_block)
 
     for !done && ctx.Err() == nil {
       var count int
       done, count, err = decrypt_helper(block_buffer)
+      if err != nil { return }
 
       _, err = writer.Write(block_buffer[:count])
       if err != nil { return }
