@@ -206,7 +206,7 @@ func TestWriteOneChunk_PipeError(t *testing.T) {
   defer cancel()
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
-  pipe := types.NewMockPreloadedPipe(data)
+  pipe := mocks.NewPreloadedPipe(data)
   util.CloseWithError(pipe, fmt.Errorf("oopsie"))
 
   chunk_pb, more, err := storage.writeOneChunk(ctx, offset, pipe.ReadEnd())
@@ -223,7 +223,7 @@ func TestWriteStream_PipeError(t *testing.T) {
   defer cancel()
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
-  pipe := types.NewMockPreloadedPipe(data)
+  pipe := mocks.NewPreloadedPipe(data)
   util.CloseWithError(pipe, fmt.Errorf("oopsie"))
 
   done, err := storage.WriteStream(ctx, offset, pipe.ReadEnd())
@@ -245,7 +245,7 @@ func TestWriteStream_OffsetTooBig(t *testing.T) {
   defer cancel()
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
-  pipe := types.NewMockPreloadedPipe(data)
+  pipe := mocks.NewPreloadedPipe(data)
 
   done, err := storage.WriteStream(ctx, offset, pipe.ReadEnd())
   if err != nil { t.Fatalf("expected to fail but not right now: %v", err) }
@@ -274,7 +274,7 @@ func helper_TestWriteOneChunk(t *testing.T, offset uint64, chunk_len uint64, tot
   expect_rest := make([]byte, expect_rest_len)
   copy(expect_chunk, data)
   copy(expect_rest, data[expect_size:])
-  pipe := types.NewMockPreloadedPipe(data)
+  pipe := mocks.NewPreloadedPipe(data)
 
   chunk_pb, more, err := storage.writeOneChunk(ctx, offset, pipe.ReadEnd())
   if err != nil { t.Fatalf("writeOneChunk err: %v", err) }
@@ -328,7 +328,7 @@ func helper_TestWriteStream_SingleChunk(t *testing.T, offset uint64, chunk_len u
   data := util.GenerateRandomTextData(int(total_len))
   expect_data := make([]byte, total_len - offset)
   copy(expect_data, data[offset:])
-  pipe := types.NewMockPreloadedPipe(data)
+  pipe := mocks.NewPreloadedPipe(data)
   expect_chunks := &pb.SnapshotChunks{
     KeyFingerprint: expect_fp,
     Chunks: []*pb.SnapshotChunks_Chunk{
@@ -379,7 +379,7 @@ func helper_TestWriteStream_MultiChunk(t *testing.T, offset uint64, chunk_len ui
   data := util.GenerateRandomTextData(int(total_len))
   expect_data := make([]byte, total_len)
   copy(expect_data, data)
-  pipe := types.NewMockPreloadedPipe(data)
+  pipe := mocks.NewPreloadedPipe(data)
 
   done, err := storage.WriteStream(ctx, offset, pipe.ReadEnd())
   if err != nil { t.Fatalf("failed: %v", err) }

@@ -8,13 +8,14 @@ import (
   "time"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
+  "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
   "google.golang.org/protobuf/proto"
 )
 
 func CloneSubvol(vol *pb.SubVolume) *pb.SubVolume { return proto.Clone(vol).(*pb.SubVolume) }
 
-func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockLinuxutil) {
+func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.Linuxutil) {
   conf := util.LoadTestConf()
   newfile_ops := types.SendDumpOperations{
     Written: map[string]bool{
@@ -77,7 +78,7 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
     GenAtCreation: 33,
     CreatedTs: uint64(time.Now().UnixNano() - 10000),
   }
-  btrfsutil := &types.MockBtrfsutil {
+  btrfsutil := &mocks.Btrfsutil {
     Subvol: CloneSubvol(mock_subvol),
     Snaps: []*pb.SubVolume{
       CloneSubvol(mock_snap1),
@@ -86,9 +87,9 @@ func buildTestManager() (*btrfsVolumeManager, *types.MockBtrfsutil, *types.MockL
       CloneSubvol(mock_snap4),
     },
     DumpOps: &newfile_ops,
-    SendStream: types.NewMockPreloadedPipe([]byte("somedata")),
+    SendStream: mocks.NewPreloadedPipe([]byte("somedata")),
   }
-  linuxutil := &types.MockLinuxutil {}
+  linuxutil := &mocks.Linuxutil {}
   volmgr    := &btrfsVolumeManager {
     btrfsutil,
     linuxutil,
@@ -165,7 +166,7 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
 func TestGetSnapshotStream(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
   expect_stream := []byte("somedata")
-  btrfsutil.SendStream = types.NewMockPreloadedPipe(expect_stream)
+  btrfsutil.SendStream = mocks.NewPreloadedPipe(expect_stream)
 
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
@@ -232,7 +233,7 @@ func TestDeleteSnapshot(t *testing.T) {
 
 func TestReceiveSendStream(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
-  read_pipe := types.NewMockPreloadedPipe([]byte("somedata")).ReadEnd()
+  read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 
@@ -258,7 +259,7 @@ func TestReceiveSendStream(t *testing.T) {
 
 func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
-  read_pipe := types.NewMockPreloadedPipe([]byte("somedata")).ReadEnd()
+  read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 

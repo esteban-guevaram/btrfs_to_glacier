@@ -51,7 +51,7 @@ func (self *s3ReadWriteTester) helperWrite(
   data := util.GenerateRandomTextData(int(total_len))
   expect_obj := make([]byte, total_len - offset)
   copy(expect_obj, data[offset:])
-  pipe := types.NewMockBigPreloadedPipe(ctx, data)
+  pipe := mocks.NewBigPreloadedPipe(ctx, data)
 
   var chunk_or_err types.ChunksOrError
   done, err := self.Storage.WriteStream(ctx, offset, pipe.ReadEnd())

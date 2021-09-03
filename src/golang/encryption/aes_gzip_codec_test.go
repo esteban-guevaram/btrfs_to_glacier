@@ -10,6 +10,7 @@ import (
   "time"
   //pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
+  "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
 )
 
@@ -170,7 +171,7 @@ func TestEncryptString_Fingerprint(t *testing.T) {
 func TestEncryptStream(t *testing.T) {
   codec := buildTestCodec(t)
   expect_msg := []byte("this is some plain text data")
-  read_pipe := types.NewMockPreloadedPipe(expect_msg).ReadEnd()
+  read_pipe := mocks.NewPreloadedPipe(expect_msg).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 
