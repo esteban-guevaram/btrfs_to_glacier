@@ -1,6 +1,7 @@
 package cloud
 
 import (
+  "bytes"
   "context"
   "fmt"
   "io"
@@ -231,6 +232,7 @@ func TestWriteStream_PipeError(t *testing.T) {
   select {
     case chunk_or_err := <-done:
       if chunk_or_err.Err == nil { t.Errorf("expected error") }
+      if chunk_or_err.Val == nil { return }
       chunks := chunk_or_err.Val.Chunks
       if len(chunks) > 0 { t.Errorf("no chunks should have been written") }
     case <-ctx.Done(): t.Fatalf("timedout")
@@ -291,6 +293,19 @@ func helper_TestWriteOneChunk(t *testing.T, offset uint64, chunk_len uint64, tot
   util.EqualsOrFailTest(t, "Bad object data", chunk, expect_chunk)
 }
 
+func helper_TestWriteEmptyChunk(t *testing.T, offset uint64, chunk_len uint64) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage,client := buildTestStorageWithChunkLen(t, chunk_len)
+  read_end := io.NopCloser(&bytes.Buffer{})
+
+  chunk_pb, more, err := storage.writeOneChunk(ctx, offset, read_end)
+  if err != nil { t.Errorf("empty write should return no more data and a nul chunk") }
+  if more { t.Errorf("empty write not signal more data") }
+  if chunk_pb != nil { t.Errorf("no chunks should have been returned") }
+  if len(client.Data) > 0 { t.Errorf("nothing should have been written to S3") }
+}
+
 func TestWriteOneChunk_LessThanFullContent(t *testing.T) {
   helper_TestWriteOneChunk(t, /*offset=*/0, /*chunk_len=*/32, /*total_len=*/48)
 }
@@ -311,12 +326,12 @@ func TestWriteOneChunk_WithOffset_MoreThanFullContent(t *testing.T) {
   helper_TestWriteOneChunk(t, /*offset=*/3, /*chunk_len=*/47, /*total_len=*/48)
 }
 
-func TODO_TestWriteOneChunk_EmptyContent(t *testing.T) {
-  helper_TestWriteOneChunk(t, /*offset=*/0, /*chunk_len=*/51, /*total_len=*/0)
+func TestWriteOneChunk_EmptyContent(t *testing.T) {
+  helper_TestWriteEmptyChunk(t, /*offset=*/0, /*chunk_len=*/32)
 }
 
-func TODO_TestWriteOneChunk_WithOffset_EmptyContent(t *testing.T) {
-  helper_TestWriteOneChunk(t, /*offset=*/51, /*chunk_len=*/51, /*total_len=*/51)
+func TestWriteOneChunk_WithOffset_EmptyContent(t *testing.T) {
+  helper_TestWriteEmptyChunk(t, /*offset=*/34, /*chunk_len=*/32)
 }
 
 func helper_TestWriteStream_SingleChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
@@ -353,6 +368,27 @@ func helper_TestWriteStream_SingleChunk(t *testing.T, offset uint64, chunk_len u
   }
 }
 
+func helper_TestWriteStream_EmptyChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage,client := buildTestStorageWithChunkLen(t, chunk_len)
+  data := util.GenerateRandomTextData(int(total_len))
+  pipe := mocks.NewPreloadedPipe(data)
+
+  done, err := storage.WriteStream(ctx, offset, pipe.ReadEnd())
+  if err != nil { t.Fatalf("failed: %v", err) }
+  select {
+    case chunk_or_err := <-done:
+      if chunk_or_err.Err == nil { t.Errorf("empty stream should return error") }
+      if chunk_or_err.Val != nil {
+        chunks := chunk_or_err.Val.Chunks
+        if len(chunks) > 0 { t.Errorf("no chunks should have been returned") }
+      }
+      if len(client.Data) > 0 { t.Errorf("nothing should have been written to S3") }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
 func TestWriteStream_SingleSmallChunk(t *testing.T) {
   helper_TestWriteStream_SingleChunk(t, /*offset=*/0, /*chunk_len=*/32, /*total_len=*/31)
 }
@@ -362,11 +398,11 @@ func TestWriteStream_WithOffset_SingleSmallChunk(t *testing.T) {
 }
 
 func TODO_TestWriteStream_Empty(t *testing.T) {
-  helper_TestWriteStream_SingleChunk(t, /*offset=*/0, /*chunk_len=*/32, /*total_len=*/0)
+  helper_TestWriteStream_EmptyChunk(t, /*offset=*/0, /*chunk_len=*/128, /*total_len=*/0)
 }
 
-func TODO_TestWriteStream_WithOffset_Empty(t *testing.T) {
-  helper_TestWriteStream_SingleChunk(t, /*offset=*/128, /*chunk_len=*/128, /*total_len=*/128)
+func TestWriteStream_WithOffset_Empty(t *testing.T) {
+  helper_TestWriteStream_EmptyChunk(t, /*offset=*/128, /*chunk_len=*/128, /*total_len=*/128)
 }
 
 func helper_TestWriteStream_MultiChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
@@ -399,8 +435,10 @@ func helper_TestWriteStream_MultiChunk(t *testing.T, offset uint64, chunk_len ui
         util.EqualsOrFailTest(t, "Bad object data", data, expect_chunk)
         util.EqualsOrFailTest(t, "Bad start offset", chunk.Start, next_start)
 
+        last_len := (total_len-offset) % chunk_len
+        if last_len == 0 { last_len = chunk_len }
         if uint64(idx) == (chunk_cnt-1) {
-          util.EqualsOrFailTest(t, "Bad last chunk len", chunk.Size, (total_len-offset)%chunk_len)
+          util.EqualsOrFailTest(t, "Bad last chunk len", chunk.Size, last_len)
         } else {
           util.EqualsOrFailTest(t, "Bad chunk len", chunk.Size, chunk_len)
         }
@@ -420,7 +458,11 @@ func TestWriteStream_WithOffset_MultiChunk(t *testing.T) {
   helper_TestWriteStream_MultiChunk(t, /*offset=*/48, /*chunk_len=*/32, /*total_len=*/132)
 }
 
-func TODO_TestWriteStream_MultipleChunkLen(t *testing.T) {
+func TestWriteStream_MultipleChunkLen(t *testing.T) {
   helper_TestWriteStream_MultiChunk(t, /*offset=*/0, /*chunk_len=*/32, /*total_len=*/96)
+}
+
+func TestWriteStream_WithOffset_MultipleChunkLen(t *testing.T) {
+  helper_TestWriteStream_MultiChunk(t, /*offset=*/3, /*chunk_len=*/32, /*total_len=*/99)
 }
 

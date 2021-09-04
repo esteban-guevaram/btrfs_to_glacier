@@ -22,8 +22,12 @@ func asJsonStrings(val interface{}, expected interface{}) (string, string) {
 
 func fmtAssertMsg(err_msg string, got string, expected string) string {
   const max_len = 1024
+  got_limited := got
+  expect_limited := expected
+  if len(got_limited) > max_len { got_limited = got[:max_len] }
+  if len(expect_limited) > max_len { expect_limited = expected[:max_len] }
   return fmt.Sprintf("%s:\ngot: %s\n !=\nexp: %s\n",
-                     err_msg, got[:max_len], expected[:max_len])
+                     err_msg, got_limited, expect_limited)
 }
 
 func EqualsOrDie(err_msg string, val interface{}, expected interface{}) {

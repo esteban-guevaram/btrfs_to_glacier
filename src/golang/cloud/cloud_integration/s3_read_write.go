@@ -1,6 +1,7 @@
 package main
 
 import (
+  "bytes"
   "context"
   "io"
   "time"
@@ -134,9 +135,18 @@ func (self *s3ReadWriteTester) TestWriteObjectMultipleChunkLen(ctx context.Conte
 
 func (self *s3ReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
   const offset = 0
-  const total_len = 0
-  snap_chunks := self.helperWrite(ctx, offset, total_len)
-  util.EqualsOrDie("Bad number of chunks", len(snap_chunks.Chunks), 0)
+  read_end := io.NopCloser(&bytes.Buffer{})
+  done, err := self.Storage.WriteStream(ctx, offset, read_end)
+  if err != nil { util.Fatalf("failed: %v", err) }
+  select {
+    case chunk_or_err := <-done:
+      if chunk_or_err.Err == nil { util.Fatalf("empty object should return error") }
+      if chunk_or_err.Val != nil {
+        chunks := chunk_or_err.Val.Chunks
+        if len(chunks) > 0 { util.Fatalf("no chunks should have been returned") }
+      }
+    case <-ctx.Done(): util.Fatalf("timedout")
+  }
 }
 
 func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.Storage) {
@@ -179,8 +189,8 @@ func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client,
 
   suite.TestWriteObjectLessChunkLen(ctx)
   suite.TestWriteObjectMoreChunkLen(ctx)
-  //suite.TestWriteObjectMultipleChunkLen(ctx)
-  //suite.TestWriteEmptyObject(ctx)
+  suite.TestWriteObjectMultipleChunkLen(ctx)
+  suite.TestWriteEmptyObject(ctx)
 }
 
 func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {

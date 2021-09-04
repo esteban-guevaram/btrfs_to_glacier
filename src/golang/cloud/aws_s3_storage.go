@@ -12,6 +12,7 @@ package cloud
 // https://aws.amazon.com/blogs/security/iam-policies-and-bucket-policies-and-acls-oh-my-controlling-access-to-s3-resources
 
 import (
+  "bufio"
   "context"
   "errors"
   "fmt"
@@ -67,8 +68,10 @@ type s3Storage struct {
 
 func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.Storage, error) {
   client := s3.NewFromConfig(*aws_conf)
+  // Uploading a non-seekable stream, parallelism is useless
   uploader := s3mgr.NewUploader(client,
-                                func(u *s3mgr.Uploader) { u.LeavePartsOnError = false })
+                                func(u *s3mgr.Uploader) { u.LeavePartsOnError = false },
+                                func(u *s3mgr.Uploader) { u.Concurrency = 1 })
   storage := &s3Storage{
     conf: conf,
     codec: codec,
@@ -262,7 +265,13 @@ func (self *s3Storage) writeOneChunk(
   key, err := uuid.NewRandom()
   key_str := key.String()
   if err != nil { return nil, false, err }
-  chunk_reader := &io.LimitedReader{ R:encrypted_stream, N:chunk_len }
+
+  limit_reader := &io.LimitedReader{ R:encrypted_stream, N:chunk_len }
+  // The small buffer should be bypassed for bigger reads by teh s3 uploader
+  chunk_reader := bufio.NewReaderSize(limit_reader, 64)
+
+  _, err = chunk_reader.Peek(1)
+  if err == io.EOF { return nil, false, nil }
 
   upload_in := &s3.PutObjectInput{
     Bucket: &self.conf.Aws.S3.BucketName,
@@ -277,26 +286,28 @@ func (self *s3Storage) writeOneChunk(
   // Just forget about it, that object should remain orphan.
   _, err = self.uploader.Upload(ctx, upload_in)
   if err != nil { return nil, false, err }
-  write_cnt := chunk_len - chunk_reader.N
-  if write_cnt == 0 { return nil, false, fmt.Errorf("What happens if send file is a multiple of chunk size?") }
+  write_cnt := chunk_len - limit_reader.N
+  if write_cnt < 1 { return nil, false, fmt.Errorf("cannot write empty chunk.") }
+  if chunk_reader.Buffered() > 0 { return nil, false, fmt.Errorf("some bytes were read but not written.") }
 
   chunk := &pb.SnapshotChunks_Chunk{
     Uuid: key.String(),
     Start: start_offset,
     Size: uint64(write_cnt),
   }
-  return chunk, chunk_reader.N == 0, nil
+  return chunk, limit_reader.N == 0, nil
 }
 
 // Since codec uses random IV for block cipher we cannot just resume failed uploads.
 // (It would result in a chunk having stream encoded with different IVs).
 func (self *s3Storage) WriteStream(
     ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan types.ChunksOrError, error) {
-  if self.conf.Aws.S3.ChunkLen < 1 { return nil, fmt.Errorf("Bad config: no chunk length.") }
+  if self.conf.Aws.S3.ChunkLen < 1 { util.Fatalf("Bad config: no chunk length.") }
   done := make(chan types.ChunksOrError, 1)
 
   go func() {
     defer close(done)
+    defer read_pipe.Close()
     if offset > 0 {
       cnt, err := io.CopyN(io.Discard, read_pipe, int64(offset))
       if err != nil { done <- types.ChunksOrError{Err:err,}; return }
@@ -309,6 +320,7 @@ func (self *s3Storage) WriteStream(
 
     encrypted_stream, err := self.codec.EncryptStream(ctx, read_pipe)
     if err != nil { done <- types.ChunksOrError{Err:err,}; return }
+    defer encrypted_stream.Close()
 
     more_data := true
     start_offset := uint64(offset)
@@ -320,10 +332,13 @@ func (self *s3Storage) WriteStream(
       var chunk *pb.SnapshotChunks_Chunk
       chunk, more_data, err = self.writeOneChunk(ctx, start_offset, encrypted_stream)
       if err != nil { result.Err = err; break }
-      result.Val.Chunks = append(result.Val.Chunks, chunk)
-      start_offset += chunk.Size
+      if chunk != nil {
+        result.Val.Chunks = append(result.Val.Chunks, chunk)
+        start_offset += chunk.Size
+      }
     }
 
+    if len(result.Val.Chunks) < 1 { result.Err = fmt.Errorf("stream contained no data") }
     util.Infof(self.uploadSummary(result))
     done <- result
   }()
