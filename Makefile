@@ -1,6 +1,6 @@
 .ONESHELL:
 .SECONDARY:
-.PHONY: all clean fs_init c_code go_code go_debug go_unittest test
+.PHONY: all clean fs_init c_code go_code go_debug go_unittest go_deflake test
 
 PROJ_ROOT     := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 include etc/Makefile.include
@@ -74,6 +74,14 @@ go_unittest: go_code
 	# add --test.count=1 to not cache results
 	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "_integration$$|/shim|/types"` )
 	GOENV="$(GOENV)" go test "$${pkg_to_test[@]}"
+
+go_deflake: go_code
+	# example call:
+	# make go_deflake DEFLAKE_TEST=TestDecryptStream_TimeoutContinousReads DEFLAKE_PKG=btrfs_to_glacier/encryption
+	pushd "$(MYGOSRC)"
+	while true; do
+	  GOENV="$(GOENV)" go test --test.count=1 --run "$(DEFLAKE_TEST)" "$(DEFLAKE_PKG)" || break
+	done
 
 go_debug: go_code
 	pushd "$(MYGOSRC)"
