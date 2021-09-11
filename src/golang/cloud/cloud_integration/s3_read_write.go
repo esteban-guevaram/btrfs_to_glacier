@@ -17,6 +17,7 @@ import (
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
   "google.golang.org/protobuf/proto"
+  "github.com/google/uuid"
 )
 
 type s3ReadWriteTester struct {
@@ -40,10 +41,29 @@ func (self *s3ReadWriteTester) getObject(ctx context.Context, key string) ([]byt
   return data, err
 }
 
+func (self *s3ReadWriteTester) putRandomObject(ctx context.Context) (string, []byte, error) {
+  data := util.GenerateRandomTextData(4096)
+  reader := bytes.NewReader(data)
+  key := uuid.NewString()
+  in := &s3.PutObjectInput{
+    Bucket: &self.Conf.Aws.S3.BucketName,
+    Key: &key,
+    Body: reader,
+  }
+  _, err := self.Client.PutObject(ctx, in)
+  return key, data, err
+}
+
 func (self *s3ReadWriteTester) getObjectOrDie(ctx context.Context, key string) []byte {
   data, err := self.getObject(ctx, key)
   if err != nil { util.Fatalf("Failed to get object '%s': %v", key, err) }
   return data
+}
+
+func (self *s3ReadWriteTester) putRandomObjectOrDie(ctx context.Context) (string, []byte) {
+  key, data, err := self.putRandomObject(ctx)
+  if err != nil { util.Fatalf("Failed to put object '%s': %v", key, err) }
+  return key, data
 }
 
 func (self *s3ReadWriteTester) helperWrite(
@@ -149,6 +169,67 @@ func (self *s3ReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
   }
 }
 
+func (self *s3ReadWriteTester) testQueueRestoreObjects_Helper(ctx context.Context, keys []string, expect_obj types.ObjRestoreOrErr) {
+  done, err := self.Storage.QueueRestoreObjects(ctx, keys)
+  if err != nil { util.Fatalf("failed: %v", err) }
+
+  expect := make(map[string]types.ObjRestoreOrErr)
+  for _,k := range keys { expect[k] = expect_obj }
+
+  select {
+    case res := <-done:
+      util.Debugf("result: %v", res)
+      util.EqualsOrDie("Bad obj status", res, expect)
+    case <-ctx.Done(): util.Fatalf("timedout")
+  }
+}
+
+func (self *s3ReadWriteTester) TestQueueRestoreObjects_StandardClass(ctx context.Context) {
+  key1,_ := self.putRandomObjectOrDie(ctx)
+  key2,_ := self.putRandomObjectOrDie(ctx)
+  keys := []string{key1, key2}
+  expect_obj := types.ObjRestoreOrErr{ Stx:types.Restored, }
+  self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
+}
+
+func (self *s3ReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.Context) {
+  keys := []string{uuid.NewString()}
+  done, err := self.Storage.QueueRestoreObjects(ctx, keys)
+  if err != nil { util.Fatalf("failed: %v", err) }
+
+  select {
+    case res := <-done:
+      got_err := res[keys[0]].Err
+      if !cloud.IsS3Error(new(s3_types.NoSuchKey), got_err) {
+        util.Fatalf("Expected error status: %v", res)
+      }
+    case <-ctx.Done(): util.Fatalf("timedout")
+  }
+}
+
+func (self *s3ReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Context, snowflake_bucket string, snowflake_key string) {
+  tmp_conf := proto.Clone(self.Conf).(*pb.Config)
+  tmp_conf.Aws.S3.BucketName = snowflake_bucket
+  restore_func := cloud.TestOnlySwapConf(self.Storage, tmp_conf)
+  defer restore_func()
+
+  keys := []string{snowflake_key}
+  expect_obj := types.ObjRestoreOrErr{ Stx:types.Pending, }
+  self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
+  self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
+}
+
+func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx context.Context, snowflake_bucket string, snowflake_key string) {
+  tmp_conf := proto.Clone(self.Conf).(*pb.Config)
+  tmp_conf.Aws.S3.BucketName = snowflake_bucket
+  restore_func := cloud.TestOnlySwapConf(self.Storage, tmp_conf)
+  defer restore_func()
+
+  keys := []string{snowflake_key}
+  expect_obj := types.ObjRestoreOrErr{ Stx:types.Restored, }
+  self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
+}
+
 func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.Storage) {
   err := deleteBucket(ctx, conf, client)
 
@@ -191,6 +272,13 @@ func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client,
   suite.TestWriteObjectMoreChunkLen(ctx)
   suite.TestWriteObjectMultipleChunkLen(ctx)
   suite.TestWriteEmptyObject(ctx)
+  suite.TestQueueRestoreObjects_StandardClass(ctx)
+  suite.TestQueueRestoreObjects_NoSuchObject(ctx)
+  // adhoc manual testing given the nature of restores :-(
+  //snowflake_bucket := "candide.test.bucket.1"
+  //snowflake_key := "s3_obj_983680415d7ec9ccf80c88df8e3d4d7e"
+  //suite.TestQueueRestoreObjects_Idempotent(ctx, snowflake_bucket, snowflake_key)
+  //suite.TestQueueRestoreObjects_AlreadyRestored(ctx, snowflake_bucket, snowflake_key)
 }
 
 func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {

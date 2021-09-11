@@ -17,6 +17,8 @@ import (
   "errors"
   "fmt"
   "io"
+  "regexp"
+  "strconv"
   "strings"
   "time"
 
@@ -36,7 +38,10 @@ const (
   bucket_wait_secs = 60
   deep_glacier_trans_days = 30
   remove_multipart_days = 3
+  restore_lifetime_days = 3
   rule_name_suffix = "chunk.lifecycle"
+  // Somehow the s3 library has not declared this error
+  RestoreAlreadyInProgress = "RestoreAlreadyInProgress"
 )
 
 // The subset of the s3 client used.
@@ -44,8 +49,10 @@ const (
 type usedS3If interface {
   CreateBucket(context.Context, *s3.CreateBucketInput, ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
   HeadBucket  (context.Context, *s3.HeadBucketInput,   ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+  HeadObject  (context.Context, *s3.HeadObjectInput,   ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
   PutBucketLifecycleConfiguration(context.Context, *s3.PutBucketLifecycleConfigurationInput, ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
   PutPublicAccessBlock(context.Context, *s3.PutPublicAccessBlockInput, ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error)
+  RestoreObject(context.Context, *s3.RestoreObjectInput, ...func(*s3.Options)) (*s3.RestoreObjectOutput, error)
 }
 
 // Use to inject a mock for the object uploader.
@@ -63,7 +70,19 @@ type s3Storage struct {
   account_id  string
   deep_glacier_trans_days int32
   remove_multipart_days   int32
+  restore_lifetime_days   int32
   rule_name_suffix        string
+  start_storage_class     s3_types.StorageClass
+  archive_storage_class   s3_types.StorageClass
+}
+
+func injectConstants(storage *s3Storage) {
+  storage.deep_glacier_trans_days = deep_glacier_trans_days
+  storage.remove_multipart_days = remove_multipart_days
+  storage.restore_lifetime_days = restore_lifetime_days
+  storage.rule_name_suffix = rule_name_suffix
+  storage.start_storage_class = s3_types.StorageClassStandard
+  storage.archive_storage_class = s3_types.StorageClassDeepArchive
 }
 
 func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.Storage, error) {
@@ -80,22 +99,30 @@ func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types
     uploader: uploader,
     bucket_wait: bucket_wait_secs * time.Second,
     account_id: "", // lazy fetch
-    deep_glacier_trans_days: deep_glacier_trans_days,
-    remove_multipart_days: remove_multipart_days,
-    rule_name_suffix: rule_name_suffix,
   }
+  injectConstants(storage)
   return storage, nil
+}
+
+func StrToApiErr(code string) smithy.APIError {
+  return &smithy.GenericAPIError{ Code: code, }
 }
 
 // Ugly fix because this does not do sh*t 
 // if errors.As(err, new(s3_types.NoSuchBucket)) { ... }
-func IsS3Error(fixed_err smithy.APIError, err error) bool {
+func IsS3Error(err_to_compare error, err error) bool {
   if err != nil {
     // Be careful it is a trap ! This will not take into account the underlying type
-    //if errors.As(err, &fixed_err) { ... }
+    //if errors.As(err, &fixed_err) { return true }
     var ae smithy.APIError
-    if errors.As(err, &ae) {
-      return ae.ErrorCode() == fixed_err.ErrorCode()
+    if !errors.As(err, &ae) { util.Fatalf("Got an aws error of unexpected type: %v", err) }
+
+    //util.Debugf("%v ? %v", err_to_compare, err)
+    switch fixed_err := err_to_compare.(type) {
+      case smithy.APIError:
+        return ae.ErrorCode() == fixed_err.ErrorCode()
+      default:
+        return ae.ErrorCode() == fixed_err.Error()
     }
   }
   return false
@@ -111,6 +138,14 @@ func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Cl
   client,ok := s3_impl.client.(*s3.Client)
   if !ok { util.Fatalf("storage does not contain a real aws client") }
   return client
+}
+
+func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
+  s3_impl,ok := storage.(*s3Storage)
+  if !ok { util.Fatalf("called with the wrong impl") }
+  old_conf := s3_impl.conf
+  s3_impl.conf = conf
+  return func() { s3_impl.conf = old_conf }
 }
 
 // Returns false if the bucket does not exist.
@@ -185,6 +220,14 @@ func (self *s3Storage) createBucket(ctx context.Context) error {
   return nil
 }
 
+func (self *s3Storage) getTransitionType() s3_types.TransitionStorageClass {
+  for _,t := range s3_types.TransitionStorageClassDeepArchive.Values() {
+    if string(self.archive_storage_class) == string(t) { return t }
+  }
+  util.Fatalf("No transition types corresponding to %v", self.archive_storage_class)
+  return s3_types.TransitionStorageClassDeepArchive
+}
+
 // Bucket lifecycle configuration
 // * Storage class applies to all objects in bucket (no prefix)
 // * Transition for current objects Standard -> Deep Glacier after X days
@@ -195,7 +238,7 @@ func (self *s3Storage) createLifecycleRule(ctx context.Context) error {
                       time.Now().Unix())
   transition := s3_types.Transition{
     Days: self.deep_glacier_trans_days,
-    StorageClass: s3_types.TransitionStorageClassDeepArchive,
+    StorageClass: self.getTransitionType(),
   }
   global_filter := &s3_types.LifecycleRuleFilterMemberPrefix{ Value: "", }
   rule := s3_types.LifecycleRule{
@@ -279,7 +322,7 @@ func (self *s3Storage) writeOneChunk(
     Body:   chunk_reader,
     ACL:    s3_types.ObjectCannedACLBucketOwnerFullControl,
     ContentType:  &content_type,
-    StorageClass: s3_types.StorageClassStandard,
+    StorageClass: self.start_storage_class,
   }
 
   // Maybe we managed to read some data and actually wrote an object to S3.
@@ -345,7 +388,94 @@ func (self *s3Storage) WriteStream(
   return done, nil
 }
 
-func (self *s3Storage) SendRestoreRq() error { return nil }
+func (self *s3Storage) sendSingleRestore(ctx context.Context, key string) types.ObjRestoreOrErr {
+  restore_in := &s3.RestoreObjectInput{
+    Bucket: &self.conf.Aws.S3.BucketName,
+    Key: &key,
+    RestoreRequest: &s3_types.RestoreRequest{
+      Days: self.restore_lifetime_days,
+      // Be careful it is a trap ! There are 2 ways to specify the Tier, but one is invalid
+      // (returns api error MalformedXML)
+      //Tier: s3_types.TierStandard,
+      GlacierJobParameters: &s3_types.GlacierJobParameters{ Tier: s3_types.TierStandard, },
+    },
+  }
+  _, err := self.client.RestoreObject(ctx, restore_in)
+  //util.Debugf("restore_in: %+v\nbucket: %v, key: %v", restore_in, *restore_in.Bucket, *restore_in.Key)
+  if IsS3Error(StrToApiErr(RestoreAlreadyInProgress), err) {
+    return types.ObjRestoreOrErr{ Stx:types.Pending, }
+  }
+  // Probably this object is still in the standard storage class.
+  if IsS3Error(new(s3_types.InvalidObjectState), err) {
+    return types.ObjRestoreOrErr{ Stx:types.Unknown, }
+  }
+  if err != nil {
+    return types.ObjRestoreOrErr{ Err:err, }
+  }
+  return types.ObjRestoreOrErr{ Stx:types.Unknown, }
+}
+
+var restore_rx *regexp.Regexp
+func init() {
+  // Restore: 'ongoing-request="false", expiry-date="Thu, 09 Sep 2021 00:00:00 GMT"',
+  restore_rx = regexp.MustCompile(`ongoing-request="(\w+)"`)
+}
+
+func (self *s3Storage) pollRestoreStatus(ctx context.Context, key string) types.ObjRestoreOrErr {
+  head_in := &s3.HeadObjectInput{
+    Bucket: &self.conf.Aws.S3.BucketName,
+    Key: &key,
+  }
+  head_out, err := self.client.HeadObject(ctx, head_in)
+  //util.Debugf("head_in: %+v\nhead_out: %+v", head_in, head_out)
+
+  if err != nil { return types.ObjRestoreOrErr{ Err:err, } }
+  // quirk see: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/s3#HeadObjectOutput
+  if head_out.StorageClass == self.start_storage_class || len(head_out.StorageClass) == 0 {
+    return types.ObjRestoreOrErr{ Stx:types.Restored, }
+  }
+  if head_out.StorageClass != self.archive_storage_class {
+    return types.ObjRestoreOrErr{ Err:fmt.Errorf("object should not be in storage class: %v", head_out.StorageClass), }
+  }
+  if head_out.Restore == nil { return types.ObjRestoreOrErr{ Stx:types.Unknown, } }
+
+  match := restore_rx.FindStringSubmatch(*head_out.Restore)
+  if match == nil || len(match) != 2 {
+    return types.ObjRestoreOrErr{ Err:fmt.Errorf("restore status unknown: %v", *head_out.Restore), }
+  }
+  var ongoing bool
+  ongoing, err = strconv.ParseBool(match[1])
+  if err != nil { return types.ObjRestoreOrErr{ Err:err, } }
+  if !ongoing { return types.ObjRestoreOrErr{ Stx:types.Restored, } }
+  return types.ObjRestoreOrErr{ Stx:types.Pending, }
+}
+
+func (self *s3Storage) QueueRestoreObjects(
+    ctx context.Context, keys []string) (<-chan types.RestoreResult, error) {
+  if len(keys) < 1 { return nil, fmt.Errorf("empty keys") }
+  done := make(chan types.RestoreResult)
+  go func() {
+    defer close(done)
+    result := make(types.RestoreResult)
+    for _,key := range keys {
+      stx := self.sendSingleRestore(ctx, key)
+      result[key] = stx
+      // restore request is successful for pending and completed restores.
+      // we need to issue a head request to know which.
+      if stx.Err == nil && stx.Stx == types.Unknown {
+        head_stx := self.pollRestoreStatus(ctx, key)
+        if head_stx.Err == nil && head_stx.Stx == types.Unknown {
+          head_stx.Err = fmt.Errorf("head should have determined restore status for '%s'", key)
+        }
+        result[key] = head_stx
+      }
+    }
+    util.Infof("Queued restore for %d objects.", len(keys))
+    done <- result
+  }()
+  return done, nil
+}
+
 func (self *s3Storage) ReadStream() error { return nil }
 func (self *s3Storage) DeleteBlob() error { return nil }
 

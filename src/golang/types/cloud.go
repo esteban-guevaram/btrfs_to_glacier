@@ -13,6 +13,19 @@ type ChunksOrError struct {
   Err error
 }
 
+type RestoreStatus int
+const (
+  Unknown  RestoreStatus = iota
+  Pending  RestoreStatus = iota
+  Restored RestoreStatus = iota
+)
+
+type ObjRestoreOrErr struct {
+  Stx RestoreStatus
+  Err error
+}
+type RestoreResult = map[string]ObjRestoreOrErr
+
 type Metadata interface {
   // Creates the infrastructure (depend on implementation) that will contain the metadata.
   // Creation can take some time so it is done asynchronously.
@@ -88,7 +101,15 @@ type Storage interface {
   // Takes ownership of `read_pipe` and will close it once done.
   WriteStream(ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan ChunksOrError, error)
 
-  SendRestoreRq() error
+  // Request all objects identified by `keys` to be restored so they can be downloaded.
+  // Restoration can take several hours, this method will return sooner, after all object restore requests
+  // have been sent.
+  // Restoring an already restored object is a noop (or it can extend the restored lifetime).
+  // Restoring an object which is not archived is a noop.
+  // Clients can use this method to poll and get the status of their pending restores.
+  // Returns a result per object, for some the restore may have failed.
+  QueueRestoreObjects(ctx context.Context, keys []string) (<-chan RestoreResult, error)
+
   ReadStream() error
 }
 

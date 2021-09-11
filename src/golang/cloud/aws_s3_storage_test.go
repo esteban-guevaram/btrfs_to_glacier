@@ -20,8 +20,11 @@ import (
 
 type mockS3Client struct {
   Err error
+  RestoreObjectErr error
   AccountId string
   Data map[string][]byte
+  RestoreStx map[string]string
+  Class map[string]s3_types.StorageClass
   Buckets map[string]bool
   HeadAlwaysEmpty bool
   HeadAlwaysAccessDenied bool
@@ -29,6 +32,14 @@ type mockS3Client struct {
   LastPublicAccessBlockIn *s3.PutPublicAccessBlockInput
 }
 
+
+func (self *mockS3Client) setObject(key string, data []byte, class s3_types.StorageClass, ongoing bool) {
+  self.Data[key] = data
+  self.Class[key] = class
+  if class != s3_types.StorageClassStandard {
+    self.RestoreStx[key] = fmt.Sprintf(`ongoing-request="%v"`, ongoing)
+  }
+}
 func (self *mockS3Client) CreateBucket(
     ctx context.Context, in *s3.CreateBucketInput, opts ...func(*s3.Options)) (*s3.CreateBucketOutput, error) {
   self.Buckets[*in.Bucket] = true
@@ -44,9 +55,19 @@ func (self *mockS3Client) HeadBucket(
   if self.HeadAlwaysAccessDenied || bad_owner {
     // Error model is too complex to mock
     // https://aws.github.io/aws-sdk-go-v2/docs/handling-errors/#api-error-responses
-    return nil, fmt.Errorf("AccessDenied")
+    return nil, StrToApiErr("AccessDenied")
   }
   return &s3.HeadBucketOutput{}, self.Err
+}
+func (self *mockS3Client) HeadObject(
+    ctx context.Context, in *s3.HeadObjectInput, opts ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+  key := *(in.Key)
+  if _,found := self.Data[key]; !found {
+    return nil, new(s3_types.NoSuchKey)
+  }
+  out := &s3.HeadObjectOutput{ StorageClass: self.Class[key], }
+  if restore,found := self.RestoreStx[key]; found { out.Restore = &restore }
+  return out, self.Err
 }
 func (self *mockS3Client) PutBucketLifecycleConfiguration(
     ctx context.Context, in *s3.PutBucketLifecycleConfigurationInput, opts ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error) {
@@ -58,6 +79,10 @@ func (self *mockS3Client) PutPublicAccessBlock(
     ctx context.Context, in *s3.PutPublicAccessBlockInput, opts ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error) {
   self.LastPublicAccessBlockIn = in
   return &s3.PutPublicAccessBlockOutput{}, self.Err
+}
+func (self *mockS3Client) RestoreObject(
+  ctx context.Context, in *s3.RestoreObjectInput, opts ...func(*s3.Options)) (*s3.RestoreObjectOutput, error) {
+  return &s3.RestoreObjectOutput{}, self.RestoreObjectErr
 }
 func (self *mockS3Client) Upload(
     ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3mgr.Uploader)) (*s3mgr.UploadOutput, error) {
@@ -88,6 +113,8 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *mockS
   client := &mockS3Client {
     AccountId: "some_random_string",
     Data: make(map[string][]byte),
+    Class: make(map[string]s3_types.StorageClass),
+    RestoreStx: make(map[string]string),
     Buckets: make(map[string]bool),
     HeadAlwaysEmpty: false,
     HeadAlwaysAccessDenied: false,
@@ -104,10 +131,8 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *mockS
     uploader: client,
     bucket_wait: 10 * time.Millisecond,
     account_id: client.AccountId,
-    deep_glacier_trans_days: deep_glacier_trans_days,
-    remove_multipart_days: remove_multipart_days,
-    rule_name_suffix: rule_name_suffix,
   }
+  injectConstants(storage)
   return storage, client
 }
 
@@ -464,5 +489,148 @@ func TestWriteStream_MultipleChunkLen(t *testing.T) {
 
 func TestWriteStream_WithOffset_MultipleChunkLen(t *testing.T) {
   helper_TestWriteStream_MultiChunk(t, /*offset=*/3, /*chunk_len=*/32, /*total_len=*/99)
+}
+
+// Restore testing with aws-cli
+//
+// aws s3api list-objects-v2 --bucket candide.test.bucket.1
+// {
+//     "Contents": [
+//         { "Key": "s3_obj_4d93c3eab6d1cfc9d7043b8cc45ea7d2", "StorageClass": "STANDARD" },
+//         { "Key": "s3_obj_983680415d7ec9ccf80c88df8e3d4d7e", "StorageClass": "DEEP_ARCHIVE" },
+//         { "Key": "s3_obj_ded6568a3a377ba99e41d06053fc00ce", "StorageClass": "GLACIER" },
+//         { "Key": "to_archive/", "StorageClass": "DEEP_ARCHIVE" },
+//         { "Key": "to_archive/s3_obj_3cfa5e4cecc6576a1dac67b193c72b13", "StorageClass": "DEEP_ARCHIVE" }
+//     ]
+// }
+//
+// aws s3api restore-object --bucket candide.test.bucket.1 --key s3_obj_ded6568a3a377ba99e41d06053fc00ce --restore-request Days=3
+// (no output)
+//
+// aws s3api head-object --bucket candide.test.bucket.1 --key s3_obj_ded6568a3a377ba99e41d06053fc00ce
+// {
+//     "Restore": "ongoing-request=\"true\"",
+//     "Metadata": {},
+//     "StorageClass": "GLACIER"
+// }
+//
+// aws s3api head-object --bucket candide.test.bucket.1 --key s3_obj_983680415d7ec9ccf80c88df8e3d4d7e
+// {
+//     "Metadata": {},
+//     "StorageClass": "DEEP_ARCHIVE"
+// }
+//
+// aws s3api restore-object --bucket candide.test.bucket.1 --key s3_obj_ded6568a3a377ba99e41d06053fc00ce --restore-request Days=3
+// An error occurred (RestoreAlreadyInProgress) when calling the RestoreObject operation: Object restore is already in progress
+//
+// aws s3api restore-object --bucket candide.test.bucket.1 --key s3_obj_4d93c3eab6d1cfc9d7043b8cc45ea7d2 --restore-request Days=3
+// An error occurred (InvalidObjectState) when calling the RestoreObject operation: Restore is not allowed for the object's current storage class
+//
+// aws s3api head-object --bucket candide.test.bucket.1 --key s3_obj_4d93c3eab6d1cfc9d7043b8cc45ea7d2
+// { "Metadata": {} } # Note: no mention of storage class nor restore status
+//
+// aws s3api get-object --bucket candide.test.bucket.1 --key s3_obj_ded6568a3a377ba99e41d06053fc00ce /tmp/ded6568a3a377ba99e41d06053fc00ce
+// An error occurred (InvalidObjectState) when calling the GetObject operation: The operation is not valid for the object's storage class
+//
+// aws s3api get-object --bucket candide.test.bucket.1 --key s3_obj_4d93c3eab6d1cfc9d7043b8cc45ea7d2 /tmp/4d93c3eab6d1cfc9d7043b8cc45ea7d2
+// {
+//     "ContentLength": 524288,
+//     "ContentType": "binary/octet-stream",
+//     "Metadata": {}
+// }
+// md5sum /tmp/4d93c3eab6d1cfc9d7043b8cc45ea7d2
+// 4d93c3eab6d1cfc9d7043b8cc45ea7d2  /tmp/4d93c3eab6d1cfc9d7043b8cc45ea7d2
+//
+// aws s3api head-object --bucket candide.test.bucket.1 --key s3_obj_ded6568a3a377ba99e41d06053fc00ce
+// {
+//     "Restore": "ongoing-request=\"false\", expiry-date=\"Thu, 09 Sep 2021 00:00:00 GMT\"",
+//     "Metadata": {},
+//     "StorageClass": "GLACIER"
+// }
+//
+// aws s3api get-object --bucket candide.test.bucket.1 --key s3_obj_ded6568a3a377ba99e41d06053fc00ce /tmp/ded6568a3a377ba99e41d06053fc00ce
+// {
+//     "Restore": "ongoing-request=\"false\", expiry-date=\"Thu, 09 Sep 2021 00:00:00 GMT\"",
+//     "ContentLength": 524288,
+//     "ContentType": "binary/octet-stream",
+//     "Metadata": {},
+//     "StorageClass": "GLACIER"
+// }
+//
+// md5sum /tmp/ded6568a3a377ba99e41d06053fc00ce 
+// ded6568a3a377ba99e41d06053fc00ce  /tmp/ded6568a3a377ba99e41d06053fc00ce
+//
+// aws s3api restore-object --bucket candide.test.bucket.1 --key s3_obj_ded6568a3a377ba99e41d06053fc00ce --restore-request Days=3
+// (no output) # extend restore lifetime
+func testQueueRestoreObjects_Helper(
+    t *testing.T, keys []string, class s3_types.StorageClass, ongoing bool, expect_obj types.ObjRestoreOrErr, restore_err error) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage,client := buildTestStorage(t)
+  expect := make(map[string]types.ObjRestoreOrErr)
+  for _,k := range keys {
+    client.setObject(k, []byte{}, class, ongoing)
+    expect[k] = expect_obj
+  }
+  client.RestoreObjectErr = restore_err
+  done, err := storage.QueueRestoreObjects(ctx, keys)
+  if err != nil { t.Fatalf("failed: %v", err) }
+
+  select {
+    case res := <-done:
+      util.EqualsOrFailTest(t, "Bad queue result", res, expect)
+      t.Logf("Error? %v", res)
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func TestQueueRestoreObjects_Simple(t *testing.T) {
+  keys := []string{"k1", "k2"}
+  expect_obj := types.ObjRestoreOrErr{ Stx:types.Pending, }
+  testQueueRestoreObjects_Helper(t, keys, s3_types.StorageClassDeepArchive, true, expect_obj, nil)
+}
+
+func TestQueueRestoreObjects_AlreadyRestored(t *testing.T) {
+  keys := []string{"k1"}
+  expect_obj := types.ObjRestoreOrErr{ Stx:types.Restored, }
+  testQueueRestoreObjects_Helper(t, keys, s3_types.StorageClassDeepArchive, false, expect_obj, nil)
+}
+
+func TestQueueRestoreObjects_RestoreOngoing(t *testing.T) {
+  keys := []string{"k1", "k2"}
+  restore_err := StrToApiErr(RestoreAlreadyInProgress)
+  expect_obj := types.ObjRestoreOrErr{ Stx:types.Pending, }
+  testQueueRestoreObjects_Helper(t, keys, s3_types.StorageClassDeepArchive, false, expect_obj, restore_err)
+}
+
+func TestQueueRestoreObjects_NotArchived(t *testing.T) {
+  keys := []string{"k1", "k2"}
+  restore_err := new(s3_types.InvalidObjectState)
+  expect_obj := types.ObjRestoreOrErr{ Stx:types.Restored, }
+  testQueueRestoreObjects_Helper(t, keys, s3_types.StorageClassStandard, false, expect_obj, restore_err)
+}
+
+func TestQueueRestoreObjects_NoSuchObject(t *testing.T) {
+  keys := []string{"k1", "k2"}
+  restore_err := new(s3_types.NoSuchKey)
+  expect_obj := types.ObjRestoreOrErr{ Err:new(s3_types.NoSuchKey), }
+  testQueueRestoreObjects_Helper(t, keys, s3_types.StorageClassStandard, false, expect_obj, restore_err)
+}
+
+func TestQueueRestoreObjects_HeadFail(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage,_ := buildTestStorage(t)
+  keys := []string{"k1", "k2"}
+  done, err := storage.QueueRestoreObjects(ctx, keys)
+  if err != nil { t.Fatalf("failed: %v", err) }
+
+  select {
+    case res := <-done:
+      for k,s := range res {
+        if s.Err == nil { t.Errorf("Expected error for %v:%v", k, s) }
+      }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
 }
 
