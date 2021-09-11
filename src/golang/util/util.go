@@ -8,22 +8,50 @@ import "os"
 import "os/exec"
 import "btrfs_to_glacier/types"
 
-type FileBasedPipe struct {
-  read_end  *os.File
-  write_end *os.File
+type PipeImpl struct {
+  read_end  io.ReadCloser
+  write_end io.WriteCloser
 }
 
-func NewFileBasedPipe() *FileBasedPipe {
-  read_end, write_end, err := os.Pipe()
-  if err != nil { Fatalf("failed os.Pipe %v", err) }
-  pipe := &FileBasedPipe{ }
-  pipe.read_end =  read_end
-  pipe.write_end = write_end
+func NewInMemPipe(ctx context.Context) *PipeImpl {
+  read_end, write_end := io.Pipe()
+  pipe := &PipeImpl{
+    read_end: read_end,
+    write_end: write_end,
+  }
+  go func() {
+    select {
+      case <-ctx.Done():
+        //Infof("pipe ctx closing")
+        read_end.Close()
+        write_end.Close()
+    }
+  }()
   return pipe
 }
 
-func (self *FileBasedPipe) ReadEnd()  io.ReadCloser { return self.read_end }
-func (self *FileBasedPipe) WriteEnd() io.WriteCloser { return self.write_end }
+func NewFileBasedPipe(ctx context.Context) *PipeImpl {
+  read_end, write_end, err := os.Pipe()
+  if err != nil { Fatalf("failed os.Pipe %v", err) }
+  pipe := &PipeImpl{
+    read_end: read_end,
+    write_end: write_end,
+  }
+  // Looking at posix pipes, it is not clear whether closing like this is bullet proof
+  // see https://man7.org/linux/man-pages/man2/close.2.html
+  go func() {
+    select {
+      case <-ctx.Done():
+        //Infof("pipe ctx closing")
+        read_end.Close()
+        write_end.Close()
+    }
+  }()
+  return pipe
+}
+
+func (self *PipeImpl) ReadEnd()  io.ReadCloser { return self.read_end }
+func (self *PipeImpl) WriteEnd() io.WriteCloser { return self.write_end }
 
 
 // Synchronous, waits for the command to finish
@@ -55,7 +83,7 @@ func StartCmdWithPipedInput(ctx context.Context, input io.ReadCloser, args []str
 
 func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser, error) {
   var err error
-  pipe := NewFileBasedPipe()
+  pipe := NewFileBasedPipe(ctx)
   defer func() { OnlyCloseWhenError(pipe, err) }()
 
   buf_err := new(bytes.Buffer)
@@ -83,6 +111,7 @@ func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser,
 func CloseWithError(pipe types.Pipe, err error) {
   obj := pipe.WriteEnd()
   if err != nil {
+    defer Warnf("CloseWithError: %v", err)
     if adv_obj,ok := obj.(types.CloseWithErrIf); ok {
       adv_obj.CloseWithError(err)
       return

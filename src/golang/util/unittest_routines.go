@@ -66,11 +66,11 @@ func GenerateRandomTextData(size int) []byte {
 }
 
 func ProduceRandomTextIntoPipe(ctx context.Context, chunk int, iterations int) io.ReadCloser {
-  pipe := NewFileBasedPipe()
+  pipe := NewInMemPipe(ctx)
 
   go func() {
     defer pipe.WriteEnd().Close()
-    for i:=0; ctx.Err() == nil && i < iterations; i+=1 {
+    for i:=0; ctx.Err() == nil && (i < iterations || iterations < 1); i+=1 {
       data := GenerateRandomTextData(chunk)
       _, err := pipe.WriteEnd().Write(data)
       if err != nil { return }

@@ -10,7 +10,6 @@ import "C"
 import (
   "context"
   "io"
-  "os"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
   "btrfs_to_glacier/types"
@@ -151,13 +150,15 @@ func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump io.ReadCloser) (*types.
   if file_pipe,ok := dump.(types.HasFileDescriptorIf); ok {
     return readAndProcessSendStreamHelper(file_pipe.Fd())
   }
-  pipe := util.NewFileBasedPipe()
+  // We connect `pipe` to `dump` so if dump is cancelled then `pipe` will be closed.
+  pipe := util.NewFileBasedPipe(context.TODO())
   defer pipe.ReadEnd().Close()
   go func() {
     defer pipe.WriteEnd().Close()
     io.Copy(pipe.WriteEnd(), dump)
   }()
-  return readAndProcessSendStreamHelper(pipe.ReadEnd().(*os.File).Fd())
+  fd := pipe.ReadEnd().(types.HasFileDescriptorIf).Fd()
+  return readAndProcessSendStreamHelper(fd)
 }
 
 func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error) {

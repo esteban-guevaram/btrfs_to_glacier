@@ -229,6 +229,103 @@ func TestEncryptStream_MoreData(t *testing.T) {
   }
 }
 
+func testStream_TimeoutContinousReads_Helper(
+    t *testing.T, stream_f func(context.Context, io.ReadCloser) (io.ReadCloser, error)) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
+
+  timely_close := make(chan bool, 1)
+  timedout := make(chan bool, 1)
+  go func() {
+    select {
+      case <-timely_close: return
+      case <-time.After(17*time.Millisecond): close(timedout)
+    }
+  }()
+
+  out, err := stream_f(ctx, read_pipe)
+  if err != nil { t.Fatalf("Could process stream: %v", err) }
+  go func() {
+    buf := make([]byte, 32)
+    defer out.Close()
+    defer close(timely_close)
+    for {
+      _,err := out.Read(buf)
+      if err != nil { return }
+    }
+  }()
+
+  select {
+    case <-timely_close: return
+    case <-timedout:
+      t.Fatalf("codec did not react to context timeout.")
+  }
+}
+
+func testStream_TimeoutReadAfterClose_Helper(
+    t *testing.T, stream_f func(context.Context, io.ReadCloser) (io.ReadCloser, error)) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
+
+  timely_close := make(chan bool, 1)
+  timedout := make(chan bool, 1)
+  go func() {
+    select {
+      case <-timely_close: return
+      case <-time.After(17*time.Millisecond): close(timedout)
+    }
+  }()
+
+  out, err := stream_f(ctx, read_pipe)
+  if err != nil { t.Fatalf("Could process stream: %v", err) }
+  go func() {
+    buf := make([]byte, 32)
+    defer out.Close()
+    defer close(timely_close)
+    select { case <-ctx.Done(): }
+    select { case <-time.After(2*time.Millisecond): out.Read(buf) }
+  }()
+
+  select {
+    case <-timely_close: return
+    case <-timedout:
+      t.Fatalf("codec did not react to context timeout.")
+  }
+}
+func TestEncryptStream_TimeoutContinousReads(t *testing.T) {
+  codec := buildTestCodec(t)
+  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+    return codec.EncryptStream(ctx, in)
+  }
+  testStream_TimeoutContinousReads_Helper(t, stream_f)
+}
+
+func TestDecryptStream_TimeoutContinousReads(t *testing.T) {
+  codec := buildTestCodec(t)
+  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+    return codec.DecryptStream(ctx, types.CurKeyFp, in)
+  }
+  testStream_TimeoutContinousReads_Helper(t, stream_f)
+}
+
+func TestEncryptStream_TimeoutReadAfterClose(t *testing.T) {
+  codec := buildTestCodec(t)
+  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+    return codec.EncryptStream(ctx, in)
+  }
+  testStream_TimeoutReadAfterClose_Helper(t, stream_f)
+}
+
+func TestDecryptStream_TimeoutReadAfterClose(t *testing.T) {
+  codec := buildTestCodec(t)
+  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+    return codec.DecryptStream(ctx, types.CurKeyFp, in)
+  }
+  testStream_TimeoutReadAfterClose_Helper(t, stream_f)
+}
+
 func TestCompression(t *testing.T) {
   msg := []byte("original message to compress")
   src_buf := bytes.NewBuffer(msg)

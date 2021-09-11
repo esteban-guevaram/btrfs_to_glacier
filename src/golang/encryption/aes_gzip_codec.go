@@ -225,25 +225,21 @@ func (self *aesGzipCodec) DecryptString(key_fp types.PersistableString, obfus ty
 }
 
 func (self *aesGzipCodec) EncryptStream(ctx context.Context, input io.ReadCloser) (io.ReadCloser, error) {
-  var err error
-  pipe := util.NewFileBasedPipe()
-  defer func() { util.OnlyCloseWhenError(pipe, err) }()
-
+  pipe := util.NewInMemPipe(ctx)
   stream := self.getStreamEncrypter()
   block_buffer := make([]byte, 128 * self.block.BlockSize())
-  first_block := block_buffer[0:self.block.BlockSize()]
-
-  // it is valid to reuse slice for output if offsets are the same
-  stream.XORKeyStream(first_block, first_block)
-  // The file pipe should not block writing `first_block` there is not enough data (I hope)
-  _, err = pipe.WriteEnd().Write(first_block)
-  if err != nil { return nil, err }
 
   go func() {
     var err error
     defer func() { util.CloseWithError(pipe, err) }()
     defer input.Close()
     done := false
+
+    first_block := block_buffer[0:self.block.BlockSize()]
+    // it is valid to reuse slice for output if offsets are the same
+    stream.XORKeyStream(first_block, first_block)
+    _, err = pipe.WriteEnd().Write(first_block)
+    if err != nil { return }
 
     for !done && ctx.Err() == nil {
       var count int
@@ -262,7 +258,7 @@ func (self *aesGzipCodec) EncryptStream(ctx context.Context, input io.ReadCloser
 
 func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
   var err error
-  pipe := util.NewFileBasedPipe()
+  pipe := util.NewInMemPipe(ctx)
   defer func() { util.OnlyCloseWhenError(pipe, err) }()
 
   block, stream, err := self.getStreamDecrypter(key_fp)
