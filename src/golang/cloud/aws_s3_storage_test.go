@@ -233,7 +233,7 @@ func TestWriteOneChunk_PipeError(t *testing.T) {
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
   pipe := mocks.NewPreloadedPipe(data)
-  util.CloseWithError(pipe, fmt.Errorf("oopsie"))
+  util.ClosePipeWithError(pipe, fmt.Errorf("oopsie"))
 
   chunk_pb, more, err := storage.writeOneChunk(ctx, offset, pipe.ReadEnd())
   if err == nil { t.Fatalf("expected call to fail") }
@@ -250,7 +250,7 @@ func TestWriteStream_PipeError(t *testing.T) {
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
   pipe := mocks.NewPreloadedPipe(data)
-  util.CloseWithError(pipe, fmt.Errorf("oopsie"))
+  util.ClosePipeWithError(pipe, fmt.Errorf("oopsie"))
 
   done, err := storage.WriteStream(ctx, offset, pipe.ReadEnd())
   if err != nil { t.Fatalf("expected to fail but not right now: %v", err) }

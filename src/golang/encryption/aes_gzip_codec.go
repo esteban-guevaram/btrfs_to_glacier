@@ -231,8 +231,8 @@ func (self *aesGzipCodec) EncryptStream(ctx context.Context, input io.ReadCloser
 
   go func() {
     var err error
-    defer func() { util.CloseWithError(pipe, err) }()
-    defer input.Close()
+    defer func() { util.ClosePipeWithError(pipe, err) }()
+    defer func() { util.CloseWithError(input, err) }()
     done := false
 
     first_block := block_buffer[0:self.block.BlockSize()]
@@ -256,49 +256,72 @@ func (self *aesGzipCodec) EncryptStream(ctx context.Context, input io.ReadCloser
   return pipe.ReadEnd(), nil
 }
 
+func (self *aesGzipCodec) decryptBlock_Helper(buffer []byte, stream cipher.Stream, input io.Reader, output io.Writer) (bool, int, error) {
+  count, err := input.Read(buffer)
+  done := (err == io.EOF)
+  if err != nil && err != io.EOF {
+    return true, count, fmt.Errorf("DecryptStream failed reading: %v", err)
+  }
+  // it is valid to reuse slice for output if offsets are the same
+  stream.XORKeyStream(buffer, buffer)
+
+  _, err = output.Write(buffer[:count])
+  if err != nil { return true, count, err }
+  //util.Debugf("decrypt count=%d done=%v bytes=%x", count, done, buffer[:count])
+  return done, count, nil
+}
+
+func (self *aesGzipCodec) decryptStream_BlockIterator(
+    ctx context.Context, stream cipher.Stream, block_size int, input io.Reader, output io.Writer) error {
+  var err error
+  var count int
+  var done bool
+  block_buffer := make([]byte, 128 * block_size)
+
+  first_block := block_buffer[0:block_size]
+  done, count, err = self.decryptBlock_Helper(first_block, stream, input, io.Discard)
+  // The first block should always be there, if we get EOF something went really wrong.
+  if err != nil || done || count != len(first_block) {
+    return fmt.Errorf("First block not written correctly: %v", err)
+  }
+
+  for !done && ctx.Err() == nil {
+    done, _, err = self.decryptBlock_Helper(block_buffer, stream, input, output)
+    if err != nil { return err }
+  }
+  return nil
+}
+
 func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
   var err error
-  pipe := util.NewInMemPipe(ctx)
-  defer func() { util.OnlyCloseWhenError(pipe, err) }()
+  pipe := util.NewFileBasedPipe(ctx)
+  defer func() { util.OnlyClosePipeWhenError(pipe, err) }()
+  defer func() { util.OnlyCloseWhenError(input, err) }()
 
   block, stream, err := self.getStreamDecrypter(key_fp)
   if err != nil { return nil, err }
 
-  decrypt_helper := func(buffer []byte) (bool, int, error) {
-    count, err := input.Read(buffer)
-    if err != nil && err != io.EOF {
-      return true, count, fmt.Errorf("DecryptStream failed reading: %v", err)
-    }
-    // it is valid to reuse slice for output if offsets are the same
-    stream.XORKeyStream(buffer, buffer)
-    done := (err == io.EOF)
-    return done, count, nil
-  }
+  go func() {
+    var err error
+    defer func() { util.ClosePipeWithError(pipe, err) }()
+    defer func() { util.CloseWithError(input, err) }()
+    err = self.decryptStream_BlockIterator(ctx, stream, block.BlockSize(), input, pipe.WriteEnd())
+  }()
+  return pipe.ReadEnd(), nil
+}
+
+func (self *aesGzipCodec) DecryptStreamInto(ctx context.Context, key_fp types.PersistableString, input io.ReadCloser, output io.Writer) error {
+  var err error
+  defer func() { util.OnlyCloseWhenError(input, err) }()
+
+  block, stream, err := self.getStreamDecrypter(key_fp)
+  if err != nil { return err }
 
   go func() {
     var err error
-    defer func() { util.CloseWithError(pipe, err) }()
-    defer input.Close()
-    done := false
-    block_buffer := make([]byte, 128 * block.BlockSize())
-    writer := pipe.WriteEnd()
-
-    first_block := block_buffer[0:block.BlockSize()]
-    // The first block should always be there, if we get EOF something went really wrong.
-    _, err = io.ReadFull(input, first_block)
-    if err != nil { return }
-    stream.XORKeyStream(first_block, first_block)
-
-    for !done && ctx.Err() == nil {
-      var count int
-      done, count, err = decrypt_helper(block_buffer)
-      if err != nil { return }
-
-      _, err = writer.Write(block_buffer[:count])
-      if err != nil { return }
-      //util.Debugf("decrypt count=%d done=%v bytes=%x", count, done, block_buffer[:count])
-    }
+    defer func() { util.CloseWithError(input, err) }()
+    err = self.decryptStream_BlockIterator(ctx, stream, block.BlockSize(), input, output)
   }()
-  return pipe.ReadEnd(), nil
+  return nil
 }
 

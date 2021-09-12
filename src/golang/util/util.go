@@ -84,7 +84,7 @@ func StartCmdWithPipedInput(ctx context.Context, input io.ReadCloser, args []str
 func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser, error) {
   var err error
   pipe := NewFileBasedPipe(ctx)
-  defer func() { OnlyCloseWhenError(pipe, err) }()
+  defer func() { OnlyClosePipeWhenError(pipe, err) }()
 
   buf_err := new(bytes.Buffer)
   command := exec.CommandContext(ctx, args[0], args[1:]...)
@@ -99,7 +99,7 @@ func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser,
 
   go func() {
     var err error
-    defer func() { CloseWithError(pipe, err) }()
+    defer func() { ClosePipeWithError(pipe, err) }()
     err = command.Wait()
     if err != nil && ctx.Err() == nil {
       err = fmt.Errorf("%v failed: %v\nstderr: %s", args, err, buf_err.Bytes())
@@ -108,8 +108,12 @@ func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser,
   return pipe.ReadEnd(), nil
 }
 
-func CloseWithError(pipe types.Pipe, err error) {
+func ClosePipeWithError(pipe types.Pipe, err error) {
   obj := pipe.WriteEnd()
+  CloseWithError(obj, err)
+}
+
+func CloseWithError(obj io.Closer, err error) {
   if err != nil {
     defer Warnf("CloseWithError: %v", err)
     if adv_obj,ok := obj.(types.CloseWithErrIf); ok {
@@ -120,8 +124,13 @@ func CloseWithError(pipe types.Pipe, err error) {
   obj.Close()
 }
 
-func OnlyCloseWhenError(pipe types.Pipe, err error) {
+func OnlyClosePipeWhenError(pipe types.Pipe, err error) {
   if err == nil { return }
-  CloseWithError(pipe, err)
+  ClosePipeWithError(pipe, err)
+}
+
+func OnlyCloseWhenError(obj io.Closer, err error) {
+  if err == nil { return }
+  CloseWithError(obj, err)
 }
 
