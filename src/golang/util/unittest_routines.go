@@ -8,6 +8,7 @@ import "io"
 import "math/rand"
 import "strings"
 import "testing"
+import "time"
 
 func asJsonStrings(val interface{}, expected interface{}) (string, string) {
   var val_str, expected_str []byte
@@ -77,5 +78,45 @@ func ProduceRandomTextIntoPipe(ctx context.Context, chunk int, iterations int) i
     }
   }()
   return pipe.ReadEnd()
+}
+
+func WaitForNoError(t *testing.T, ctx context.Context, done <-chan error) {
+  if done == nil { t.Error("channel is nil"); return }
+  if ctx.Err() != nil { t.Errorf("context expired before select"); return }
+  select {
+    case err,ok := <-done:
+      if !ok { t.Errorf("channel closed") }
+      if err != nil { t.Errorf("Error in channel: %v", err) }
+    case <-ctx.Done(): t.Errorf("WaitForNoError timeout: %v", ctx.Err())
+  }
+}
+
+func WaitMillisForNoError(t *testing.T, millis int, done <-chan error) {
+  if done == nil { t.Error("channel is nil"); return }
+  select {
+    case err,ok := <-done:
+      if !ok { t.Errorf("channel closed") }
+      if err != nil { t.Errorf("Error in channel: %v", err) }
+    case <-time.After(time.Duration(millis)*time.Millisecond):
+      t.Errorf("WaitForNoError timeout."); return
+  }
+}
+
+func WaitForClosure(t *testing.T, ctx context.Context, done <-chan error) {
+  if done == nil { t.Error("channel is nil"); return }
+  if ctx.Err() != nil { t.Errorf("context expired before select"); return }
+  for { select {
+    case _,ok := <-done: if !ok { return }
+    case <-ctx.Done(): t.Errorf("WaitForClosure timeout."); return
+  }}
+}
+
+func WaitMillisForClosure(t *testing.T, millis int, done <-chan error) {
+  if done == nil { t.Error("channel is nil"); return }
+  for { select {
+    case _,ok := <-done: if !ok { return }
+    case <-time.After(time.Duration(millis)*time.Millisecond):
+      t.Errorf("WaitForClosure timeout."); return
+  }}
 }
 

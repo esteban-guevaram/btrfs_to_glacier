@@ -49,8 +49,8 @@ type Codec interface {
   DecryptStream(ctx context.Context, key_fp PersistableString, input io.ReadCloser) (io.ReadCloser, error)
   // Decrypts `input` and outputs plaintext bytes into `output`.
   // `key_fp` may be left empty to use the current encryption key.
-  // Takes ownership of `input` and will close it once done.
-  // `output` will NOT be closed so that it can be reused.
-  DecryptStreamInto(ctx context.Context, key_fp PersistableString, input io.ReadCloser, output io.Writer) error
+  // Takes ownership of `input` and will close it once done. `output` will NOT be closed so that it can be reused.
+  // Waiting on the returned channel will block until the whole stream has been decrypted.
+  DecryptStreamInto(ctx context.Context, key_fp PersistableString, input io.ReadCloser, output io.Writer) (<-chan error)
 }
 

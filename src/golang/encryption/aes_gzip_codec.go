@@ -262,6 +262,7 @@ func (self *aesGzipCodec) decryptBlock_Helper(buffer []byte, stream cipher.Strea
   if err != nil && err != io.EOF {
     return true, count, fmt.Errorf("DecryptStream failed reading: %v", err)
   }
+  if count < 1 { return done, count, nil }
   // it is valid to reuse slice for output if offsets are the same
   stream.XORKeyStream(buffer, buffer)
 
@@ -310,18 +311,23 @@ func (self *aesGzipCodec) DecryptStream(ctx context.Context, key_fp types.Persis
   return pipe.ReadEnd(), nil
 }
 
-func (self *aesGzipCodec) DecryptStreamInto(ctx context.Context, key_fp types.PersistableString, input io.ReadCloser, output io.Writer) error {
+func (self *aesGzipCodec) DecryptStreamInto(
+    ctx context.Context, key_fp types.PersistableString, input io.ReadCloser, output io.Writer) (<-chan error) {
   var err error
+  done := make(chan error, 1)
   defer func() { util.OnlyCloseWhenError(input, err) }()
+  defer func() { util.OnlyCloseChanWhenError(done, err) }()
 
   block, stream, err := self.getStreamDecrypter(key_fp)
-  if err != nil { return err }
+  if err != nil { done <- err; return done }
 
   go func() {
     var err error
     defer func() { util.CloseWithError(input, err) }()
+    defer close(done)
     err = self.decryptStream_BlockIterator(ctx, stream, block.BlockSize(), input, output)
+    done <- err
   }()
-  return nil
+  return done
 }
 

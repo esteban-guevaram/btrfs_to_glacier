@@ -6,6 +6,7 @@ import "fmt"
 import "io"
 import "os"
 import "os/exec"
+import "reflect"
 import "btrfs_to_glacier/types"
 
 type PipeImpl struct {
@@ -127,6 +128,15 @@ func CloseWithError(obj io.Closer, err error) {
 func OnlyClosePipeWhenError(pipe types.Pipe, err error) {
   if err == nil { return }
   ClosePipeWithError(pipe, err)
+}
+
+func OnlyCloseChanWhenError(channel interface{}, err error) {
+  if err == nil { return }
+  rv := reflect.ValueOf(channel)
+  if rk := rv.Kind(); rk != reflect.Chan {
+    Fatalf("expecting type: 'chan ...'  instead got: %s", rk.String())
+  }
+  rv.Close()
 }
 
 func OnlyCloseWhenError(obj io.Closer, err error) {

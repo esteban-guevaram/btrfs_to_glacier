@@ -56,15 +56,18 @@ func (self *Codec) DecryptStream(
 }
 
 func (self *Codec) DecryptStreamInto(
-    ctx context.Context, key_fp types.PersistableString, input io.ReadCloser, output io.Writer) error {
-  if self.Err != nil { return self.Err }
+    ctx context.Context, key_fp types.PersistableString, input io.ReadCloser, output io.Writer) (<-chan error) {
+  done := make(chan error, 1)
+  if self.Err != nil { done <- self.Err; close(done); return done }
   go func() {
     var err error
+    defer close(done)
     defer func() { util.CloseWithError(input, err) }()
     if ctx.Err() != nil { return }
     _, err = io.Copy(output, input)
+    done <- err
   }()
-  return nil
+  return done
 }
 
 func (self *Codec) ReEncryptKeyring(pw_prompt func() ([]byte, error)) ([]types.PersistableKey, error) {
