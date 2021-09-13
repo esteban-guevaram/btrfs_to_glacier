@@ -111,6 +111,15 @@ func WaitForClosure(t *testing.T, ctx context.Context, done <-chan error) {
   }}
 }
 
+func WaitForClosureOrDie(ctx context.Context, done <-chan error) {
+  if done == nil { Fatalf("channel is nil"); return }
+  if ctx.Err() != nil { Fatalf("context expired before select"); return }
+  for { select {
+    case _,ok := <-done: if !ok { return }
+    case <-ctx.Done(): Fatalf("WaitForClosure timeout."); return
+  }}
+}
+
 func WaitMillisForClosure(t *testing.T, millis int, done <-chan error) {
   if done == nil { t.Error("channel is nil"); return }
   for { select {

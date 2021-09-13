@@ -45,6 +45,18 @@ func (self *mockS3Client) CreateBucket(
   self.Buckets[*in.Bucket] = true
   return &s3.CreateBucketOutput{}, self.Err
 }
+func (self *mockS3Client) GetObject(
+    ctx context.Context, in *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+  key := *(in.Key)
+  if _,found := self.Data[key]; !found {
+    return nil, new(s3_types.NoSuchKey)
+  }
+  out := &s3.GetObjectOutput{
+    Body: io.NopCloser(bytes.NewReader(self.Data[key])),
+    ContentLength: int64(len(self.Data[key])),
+  }
+  return out, self.Err
+}
 func (self *mockS3Client) HeadBucket(
     ctx context.Context, in *s3.HeadBucketInput, opts ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {
   _,found := self.Buckets[*(in.Bucket)]
@@ -632,5 +644,83 @@ func TestQueueRestoreObjects_HeadFail(t *testing.T) {
       }
     case <-ctx.Done(): t.Fatalf("timedout")
   }
+}
+
+func testReadChunksIntoStream_Helper(t *testing.T, chunks *pb.SnapshotChunks, datas [][]byte) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  var expect_data bytes.Buffer
+  storage,client := buildTestStorage(t)
+  for i,chunk := range chunks.Chunks {
+    expect_data.Write(datas[i])
+    client.setObject(chunk.Uuid, datas[i], s3_types.StorageClassStandard, false)
+  }
+
+  read_end,err := storage.ReadChunksIntoStream(ctx, chunks)
+  if err != nil { t.Fatalf("failed: %v", err) }
+
+  var got_data []byte
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer read_end.Close()
+    got_data, err = io.ReadAll(read_end)
+    if err != nil { t.Fatalf("failed: %v", err) }
+  }()
+  util.WaitForClosure(t, ctx, done)
+
+  util.EqualsOrFailTest(t, "Mismatched concat data", got_data, expect_data.Bytes())
+}
+
+func TestReadChunksIntoStream_Single(t *testing.T) {
+  datas := [][]byte{
+    []byte("hey_mr_monkey"),
+  }
+  chunks := &pb.SnapshotChunks{
+    KeyFingerprint: "for_giggles",
+    Chunks: []*pb.SnapshotChunks_Chunk{
+      &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:uint64(len(datas[0])), },
+    },
+  }
+  testReadChunksIntoStream_Helper(t, chunks, datas)
+}
+
+func TestReadChunksIntoStream_Multiple(t *testing.T) {
+  datas := [][]byte{
+    []byte("hey_mr_monkey"),
+    []byte("where_s_the_banana_stash"),
+  }
+  chunks := &pb.SnapshotChunks{
+    KeyFingerprint: "for_giggles",
+    Chunks: []*pb.SnapshotChunks_Chunk{
+      &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:uint64(len(datas[0])), },
+      &pb.SnapshotChunks_Chunk{ Uuid:"uuid1", Start:uint64(len(datas[0])), Size:uint64(len(datas[1])), },
+    },
+  }
+  testReadChunksIntoStream_Helper(t, chunks, datas)
+}
+
+func TestReadChunksIntoStream_Missing(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage,_ := buildTestStorage(t)
+  chunks := &pb.SnapshotChunks{
+    KeyFingerprint: "for_giggles",
+    Chunks: []*pb.SnapshotChunks_Chunk{
+      &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:66, },
+    },
+  }
+
+  read_end,err := storage.ReadChunksIntoStream(ctx, chunks)
+  if err != nil { t.Fatalf("failed: %v", err) }
+
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer read_end.Close()
+    got_data,_ := io.ReadAll(read_end)
+    if len(got_data) > 0 { t.Errorf("Expected empty pipe for missing object") }
+  }()
+  util.WaitForClosure(t, ctx, done)
 }
 

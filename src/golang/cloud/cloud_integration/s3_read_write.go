@@ -41,8 +41,8 @@ func (self *s3ReadWriteTester) getObject(ctx context.Context, key string) ([]byt
   return data, err
 }
 
-func (self *s3ReadWriteTester) putRandomObject(ctx context.Context) (string, []byte, error) {
-  data := util.GenerateRandomTextData(4096)
+func (self *s3ReadWriteTester) putRandomObject(ctx context.Context, size int) (string, []byte, error) {
+  data := util.GenerateRandomTextData(size)
   reader := bytes.NewReader(data)
   key := uuid.NewString()
   in := &s3.PutObjectInput{
@@ -60,8 +60,8 @@ func (self *s3ReadWriteTester) getObjectOrDie(ctx context.Context, key string) [
   return data
 }
 
-func (self *s3ReadWriteTester) putRandomObjectOrDie(ctx context.Context) (string, []byte) {
-  key, data, err := self.putRandomObject(ctx)
+func (self *s3ReadWriteTester) putRandomObjectOrDie(ctx context.Context, size int) (string, []byte) {
+  key, data, err := self.putRandomObject(ctx, size)
   if err != nil { util.Fatalf("Failed to put object '%s': %v", key, err) }
   return key, data
 }
@@ -169,6 +169,44 @@ func (self *s3ReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
   }
 }
 
+func (self *s3ReadWriteTester) testReadObject_Helper(ctx context.Context, chunk_sizes []uint64) {
+  var expect_data bytes.Buffer
+  var offset uint64
+  chunks := &pb.SnapshotChunks{ KeyFingerprint: "for_giggles", }
+  for _,size := range chunk_sizes {
+    key, data := self.putRandomObjectOrDie(ctx, int(size))
+    expect_data.Write(data)
+    chunk := &pb.SnapshotChunks_Chunk{ Uuid:key, Start:offset, Size:size, }
+    chunks.Chunks = append(chunks.Chunks, chunk)
+    offset += size
+  }
+
+  read_end,err := self.Storage.ReadChunksIntoStream(ctx, chunks)
+  if err != nil { util.Fatalf("failed: %v", err) }
+
+  var got_data []byte
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer read_end.Close()
+    got_data, err = io.ReadAll(read_end)
+    if err != nil { util.Fatalf("failed: %v", err) }
+  }()
+  util.WaitForClosureOrDie(ctx, done)
+
+  util.EqualsOrDie( "Mismatched concat data", got_data, expect_data.Bytes())
+}
+
+func (self *s3ReadWriteTester) TestReadSingleChunkObject(ctx context.Context) {
+  sizes := []uint64{4096}
+  self.testReadObject_Helper(ctx, sizes)
+}
+
+func (self *s3ReadWriteTester) TestReadMultiChunkObject(ctx context.Context) {
+  sizes := []uint64{4096, 1024, 666,}
+  self.testReadObject_Helper(ctx, sizes)
+}
+
 func (self *s3ReadWriteTester) testQueueRestoreObjects_Helper(ctx context.Context, keys []string, expect_obj types.ObjRestoreOrErr) {
   done, err := self.Storage.QueueRestoreObjects(ctx, keys)
   if err != nil { util.Fatalf("failed: %v", err) }
@@ -185,8 +223,8 @@ func (self *s3ReadWriteTester) testQueueRestoreObjects_Helper(ctx context.Contex
 }
 
 func (self *s3ReadWriteTester) TestQueueRestoreObjects_StandardClass(ctx context.Context) {
-  key1,_ := self.putRandomObjectOrDie(ctx)
-  key2,_ := self.putRandomObjectOrDie(ctx)
+  key1,_ := self.putRandomObjectOrDie(ctx, 4096)
+  key2,_ := self.putRandomObjectOrDie(ctx, 1111)
   keys := []string{key1, key2}
   expect_obj := types.ObjRestoreOrErr{ Stx:types.Restored, }
   self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
@@ -272,6 +310,8 @@ func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client,
   suite.TestWriteObjectMoreChunkLen(ctx)
   suite.TestWriteObjectMultipleChunkLen(ctx)
   suite.TestWriteEmptyObject(ctx)
+  suite.TestReadSingleChunkObject(ctx)
+  suite.TestReadMultiChunkObject(ctx)
   suite.TestQueueRestoreObjects_StandardClass(ctx)
   suite.TestQueueRestoreObjects_NoSuchObject(ctx)
   // adhoc manual testing given the nature of restores :-(

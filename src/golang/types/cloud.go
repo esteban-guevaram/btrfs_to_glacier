@@ -111,8 +111,9 @@ type Storage interface {
   QueueRestoreObjects(ctx context.Context, keys []string) (<-chan RestoreResult, error)
 
   // Reads all `chunks` in order and outputs them to a stream.
+  // Data may be filtered by a codec depending on the implementation.
   // A permanent error while reading a chunk will close the stream.
-  ReadStream(ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error)
+  ReadChunksIntoStream(ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error)
 }
 
 // Separate from `Storage` since it contains dangerous operations that should only be invoked during clean-up.

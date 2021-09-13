@@ -48,6 +48,7 @@ const (
 // Convenient for unittesting purposes.
 type usedS3If interface {
   CreateBucket(context.Context, *s3.CreateBucketInput, ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+  GetObject   (context.Context, *s3.GetObjectInput,    ...func(*s3.Options)) (*s3.GetObjectOutput, error)
   HeadBucket  (context.Context, *s3.HeadBucketInput,   ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
   HeadObject  (context.Context, *s3.HeadObjectInput,   ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
   PutBucketLifecycleConfiguration(context.Context, *s3.PutBucketLifecycleConfigurationInput, ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
@@ -476,6 +477,44 @@ func (self *s3Storage) QueueRestoreObjects(
   return done, nil
 }
 
-func (self *s3Storage) ReadStream() error { return nil }
-func (self *s3Storage) DeleteBlob() error { return nil }
+func (self *s3Storage) readOneChunk(
+    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
+  get_in := &s3.GetObjectInput{
+    Bucket: &self.conf.Aws.S3.BucketName,
+    Key: &chunk.Uuid,
+  }
+  get_out, err := self.client.GetObject(ctx, get_in)
+  if err != nil { return err }
+  if get_out.ContentLength != int64(chunk.Size) {
+    return fmt.Errorf("mismatched length with metadata: %d != %d", get_out.ContentLength, chunk.Size)
+  }
+  done := self.codec.DecryptStreamInto(ctx, key_fp, get_out.Body, output)
+  select {
+    case err := <-done: return err
+    case <-ctx.Done():
+  }
+  return nil
+}
+
+// We cannot use https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/s3/s3manager#Downloader
+// since it uses io.WriterAt (for writing in parallel).
+// In our case, the codec uses a stream cypher, parallel (out-of-order) downloads will make things much more complex.
+// Not to mention for a home connection bandwidth, this is an overkill...
+func (self *s3Storage) ReadChunksIntoStream(ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error) {
+  err := ValidateSnapshotChunks(CheckChunkFromStart, chunks)
+  if err != nil { return nil, err }
+  pipe := util.NewFileBasedPipe(ctx)
+  key_fp := types.PersistableString{chunks.KeyFingerprint}
+
+  go func() {
+    var err error
+    defer func() { util.ClosePipeWithError(pipe, err) }()
+    for _,chunk := range chunks.Chunks {
+      err = self.readOneChunk(ctx, key_fp, chunk, pipe.WriteEnd())
+      if err != nil { return }
+    }
+    util.Infof("Read chunks: %v", chunks.Chunks)
+  }()
+  return pipe.ReadEnd(), nil
+}
 
