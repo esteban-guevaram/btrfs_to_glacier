@@ -85,7 +85,7 @@ func WaitForNoError(t *testing.T, ctx context.Context, done <-chan error) {
   if ctx.Err() != nil { t.Errorf("context expired before select"); return }
   select {
     case err,ok := <-done:
-      if !ok { t.Errorf("channel closed") }
+      if !ok { Infof("channel closed") }
       if err != nil { t.Errorf("Error in channel: %v", err) }
     case <-ctx.Done(): t.Errorf("WaitForNoError timeout: %v", ctx.Err())
   }
@@ -95,37 +95,40 @@ func WaitMillisForNoError(t *testing.T, millis int, done <-chan error) {
   if done == nil { t.Error("channel is nil"); return }
   select {
     case err,ok := <-done:
-      if !ok { t.Errorf("channel closed") }
+      if !ok { Infof("channel closed") }
       if err != nil { t.Errorf("Error in channel: %v", err) }
     case <-time.After(time.Duration(millis)*time.Millisecond):
       t.Errorf("WaitForNoError timeout."); return
   }
 }
 
-func WaitForClosure(t *testing.T, ctx context.Context, done <-chan error) {
-  if done == nil { t.Error("channel is nil"); return }
-  if ctx.Err() != nil { t.Errorf("context expired before select"); return }
+func WaitForClosure(t *testing.T, ctx context.Context, done <-chan error) error {
+  if done == nil { t.Error("channel is nil"); return nil }
+  if ctx.Err() != nil { t.Errorf("context expired before select"); return nil }
   for { select {
-    case _,ok := <-done: if !ok { return }
-    case <-ctx.Done(): t.Errorf("WaitForClosure timeout."); return
+    case err,ok := <-done: if !ok { return err }
+    case <-ctx.Done(): t.Errorf("WaitForClosure timeout."); return nil
   }}
+  return nil
 }
 
-func WaitForClosureOrDie(ctx context.Context, done <-chan error) {
-  if done == nil { Fatalf("channel is nil"); return }
-  if ctx.Err() != nil { Fatalf("context expired before select"); return }
+func WaitForClosureOrDie(ctx context.Context, done <-chan error) error {
+  if done == nil { Fatalf("channel is nil") }
+  if ctx.Err() != nil { Fatalf("context expired before select"); return nil }
   for { select {
-    case _,ok := <-done: if !ok { return }
-    case <-ctx.Done(): Fatalf("WaitForClosure timeout."); return
+    case err,ok := <-done: if !ok { return err }
+    case <-ctx.Done(): Fatalf("WaitForClosure timeout."); return nil
   }}
+  return nil
 }
 
-func WaitMillisForClosure(t *testing.T, millis int, done <-chan error) {
-  if done == nil { t.Error("channel is nil"); return }
+func WaitMillisForClosure(t *testing.T, millis int, done <-chan error) error {
+  if done == nil { t.Error("channel is nil"); return nil }
   for { select {
-    case _,ok := <-done: if !ok { return }
+    case err,ok := <-done: if !ok { return err }
     case <-time.After(time.Duration(millis)*time.Millisecond):
-      t.Errorf("WaitForClosure timeout."); return
+      t.Errorf("WaitForClosure timeout."); return nil
   }}
+  return nil
 }
 

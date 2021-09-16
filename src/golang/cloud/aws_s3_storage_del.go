@@ -22,12 +22,24 @@ type s3DeleteStorage struct {
   *s3Storage
 }
 
-func NewDeleteStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.Storage, error) {
+func NewDeleteStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.DeleteStorage, error) {
   storage, err := NewStorage(conf, aws_conf, codec)
   if err != nil { return nil, err }
 
   del_storage := &s3DeleteStorage{ s3Storage: storage.(*s3Storage), }
   return del_storage, nil
+}
+
+// Although operations on objects have read-after-write consistency, that does not apply to buckets.
+// Deleting and creating buckets in quick succession and reading objects on that bucket
+// with a **different client object** may return NoSuchBucket errors.
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel
+func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Client {
+  s3_impl,ok := storage.(*s3DeleteStorage)
+  if !ok { util.Fatalf("called with the wrong impl") }
+  client,ok := s3_impl.client.(*s3.Client)
+  if !ok { util.Fatalf("storage does not contain a real aws client") }
+  return client
 }
 
 func (self *s3DeleteStorage) deleteBatch(

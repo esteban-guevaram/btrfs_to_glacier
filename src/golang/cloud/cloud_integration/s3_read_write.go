@@ -23,7 +23,7 @@ import (
 type s3ReadWriteTester struct {
   Conf *pb.Config
   Client *s3.Client
-  Storage types.Storage
+  Storage types.DeleteStorage
 }
 
 func (self *s3ReadWriteTester) getObject(ctx context.Context, key string) ([]byte, error) {
@@ -268,7 +268,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx conte
   self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
 }
 
-func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.Storage) {
+func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.DeleteStorage) {
   err := deleteBucket(ctx, conf, client)
 
   if err != nil {
@@ -301,7 +301,7 @@ func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client,
 }
 
 // we do not test with offsets, that should be covered by the unittests
-func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.Storage) {
+func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.DeleteStorage) {
   suite := s3ReadWriteTester{
     Conf: conf, Client: client, Storage: storage,
   }
@@ -328,13 +328,14 @@ func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
 
   codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
-  storage, err := cloud.NewStorage(new_conf, aws_conf, codec)
+  storage, err := cloud.NewDeleteStorage(new_conf, aws_conf, codec)
   //client := s3.NewFromConfig(*aws_conf)
   client := cloud.TestOnlyGetInnerClientToAvoidConsistencyFails(storage)
   if err != nil { util.Fatalf("%v", err) }
 
   TestS3StorageSetup(ctx, new_conf, client, storage)
   TestAllS3ReadWrite(ctx, new_conf, client, storage)
+  TestAllS3Delete(ctx, new_conf, client, storage)
   deleteBucketOrDie(ctx, new_conf, client)
 }
 
