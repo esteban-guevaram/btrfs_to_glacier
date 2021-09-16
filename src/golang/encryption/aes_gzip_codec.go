@@ -319,7 +319,7 @@ func (self *aesGzipCodec) DecryptStreamInto(
   defer func() { util.OnlyCloseChanWhenError(done, err) }()
 
   block, stream, err := self.getStreamDecrypter(key_fp)
-  if err != nil { done <- err; return done }
+  if err != nil { return done }
 
   go func() {
     var err error

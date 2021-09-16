@@ -47,10 +47,11 @@ const (
 // The subset of the s3 client used.
 // Convenient for unittesting purposes.
 type usedS3If interface {
-  CreateBucket(context.Context, *s3.CreateBucketInput, ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
-  GetObject   (context.Context, *s3.GetObjectInput,    ...func(*s3.Options)) (*s3.GetObjectOutput, error)
-  HeadBucket  (context.Context, *s3.HeadBucketInput,   ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
-  HeadObject  (context.Context, *s3.HeadObjectInput,   ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
+  CreateBucket (context.Context, *s3.CreateBucketInput,  ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+  DeleteObjects(context.Context, *s3.DeleteObjectsInput, ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error)
+  GetObject    (context.Context, *s3.GetObjectInput,     ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+  HeadBucket   (context.Context, *s3.HeadBucketInput,    ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+  HeadObject   (context.Context, *s3.HeadObjectInput,    ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
   PutBucketLifecycleConfiguration(context.Context, *s3.PutBucketLifecycleConfigurationInput, ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
   PutPublicAccessBlock(context.Context, *s3.PutPublicAccessBlockInput, ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error)
   RestoreObject(context.Context, *s3.RestoreObjectInput, ...func(*s3.Options)) (*s3.RestoreObjectOutput, error)
@@ -273,13 +274,12 @@ func (self *s3Storage) SetupStorage(ctx context.Context) (<-chan error) {
     defer close(done)
     exists, err := self.checkBucketExistsAndIsOwnedByMyAccount(ctx)
     if err != nil { done <- err ; return }
-    if exists { done <- nil ; return }
+    if exists { return }
 
     err = self.createBucket(ctx)
     if err != nil { done <- err ; return }
     err = self.createLifecycleRule(ctx)
     if err != nil { done <- err ; return }
-    done <- nil
   }()
   return done
 }
@@ -311,7 +311,7 @@ func (self *s3Storage) writeOneChunk(
   if err != nil { return nil, false, err }
 
   limit_reader := &io.LimitedReader{ R:encrypted_stream, N:chunk_len }
-  // The small buffer should be bypassed for bigger reads by teh s3 uploader
+  // The small buffer should be bypassed for bigger reads by the s3 uploader
   chunk_reader := bufio.NewReaderSize(limit_reader, 64)
 
   _, err = chunk_reader.Peek(1)

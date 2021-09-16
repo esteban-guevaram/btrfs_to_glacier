@@ -130,11 +130,18 @@ func OnlyClosePipeWhenError(pipe types.Pipe, err error) {
   ClosePipeWithError(pipe, err)
 }
 
+// Closes the channel if `err != nil`.
+// If `channel` is of type `channel error` then attempts to send the error before closing.
 func OnlyCloseChanWhenError(channel interface{}, err error) {
   if err == nil { return }
   rv := reflect.ValueOf(channel)
   if rk := rv.Kind(); rk != reflect.Chan {
     Fatalf("expecting type: 'chan ...'  instead got: %s", rk.String())
+  }
+  is_chan_err := rv.Type().Elem() == reflect.TypeOf((*error)(nil)).Elem()
+  is_send_dir := rv.Type().ChanDir() != reflect.RecvDir
+  if is_chan_err && is_send_dir {
+    if ok := rv.TrySend(reflect.ValueOf(err)); !ok { Fatalf("failed to send before closing: %v", err) }
   }
   rv.Close()
 }

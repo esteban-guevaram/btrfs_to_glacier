@@ -19,8 +19,9 @@ import (
 )
 
 type mockS3Client struct {
-  Err error
+  Err              error
   RestoreObjectErr error
+  DeleteObjsErr    error
   AccountId string
   Data map[string][]byte
   RestoreStx map[string]string
@@ -44,6 +45,21 @@ func (self *mockS3Client) CreateBucket(
     ctx context.Context, in *s3.CreateBucketInput, opts ...func(*s3.Options)) (*s3.CreateBucketOutput, error) {
   self.Buckets[*in.Bucket] = true
   return &s3.CreateBucketOutput{}, self.Err
+}
+func (self *mockS3Client) DeleteObjects(
+    ctx context.Context, in *s3.DeleteObjectsInput, opts...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
+  out := &s3.DeleteObjectsOutput{}
+  for _,obj_id := range in.Delete.Objects {
+    delete(self.Data, *obj_id.Key)
+    delete(self.RestoreStx, *obj_id.Key)
+    delete(self.Class, *obj_id.Key)
+  }
+  if self.DeleteObjsErr != nil {
+    str := self.DeleteObjsErr.Error()
+    aws_err := s3_types.Error{ Code:&str, Key:&str, }
+    out.Errors = []s3_types.Error{ aws_err }
+  }
+  return out, self.Err
 }
 func (self *mockS3Client) GetObject(
     ctx context.Context, in *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObjectOutput, error) {

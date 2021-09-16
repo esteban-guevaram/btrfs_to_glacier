@@ -119,7 +119,11 @@ type Storage interface {
 // Separate from `Storage` since it contains dangerous operations that should only be invoked during clean-up.
 type DeleteStorage interface {
   Storage
-  DeleteBlob() error
+
+  // Deletes all objects in `chunks`.
+  // If the channel contains a null error then all objects got deleted.
+  // Objects not found (already deleted?) should be a noop.
+  DeleteChunks(ctx context.Context, chunks *pb.SnapshotChunks) (<-chan error)
 }
 
 type GarbageCollector interface {
