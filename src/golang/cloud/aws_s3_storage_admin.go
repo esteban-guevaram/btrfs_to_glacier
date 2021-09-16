@@ -196,10 +196,8 @@ func (self *s3AdminStorage) deleteBatch(
 }
 
 func (self *s3AdminStorage) DeleteChunks(ctx context.Context, chunks *pb.SnapshotChunks) (<-chan error) {
-  var err error
+  if len(chunks.Chunks) < 1 { return util.WrapInChan(fmt.Errorf("cannot delete 0 keys")) }
   done := make(chan error, 1)
-  defer func() { util.OnlyCloseChanWhenError(done, err) }()
-  if len(chunks.Chunks) < 1 { err = fmt.Errorf("cannot delete 0 keys"); return done }
 
   go func() {
     var err error

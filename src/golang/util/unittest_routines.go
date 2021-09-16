@@ -114,10 +114,10 @@ func WaitForClosure(t *testing.T, ctx context.Context, done <-chan error) error 
 
 func WaitForClosureOrDie(ctx context.Context, done <-chan error) error {
   if done == nil { Fatalf("channel is nil") }
-  if ctx.Err() != nil { Fatalf("context expired before select"); return nil }
+  if ctx.Err() != nil { Fatalf("context expired before select") }
   for { select {
     case err,ok := <-done: if !ok { return err }
-    case <-ctx.Done(): Fatalf("WaitForClosure timeout."); return nil
+    case <-ctx.Done(): Fatalf("WaitForClosure timeout.")
   }}
   return nil
 }

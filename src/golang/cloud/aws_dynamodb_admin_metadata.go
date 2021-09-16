@@ -27,13 +27,6 @@ func NewAdminMetadata(conf *pb.Config, aws_conf *aws.Config) (types.AdminMetadat
   return &dynamoAdminMetadata{ meta.(*dynamoMetadata) }, nil
 }
 
-func wrapInChan(err error) (<-chan error) {
-  done := make(chan error, 1)
-  done <- err
-  close(done)
-  return done
-}
-
 func (self *dynamoMetadata) describeTable(ctx context.Context, tabname string) (*dyn_types.TableDescription, error) {
   params := &dynamodb.DescribeTableInput{
     TableName: &self.conf.Aws.DynamoDb.TableName,
@@ -114,12 +107,12 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
     apiErr := new(dyn_types.ResourceInUseException)
     if errors.As(err, &apiErr) {
       util.Infof("Table '%s' already exists", tabname)
-      return wrapInChan(nil)
+      return util.WrapInChan(nil)
     }
-    return wrapInChan(err)
+    return util.WrapInChan(err)
   }
   if result.TableDescription.TableStatus == dyn_types.TableStatusActive {
-    return wrapInChan(nil)
+    return util.WrapInChan(nil)
   }
   return self.waitForTableCreation(ctx, tabname)
 }

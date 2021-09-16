@@ -151,3 +151,10 @@ func OnlyCloseWhenError(obj io.Closer, err error) {
   CloseWithError(obj, err)
 }
 
+func WrapInChan(err error) (<-chan error) {
+  done := make(chan error, 1)
+  done <- err
+  close(done)
+  return done
+}
+
