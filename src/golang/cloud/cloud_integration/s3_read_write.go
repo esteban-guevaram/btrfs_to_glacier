@@ -4,7 +4,6 @@ import (
   "bytes"
   "context"
   "io"
-  "time"
 
   "btrfs_to_glacier/cloud"
   pb "btrfs_to_glacier/messages"
@@ -23,7 +22,7 @@ import (
 type s3ReadWriteTester struct {
   Conf *pb.Config
   Client *s3.Client
-  Storage types.DeleteStorage
+  Storage types.AdminStorage
 }
 
 func (self *s3ReadWriteTester) getObject(ctx context.Context, key string) ([]byte, error) {
@@ -268,40 +267,8 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx conte
   self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
 }
 
-func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.DeleteStorage) {
-  err := deleteBucket(ctx, conf, client)
-
-  if err != nil {
-    if !cloud.IsS3Error(new(s3_types.NoSuchBucket), err) {
-      util.Fatalf("%v", err)
-    }
-    util.Infof("TestStorageSetup '%s' not exist", conf.Aws.S3.BucketName)
-  } else {
-    waiter := s3.NewBucketNotExistsWaiter(client)
-    wait_rq := &s3.HeadBucketInput{ Bucket: &conf.Aws.S3.BucketName, }
-    err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
-    if err != nil { util.Fatalf("%v", err) }
-    util.Infof("TestStorageSetup '%s' deleted", conf.Aws.S3.BucketName)
-  }
-
-  done := storage.SetupStorage(ctx)
-  select {
-    case err := <-done:
-      if err != nil { util.Fatalf("%v", err) }
-      util.Infof("Bucket '%s' created OK", conf.Aws.S3.BucketName)
-    case <-ctx.Done():
-  }
-
-  done = storage.SetupStorage(ctx)
-  select {
-    case err := <-done:
-      if err != nil { util.Fatalf("Not idempotent %v", err) }
-    case <-ctx.Done():
-  }
-}
-
 // we do not test with offsets, that should be covered by the unittests
-func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.DeleteStorage) {
+func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
   suite := s3ReadWriteTester{
     Conf: conf, Client: client, Storage: storage,
   }
@@ -328,7 +295,7 @@ func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
 
   codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
-  storage, err := cloud.NewDeleteStorage(new_conf, aws_conf, codec)
+  storage, err := cloud.NewAdminStorage(new_conf, aws_conf, codec)
   //client := s3.NewFromConfig(*aws_conf)
   client := cloud.TestOnlyGetInnerClientToAvoidConsistencyFails(storage)
   if err != nil { util.Fatalf("%v", err) }

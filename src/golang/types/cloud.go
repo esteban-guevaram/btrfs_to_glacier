@@ -27,12 +27,6 @@ type ObjRestoreOrErr struct {
 type RestoreResult = map[string]ObjRestoreOrErr
 
 type Metadata interface {
-  // Creates the infrastructure (depend on implementation) that will contain the metadata.
-  // Creation can take some time so it is done asynchronously.
-  // If the channel contains a null error then the infrastructure has been created ok and is ready to use.
-  // It is a noop if they are already created.
-  SetupMetadata(ctx context.Context) (<-chan error)
-
   // Sets `new_seq` as the snaps sequence that will be appended when backing up the corresponding volume.
   // If there is not already a sequence head, a new one will be created.
   // Otherwise updates the current head and archives the previously current.
@@ -66,9 +60,15 @@ type Metadata interface {
   ReadSnapshot(ctx context.Context, uuid string) (*pb.SubVolume, error)
 }
 
-// Separate from `Metadata` since it contains dangerous operations that should only be invoked during clean-up.
-type DeleteMetadata interface {
+// Separate from `Metadata` since it contains dangerous operations that should only be invoked by admins.
+type AdminMetadata interface {
   Metadata
+
+  // Creates the infrastructure (depend on implementation) that will contain the metadata.
+  // Creation can take some time so it is done asynchronously.
+  // If the channel contains a null error then the infrastructure has been created ok and is ready to use.
+  // It is a noop if they are already created.
+  SetupMetadata(ctx context.Context) (<-chan error)
 
   // Deletes sequence head for subvolume with `uuid`.
   // If there is no head, returns `ErrNotFound`.
@@ -86,12 +86,6 @@ type DeleteMetadata interface {
 }
 
 type Storage interface {
-  // Creates the infrastructure (depend on implementation) that will contain the storage.
-  // Creation can take some time so it is done asynchronously.
-  // If the channel contains a null error then the infrastructure has been created ok and is ready to use.
-  // It is a noop if they are already created.
-  SetupStorage(ctx context.Context) (<-chan error)
-
   // Reads `read_pipe` and uploads its content in equally sized chunks.
   // If `offset` > 0 then the first part of the stream is dropped and the rest will be uploaded.
   // Data may be filtered by a codec depending on the implementation.
@@ -116,9 +110,15 @@ type Storage interface {
   ReadChunksIntoStream(ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error)
 }
 
-// Separate from `Storage` since it contains dangerous operations that should only be invoked during clean-up.
-type DeleteStorage interface {
+// Separate from `Storage` since it contains dangerous operations that should only be invoked by admins.
+type AdminStorage interface {
   Storage
+
+  // Creates the infrastructure (depend on implementation) that will contain the storage.
+  // Creation can take some time so it is done asynchronously.
+  // If the channel contains a null error then the infrastructure has been created ok and is ready to use.
+  // It is a noop if they are already created.
+  SetupStorage(ctx context.Context) (<-chan error)
 
   // Deletes all objects in `chunks`.
   // If the channel contains a null error then all objects got deleted.

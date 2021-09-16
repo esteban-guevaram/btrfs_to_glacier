@@ -2,6 +2,7 @@ package main
 
 import (
   "context"
+  "time"
 
   "btrfs_to_glacier/cloud"
   pb "btrfs_to_glacier/messages"
@@ -14,9 +15,41 @@ import (
   "github.com/google/uuid"
 )
 
-type s3DeleteTester struct { *s3ReadWriteTester }
+type s3AdminTester struct { *s3ReadWriteTester }
 
-func (self *s3DeleteTester) testDeleteChunks_Helper(ctx context.Context, obj_count int) {
+func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
+  err := deleteBucket(ctx, conf, client)
+
+  if err != nil {
+    if !cloud.IsS3Error(new(s3_types.NoSuchBucket), err) {
+      util.Fatalf("%v", err)
+    }
+    util.Infof("TestStorageSetup '%s' not exist", conf.Aws.S3.BucketName)
+  } else {
+    waiter := s3.NewBucketNotExistsWaiter(client)
+    wait_rq := &s3.HeadBucketInput{ Bucket: &conf.Aws.S3.BucketName, }
+    err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
+    if err != nil { util.Fatalf("%v", err) }
+    util.Infof("TestStorageSetup '%s' deleted", conf.Aws.S3.BucketName)
+  }
+
+  done := storage.SetupStorage(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("%v", err) }
+      util.Infof("Bucket '%s' created OK", conf.Aws.S3.BucketName)
+    case <-ctx.Done():
+  }
+
+  done = storage.SetupStorage(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("Not idempotent %v", err) }
+    case <-ctx.Done():
+  }
+}
+
+func (self *s3AdminTester) testDeleteChunks_Helper(ctx context.Context, obj_count int) {
   keys := make([]string, obj_count)
   for i:=0; i<obj_count; i+=1 {
     keys[i],_ = self.putRandomObjectOrDie(ctx, 1024)
@@ -40,15 +73,15 @@ func (self *s3DeleteTester) testDeleteChunks_Helper(ctx context.Context, obj_cou
   }
 }
 
-func (self *s3DeleteTester) TestDeleteChunks_Single(ctx context.Context) {
+func (self *s3AdminTester) TestDeleteChunks_Single(ctx context.Context) {
   self.testDeleteChunks_Helper(ctx, 1)
 }
 
-func (self *s3DeleteTester) TestDeleteChunks_Multi(ctx context.Context) {
+func (self *s3AdminTester) TestDeleteChunks_Multi(ctx context.Context) {
   self.testDeleteChunks_Helper(ctx, 3)
 }
 
-func (self *s3DeleteTester) TestDeleteChunks_NoSuchKey(ctx context.Context) {
+func (self *s3AdminTester) TestDeleteChunks_NoSuchKey(ctx context.Context) {
   key := uuid.NewString()
   uuids := []*pb.SnapshotChunks_Chunk{
     &pb.SnapshotChunks_Chunk{ Uuid:key, },
@@ -59,8 +92,8 @@ func (self *s3DeleteTester) TestDeleteChunks_NoSuchKey(ctx context.Context) {
   if err != nil { util.Fatalf("delete of unexisting object should be a noop: %v", err) }
 }
 
-func TestAllS3Delete(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.DeleteStorage) {
-  suite := s3DeleteTester{
+func TestAllS3Delete(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
+  suite := s3AdminTester{
     &s3ReadWriteTester{ Conf:conf, Client:client, Storage:storage, },
   }
 

@@ -148,55 +148,6 @@ func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {
   return meta, client
 }
 
-func TestTableCreation_Immediate(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-  metadata, client := buildTestMetadata(t)
-  client.CreateTableOutput = dyn_types.TableDescription{
-    TableStatus: dyn_types.TableStatusActive,
-  }
-  done := metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-    case <-ctx.Done():
-      t.Fatalf("TestTableCreation_Immediate timeout")
-  }
-}
-
-func TestTableCreation_Wait(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-  metadata, client := buildTestMetadata(t)
-  client.CreateTableOutput = dyn_types.TableDescription{
-    TableStatus: dyn_types.TableStatusCreating,
-  }
-  client.DescribeTableOutput = dyn_types.TableDescription{
-    TableStatus: dyn_types.TableStatusActive,
-  }
-  done := metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-    case <-ctx.Done():
-      t.Fatalf("TestTableCreation_Immediate timeout")
-  }
-}
-
-func TestTableCreation_Idempotent(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-  metadata, client := buildTestMetadata(t)
-  client.Err = &dyn_types.ResourceInUseException{}
-  done := metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-    case <-ctx.Done():
-      t.Fatalf("TestTableCreation_Wait timeout")
-  }
-}
-
 func TestRecordSnapshotSeqHead_New(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
