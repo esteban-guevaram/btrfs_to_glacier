@@ -26,6 +26,26 @@ type ObjRestoreOrErr struct {
 }
 type RestoreResult = map[string]ObjRestoreOrErr
 
+// Usage example:
+// for it.Next(ctx, val) { ... }
+// if it.Err() != nil { ... }
+type SnapshotSeqHeadIterator interface {
+  Next(context.Context, *pb.SnapshotSeqHead) bool
+  Err() error
+}
+type SnapshotSequenceIterator interface {
+  Next(context.Context, *pb.SnapshotSequence) bool
+  Err() error
+}
+type SnapshotIterator interface {
+  Next(context.Context, *pb.SubVolume) bool
+  Err() error
+}
+type SnapshotChunksIterator interface {
+  Next(context.Context, *pb.SnapshotChunks_Chunk) bool
+  Err() error
+}
+
 type Metadata interface {
   // Sets `new_seq` as the snaps sequence that will be appended when backing up the corresponding volume.
   // If there is not already a sequence head, a new one will be created.
@@ -58,6 +78,15 @@ type Metadata interface {
   // Reads subvolume with `uuid`.
   // If there is no subvolume, returns `ErrNotFound`.
   ReadSnapshot(ctx context.Context, uuid string) (*pb.SubVolume, error)
+
+  // Returns all heads in no particular order. When there are no more items, the iterator returns ErrNoMore.
+  ListAllSnapshotSeqHeads(ctx context.Context) (SnapshotSeqHeadIterator, error)
+
+  // Returns all sequences in no particular order. When there are no more items, the iterator returns ErrNoMore.
+  ListAllSnapshotSeqs(ctx context.Context) (SnapshotSequenceIterator, error)
+
+  // Returns all snapshots in no particular order. When there are no more items, the iterator returns ErrNoMore.
+  ListAllSnapshots(ctx context.Context) (SnapshotIterator, error)
 }
 
 // Separate from `Metadata` since it contains dangerous operations that should only be invoked by admins.
@@ -108,6 +137,10 @@ type Storage interface {
   // Data may be filtered by a codec depending on the implementation.
   // A permanent error while reading a chunk will close the stream.
   ReadChunksIntoStream(ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error)
+
+  // Returns all chunks in no particular order. When there are no more items, the iterator returns ErrNoMore.
+  // Not all chunk fields may be filled.
+  ListAllChunks(ctx context.Context) (SnapshotChunksIterator, error)
 }
 
 // Separate from `Storage` since it contains dangerous operations that should only be invoked by admins.
@@ -124,13 +157,5 @@ type AdminStorage interface {
   // If the channel contains a null error then all objects got deleted.
   // Objects not found (already deleted?) should be a noop.
   DeleteChunks(ctx context.Context, chunks *pb.SnapshotChunks) (<-chan error)
-}
-
-type GarbageCollector interface {
-  DeleteUnreachableFromSeqHead() error
-
-  //IterateAllSnapshotSeqHeads() error
-  //IterateAllSnapshotSeqs() error
-  //IterateAllSnapshotChunks() error
 }
 

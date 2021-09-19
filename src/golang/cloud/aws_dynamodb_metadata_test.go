@@ -4,6 +4,7 @@ import (
   "context"
   "errors"
   "fmt"
+  "sort"
   "testing"
   "time"
 
@@ -14,6 +15,7 @@ import (
   "github.com/aws/aws-sdk-go-v2/service/dynamodb"
   dyn_types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+  "github.com/google/uuid"
   "google.golang.org/protobuf/proto"
 )
 
@@ -27,6 +29,7 @@ type mockDynamoDbClient struct {
   Data map[keyAndtype][]byte
   CreateTableOutput   dyn_types.TableDescription
   DescribeTableOutput dyn_types.TableDescription
+  FirstScanEmpty bool
 }
 
 func stringOrDie(vals map[string]dyn_types.AttributeValue, col string) string {
@@ -46,6 +49,19 @@ func blobOrDie(vals map[string]dyn_types.AttributeValue, col string) []byte {
      util.Fatalf("Malformed value for col '%v'", col)
      return nil
   }
+}
+func typeFromExprValues(vals map[string]dyn_types.AttributeValue) string {
+  t_snap := string((&pb.SubVolume{}).ProtoReflect().Descriptor().FullName())
+  t_seq := string((&pb.SnapshotSequence{}).ProtoReflect().Descriptor().FullName())
+  t_head := string((&pb.SnapshotSeqHead{}).ProtoReflect().Descriptor().FullName())
+  for _,v := range vals {
+    switch s := v.(type) {
+      case *dyn_types.AttributeValueMemberS:
+        if s.Value == t_snap || s.Value == t_seq || s.Value == t_head { return s.Value }
+    }
+  }
+  util.Fatalf("could not find type in filter")
+  return ""
 }
 
 func (self *mockDynamoDbClient) CreateTable(
@@ -77,6 +93,49 @@ func (self *mockDynamoDbClient) GetItem(
   }
   result := &dynamodb.GetItemOutput{ Item: item, }
   return result, self.Err
+}
+func (self *mockDynamoDbClient) Scan(
+    ctx context.Context, in *dynamodb.ScanInput, opts...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
+  if in.Segment != nil { util.Fatalf("not_implemented") }
+  if in.TableName == nil { return nil, fmt.Errorf("invald request.") }
+  var page_count int32
+  type_str := typeFromExprValues(in.ExpressionAttributeValues)
+  out := &dynamodb.ScanOutput{ Items:make([]map[string]dyn_types.AttributeValue, 0, len(self.Data)), }
+  //util.Debugf("type:%s request:\n%v", type_str, util.AsJson(in))
+
+  // iteration order is not stable: https://go.dev/blog/maps
+  keys := make([]string, 0, len(self.Data))
+  for k,_ := range self.Data {
+    if k.Type == type_str { keys = append(keys, k.Key) }
+  }
+  sort.Strings(keys)
+
+  if self.FirstScanEmpty {
+    self.FirstScanEmpty = false
+    out.LastEvaluatedKey = make(map[string]dyn_types.AttributeValue)
+    out.LastEvaluatedKey[""] = &dyn_types.AttributeValueMemberS{ Value:"", }
+    //util.Debugf("response:\n%v", util.AsJson(out))
+    return out, self.Err
+  }
+  for _,key:= range keys {
+    if len(in.ExclusiveStartKey) > 0 {
+      token := stringOrDie(in.ExclusiveStartKey, "")
+      if key <= token { continue }
+    }
+    data := self.Data[keyAndtype{ Key:key, Type:type_str, }]
+    item := make(map[string]dyn_types.AttributeValue)
+    item[blob_col] = &dyn_types.AttributeValueMemberB{ Value:data, }
+    out.Items = append(out.Items, item)
+    page_count += 1
+    if page_count >= *in.Limit {
+      out.LastEvaluatedKey = make(map[string]dyn_types.AttributeValue)
+      out.LastEvaluatedKey[""] = &dyn_types.AttributeValueMemberS{ Value:key, }
+      break
+    }
+  }
+  out.Count = page_count
+  //util.Debugf("response:\n%v", util.AsJson(out))
+  return out, self.Err
 }
 func (self *mockDynamoDbClient) PutItem(
     ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
@@ -363,3 +422,135 @@ func TestReadSnapshotSeq_NoSnap(t *testing.T) {
   if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
+type create_pb_f = func() (string, proto.Message)
+type iterate_f = func(context.Context, types.Metadata) (map[string]proto.Message, error)
+func testMetadataListAll_Helper(t *testing.T, total int, fill_size int32, pb_f create_pb_f, iter_f iterate_f) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, client := buildTestMetadata(t)
+  metadata.iter_buf_len = fill_size
+  expect_objs := make(map[string]proto.Message)
+
+  for i:=0; i<total; i+=1 {
+    key,obj := pb_f()
+    expect_objs[key] = proto.Clone(obj)
+    client.putForTest(key, obj)
+  }
+
+  got_objs, err := iter_f(ctx, metadata)
+  if err != nil { t.Fatalf("failed while iterating: %v", err) }
+  util.EqualsOrFailTest(t, "Bad len", len(got_objs), len(expect_objs))
+  for key,expect := range expect_objs {
+    util.EqualsOrFailTest(t, "Bad obj", got_objs[key], expect)
+  }
+}
+
+func head_pb_f() (string, proto.Message) {
+  new_seq := dummySnapshotSequence(uuid.NewString(), uuid.NewString())
+  new_head := dummySnapshotSeqHead(new_seq)
+  return new_head.Uuid, new_head
+}
+func head_iter_f(ctx context.Context, metadata types.Metadata) (map[string]proto.Message, error) {
+  got_objs := make(map[string]proto.Message)
+  it, err := metadata.ListAllSnapshotSeqHeads(ctx)
+  if err != nil { return nil, err }
+  obj := &pb.SnapshotSeqHead{}
+  for it.Next(ctx, obj) { got_objs[obj.Uuid] = proto.Clone(obj) }
+  return got_objs, it.Err()
+}
+
+func TestListAllSnapshotSeqHeads_SingleFill(t *testing.T) {
+  const total = 3
+  const fill_size = 10
+  testMetadataListAll_Helper(t, total, fill_size, head_pb_f, head_iter_f)
+}
+func TestListAllSnapshotSeqHeads_MultipleFill(t *testing.T) {
+  const total = 10
+  const fill_size = 3
+  testMetadataListAll_Helper(t, total, fill_size, head_pb_f, head_iter_f)
+}
+func TestListAllSnapshotSeqHeads_NoObjects(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata,_ := buildTestMetadata(t)
+  got_objs, err := head_iter_f(ctx, metadata)
+  if err != nil { t.Errorf("failed while iterating: %v", err) }
+  if len(got_objs) > 0 { t.Errorf("should not return any object") }
+}
+func TestListAllSnapshotSeqHeads_EmptyNonFinalFill(t *testing.T) {
+  const fill_size = 3
+  const total = fill_size * 2
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata, client := buildTestMetadata(t)
+  metadata.iter_buf_len = fill_size
+
+  for i:=0; i<total; i+=1 {
+    key,obj := head_pb_f()
+    client.putForTest(key, obj)
+  }
+
+  client.FirstScanEmpty = true
+  got_objs, err := head_iter_f(ctx, metadata)
+  if err != nil { t.Fatalf("failed while iterating: %v", err) }
+  util.EqualsOrFailTest(t, "Bad len", len(got_objs), total)
+}
+func TestListAllSnapshotSeqHeads_ErrDuringIteration(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  metadata,client := buildTestMetadata(t)
+  key,obj := head_pb_f()
+  client.putForTest(key, obj)
+  client.Err = fmt.Errorf("fail iteration")
+  got_objs, err := head_iter_f(ctx, metadata)
+  if err == nil { t.Errorf("expected iteration failure") }
+  if len(got_objs) > 0 { t.Errorf("should not return any object") }
+}
+
+func seq_pb_f() (string, proto.Message) {
+  new_seq := dummySnapshotSequence(uuid.NewString(), uuid.NewString())
+  return new_seq.Uuid, new_seq
+}
+func seq_iter_f(ctx context.Context, metadata types.Metadata) (map[string]proto.Message, error) {
+  got_objs := make(map[string]proto.Message)
+  it, err := metadata.ListAllSnapshotSeqs(ctx)
+  if err != nil { return nil, err }
+  obj := &pb.SnapshotSequence{}
+  for it.Next(ctx, obj) { got_objs[obj.Uuid] = proto.Clone(obj) }
+  return got_objs, it.Err()
+}
+
+func TestListAllSnapshotSeqs_SingleFill(t *testing.T) {
+  const total = 3
+  const fill_size = 10
+  testMetadataListAll_Helper(t, total, fill_size, seq_pb_f, seq_iter_f)
+}
+func TestListAllSnapshotSeqs_MultipleFill(t *testing.T) {
+  const fill_size = 3
+  const total = fill_size * 3
+  testMetadataListAll_Helper(t, total, fill_size, seq_pb_f, seq_iter_f)
+}
+
+func snap_pb_f() (string, proto.Message) {
+  new_sv := dummySubVolume(uuid.NewString())
+  return new_sv.Uuid, new_sv
+}
+func snap_iter_f(ctx context.Context, metadata types.Metadata) (map[string]proto.Message, error) {
+  got_objs := make(map[string]proto.Message)
+  it, err := metadata.ListAllSnapshots(ctx)
+  if err != nil { return nil, err }
+  obj := &pb.SubVolume{}
+  for it.Next(ctx, obj) { got_objs[obj.Uuid] = proto.Clone(obj) }
+  return got_objs, it.Err()
+}
+
+func TestListAllSnapshots_SingleFill(t *testing.T) {
+  const total = 3
+  const fill_size = 10
+  testMetadataListAll_Helper(t, total, fill_size, snap_pb_f, snap_iter_f)
+}
+func TestListAllSnapshots_MultipleFill(t *testing.T) {
+  const fill_size = 3
+  const total = fill_size * 2
+  testMetadataListAll_Helper(t, total, fill_size, snap_pb_f, snap_iter_f)
+}

@@ -5,6 +5,7 @@ import (
   "context"
   "fmt"
   "io"
+  "sort"
   "testing"
   "time"
 
@@ -13,9 +14,13 @@ import (
   "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
 
+  "github.com/aws/aws-sdk-go-v2/aws"
   "github.com/aws/aws-sdk-go-v2/service/s3"
   s3mgr "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+  "google.golang.org/protobuf/proto"
+  "github.com/google/uuid"
 )
 
 type mockS3Client struct {
@@ -29,13 +34,15 @@ type mockS3Client struct {
   Buckets map[string]bool
   HeadAlwaysEmpty bool
   HeadAlwaysAccessDenied bool
+  FirstListObjEmpty      bool
   LastLifecycleIn *s3.PutBucketLifecycleConfigurationInput
   LastPublicAccessBlockIn *s3.PutPublicAccessBlockInput
 }
 
-
 func (self *mockS3Client) setObject(key string, data []byte, class s3_types.StorageClass, ongoing bool) {
-  self.Data[key] = data
+  self.Data[key] = make([]byte, len(data))
+  copy(self.Data[key], data)
+  //self.Data[key] =  data
   self.Class[key] = class
   if class != s3_types.StorageClassStandard {
     self.RestoreStx[key] = fmt.Sprintf(`ongoing-request="%v"`, ongoing)
@@ -71,6 +78,34 @@ func (self *mockS3Client) GetObject(
     Body: io.NopCloser(bytes.NewReader(self.Data[key])),
     ContentLength: int64(len(self.Data[key])),
   }
+  return out, self.Err
+}
+func (self *mockS3Client) ListObjectsV2(
+    ctx context.Context, in *s3.ListObjectsV2Input, opts ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+  if in.Prefix != nil || in.StartAfter != nil { util.Fatalf("not_implemented") }
+  var page_count int32
+  out := &s3.ListObjectsV2Output{ Contents:make([]s3_types.Object, 0, len(self.Data)), }
+
+  if self.FirstListObjEmpty {
+    self.FirstListObjEmpty = false
+    out.ContinuationToken = aws.String("1")
+    return out, self.Err
+  }
+
+  // iteration order is not stable: https://go.dev/blog/maps
+  keys := make([]string, 0, len(self.Data))
+  for key,_ := range self.Data { keys = append(keys, key) }
+  sort.Strings(keys)
+
+  for _,key:= range keys {
+    if in.ContinuationToken != nil && key <= *in.ContinuationToken { continue }
+    data := self.Data[key]
+    item := s3_types.Object{ Key:aws.String(key), Size:int64(len(data)), }
+    out.Contents = append(out.Contents, item)
+    page_count += 1
+    if page_count >= in.MaxKeys { out.ContinuationToken = aws.String(key); break }
+  }
+  out.KeyCount = page_count
   return out, self.Err
 }
 func (self *mockS3Client) HeadBucket(
@@ -650,5 +685,88 @@ func TestReadChunksIntoStream_Missing(t *testing.T) {
     if len(got_data) > 0 { t.Errorf("Expected empty pipe for missing object") }
   }()
   util.WaitForClosure(t, ctx, done)
+}
+
+func testStorageListAll_Helper(t *testing.T, total int, fill_size int32) {
+  const blob_len = 32
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage, client := buildTestStorage(t)
+  storage.iter_buf_len = fill_size
+  expect_objs := make(map[string]*pb.SnapshotChunks_Chunk)
+  got_objs := make(map[string]*pb.SnapshotChunks_Chunk)
+
+  for i:=0; i<total; i+=1 {
+    key := uuid.NewString()
+    obj := &pb.SnapshotChunks_Chunk{ Uuid:key, Size:blob_len, }
+    client.setObject(key, util.GenerateRandomTextData(blob_len),
+                     s3_types.StorageClassStandard, false)
+    expect_objs[key] = obj
+  }
+
+  it, err := storage.ListAllChunks(ctx)
+  if err != nil { t.Fatalf("failed while iterating: %v", err) }
+  obj := &pb.SnapshotChunks_Chunk{}
+  for it.Next(ctx, obj) {
+    got_objs[obj.Uuid] = proto.Clone(obj).(*pb.SnapshotChunks_Chunk)
+  }
+  if it.Err() != nil { t.Fatalf("failed while iterating: %v", it.Err()) }
+
+  util.EqualsOrFailTest(t, "Bad len", len(got_objs), len(expect_objs))
+  for key,expect := range expect_objs {
+    util.EqualsOrFailTest(t, "Bad obj", got_objs[key], expect)
+  }
+}
+
+func TestListAllChunks_SingleFill(t *testing.T) {
+  const fill_size = 10
+  const total = 3
+  testStorageListAll_Helper(t, total, fill_size)
+}
+func TestListAllChunks_MultipleFill(t *testing.T) {
+  const fill_size = 3
+  const total = 10
+  testStorageListAll_Helper(t, total, fill_size)
+}
+func TestListAllChunks_NoObjects(t *testing.T) {
+  const fill_size = 3
+  const total = 0
+  testStorageListAll_Helper(t, total, fill_size)
+}
+func TestListAllChunks_EmptyNonFinalFill(t *testing.T) {
+  const fill_size = 3
+  const total = 2 * fill_size
+  const blob_len = 32
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  got_objs := make(map[string]*pb.SnapshotChunks_Chunk)
+  storage, client := buildTestStorage(t)
+  storage.iter_buf_len = fill_size
+
+  for i:=0; i<total; i+=1 {
+    key := uuid.NewString()
+    client.setObject(key, util.GenerateRandomTextData(blob_len),
+                     s3_types.StorageClassStandard, false)
+  }
+
+  it, err := storage.ListAllChunks(ctx)
+  if err != nil { t.Fatalf("failed while iterating: %v", err) }
+  obj := &pb.SnapshotChunks_Chunk{}
+  for it.Next(ctx, obj) {
+    got_objs[obj.Uuid] = proto.Clone(obj).(*pb.SnapshotChunks_Chunk)
+  }
+  if it.Err() != nil { t.Fatalf("failed while iterating: %v", it.Err()) }
+  util.EqualsOrFailTest(t, "Bad len", len(got_objs), total)
+}
+func TestListAllChunks_ErrDuringIteration(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage, client := buildTestStorage(t)
+  client.Err = fmt.Errorf("iteration fail")
+  it, err := storage.ListAllChunks(ctx)
+  if err != nil { t.Fatalf("failed while iterating: %v", err) }
+  obj := &pb.SnapshotChunks_Chunk{}
+  if it.Next(ctx, obj) { t.Errorf("should not have returned any object") }
+  if it.Err() == nil { t.Fatalf("expected error") }
 }
 

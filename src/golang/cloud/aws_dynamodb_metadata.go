@@ -14,6 +14,7 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/aws"
+  dyn_expr "github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
   "github.com/aws/aws-sdk-go-v2/service/dynamodb"
   dyn_types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
@@ -25,27 +26,39 @@ const (
   type_col = "BlobType"
   blob_col = "BlobProto"
   describe_retry_millis = 2000
+  dyn_iter_buf_len = 100
 )
 
 // The subset of the dynamodb client used.
 // Convenient for unittesting purposes.
 type usedDynamoDbIf interface {
-  CreateTable(ctx context.Context, params *dynamodb.CreateTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
-  DescribeTable(ctx context.Context, params *dynamodb.DescribeTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
-  GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
-  PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
-  DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
+  CreateTable  (context.Context, *dynamodb.CreateTableInput,   ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
+  DeleteItem   (context.Context, *dynamodb.DeleteItemInput,    ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
+  DescribeTable(context.Context, *dynamodb.DescribeTableInput, ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
+  GetItem      (context.Context, *dynamodb.GetItemInput,       ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+  PutItem      (context.Context, *dynamodb.PutItemInput,       ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+  Scan         (context.Context, *dynamodb.ScanInput,          ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
 }
 
 type dynamoMetadata struct {
   conf     *pb.Config
   aws_conf *aws.Config
   client   usedDynamoDbIf
-  // Needed because aws sdk requires pointers to string
   uuid_col string
   type_col string
   blob_col string
+  iter_buf_len int32
   describe_retry time.Duration
+}
+
+type blobIterator struct {
+  msg_type proto.Message
+  parent   *dynamoMetadata
+  buffer   []map[string]dyn_types.AttributeValue
+  token    map[string]dyn_types.AttributeValue
+  buf_next int
+  started  bool
+  err      error
 }
 
 func NewMetadata(conf *pb.Config, aws_conf *aws.Config) (types.Metadata, error) {
@@ -56,41 +69,61 @@ func NewMetadata(conf *pb.Config, aws_conf *aws.Config) (types.Metadata, error) 
     uuid_col: uuid_col,
     type_col: type_col,
     blob_col: blob_col,
+    iter_buf_len: dyn_iter_buf_len,
     describe_retry: describe_retry_millis * time.Millisecond,
   }
   return meta, nil
 }
 
-func getItemKey(key string, msg proto.Message) map[string]dyn_types.AttributeValue {
+// aws dynamodb scan --table-name Metadata_Test_coucou2 \
+//   --projection-expression '#B' \
+//   --filter-expression '#T = :t' \
+//   --expression-attribute-names '{"#B":"Blob", "#T":"BlobType"}' \
+//   --expression-attribute-values '{":t":{"S":"messages.SubVolume"}}'
+func (self *dynamoMetadata) getScanExpression(msg proto.Message) dyn_expr.Expression {
+  typename := msg.ProtoReflect().Descriptor().FullName()
+  filter := dyn_expr.Name(self.type_col).Equal(dyn_expr.Value(string(typename)))
+  projection := dyn_expr.NamesList(dyn_expr.Name(self.blob_col))
+  expr, err := dyn_expr.NewBuilder().WithFilter(filter).WithProjection(projection).Build()
+  if err != nil { util.Fatalf("failed building filter predicate: %v", err) }
+  return expr
+}
+
+func (self *dynamoMetadata) getItemKey(key string, msg proto.Message) map[string]dyn_types.AttributeValue {
   typename := msg.ProtoReflect().Descriptor().FullName()
   composite_k := map[string]dyn_types.AttributeValue{
-    uuid_col: &dyn_types.AttributeValueMemberS{Value: key,},
-    type_col: &dyn_types.AttributeValueMemberS{Value: string(typename),},
+    self.uuid_col: &dyn_types.AttributeValueMemberS{Value: key,},
+    self.type_col: &dyn_types.AttributeValueMemberS{Value: string(typename),},
   }
   return composite_k
 }
 
+func (self *dynamoMetadata) getBlobFromItem(item map[string]dyn_types.AttributeValue) ([]byte, error) {
+  abstract_val, found := item[self.blob_col]
+  if !found { return nil, types.ErrNotFound }
+
+  switch v := abstract_val.(type) {
+    case *dyn_types.AttributeValueMemberB:
+      return v.Value, nil
+   default:
+     return nil, fmt.Errorf("Malformed value for '%v': %v", self.blob_col, v)
+  }
+}
+
 // Returns ErrNotFound if the item does not exist in the database.
 func (self *dynamoMetadata) ReadObject(ctx context.Context, key string, msg proto.Message) error {
-  consistent := false
   params := &dynamodb.GetItemInput{
     TableName: &self.conf.Aws.DynamoDb.TableName,
-    Key: getItemKey(key, msg),
+    Key: self.getItemKey(key, msg),
     ProjectionExpression: &self.blob_col,
-    ConsistentRead: &consistent,
+    ConsistentRead: aws.Bool(false),
     ReturnConsumedCapacity: dyn_types.ReturnConsumedCapacityNone,
   }
   result, err := self.client.GetItem(ctx, params)
   if err != nil { return err }
-  abstract_val, found := result.Item[self.blob_col]
-  if !found { return types.ErrNotFound }
-
-  switch v := abstract_val.(type) {
-    case *dyn_types.AttributeValueMemberB:
-      err = proto.Unmarshal(v.Value, msg)
-   default:
-     return fmt.Errorf("Malformed value for '%v': %v", key, v)
-  }
+  data, err := self.getBlobFromItem(result.Item)
+  if err != nil { return err }
+  err = proto.Unmarshal(data, msg)
   return err
 }
 
@@ -98,7 +131,7 @@ func (self *dynamoMetadata) ReadObject(ctx context.Context, key string, msg prot
 func (self *dynamoMetadata) WriteObject(ctx context.Context, key string, msg proto.Message) error {
   var err error
   var blob []byte
-  item := getItemKey(key, msg)
+  item := self.getItemKey(key, msg)
   blob, err = proto.Marshal(msg)
   if err != nil { return err }
   item[blob_col] = &dyn_types.AttributeValueMemberB{Value: blob,}
@@ -255,5 +288,90 @@ func (self *dynamoMetadata) ReadSnapshot(
 
   util.PbInfof("Read subvolume: %v", snap)
   return snap, nil
+}
+
+func (self *dynamoMetadata) NewIterator(msg proto.Message) *blobIterator {
+  return &blobIterator{ msg_type: msg, parent: self, }
+}
+
+func (self *blobIterator) popBuffer(msg proto.Message) error {
+  item := self.buffer[self.buf_next]
+  self.buf_next += 1
+  data, err := self.parent.getBlobFromItem(item)
+  if err != nil { return err }
+  err = proto.Unmarshal(data, msg)
+  return err
+}
+
+func (self *blobIterator) fillBuffer(ctx context.Context) error {
+  if self.buf_next < len(self.buffer) { util.Fatalf("filling before exhausting buffer") }
+  filter_proj := self.parent.getScanExpression(self.msg_type)
+  scan_in := &dynamodb.ScanInput{
+    TableName: &self.parent.conf.Aws.DynamoDb.TableName,
+    ExpressionAttributeNames:  filter_proj.Names(),
+    ExpressionAttributeValues: filter_proj.Values(),
+    FilterExpression:          filter_proj.Filter(),
+    ProjectionExpression:      filter_proj.Projection(),
+    Select:                    dyn_types.SelectAllProjectedAttributes,
+    ConsistentRead:            aws.Bool(false),
+    ReturnConsumedCapacity:    dyn_types.ReturnConsumedCapacityNone,
+    ExclusiveStartKey:         self.token,
+    Limit:                     aws.Int32(self.parent.iter_buf_len),
+    TotalSegments:             nil, // sequential scan
+  }
+  scan_out, err := self.parent.client.Scan(ctx, scan_in)
+  if err != nil { return err }
+  //util.Debugf("response:\n%v", util.AsJson(scan_out))
+  self.token = nil
+  if len(scan_out.LastEvaluatedKey) > 0 { self.token = scan_out.LastEvaluatedKey }
+  self.buffer = scan_out.Items
+  self.buf_next = 0
+  if len(self.buffer) != int(scan_out.Count) { util.Fatalf("Scan yielded less than %d", scan_out.Count) }
+  return nil
+}
+
+func (self *blobIterator) Next(ctx context.Context, msg proto.Message) bool {
+  if self.err != nil { return false }
+  if self.buf_next < len(self.buffer) {
+    self.err = self.popBuffer(msg)
+    return self.err == nil
+  }
+  if self.started && self.token == nil { return false }
+  self.started = true
+  self.err = self.fillBuffer(ctx)
+  return self.Next(ctx, msg)
+}
+
+type snapshotSeqHeadIterator struct { generic_it *blobIterator }
+func (self *snapshotSeqHeadIterator) Next(ctx context.Context, msg *pb.SnapshotSeqHead) bool {
+  return self.generic_it.Next(ctx, msg)
+}
+func (self *snapshotSeqHeadIterator) Err() error { return self.generic_it.err }
+func (self *dynamoMetadata) ListAllSnapshotSeqHeads(ctx context.Context) (types.SnapshotSeqHeadIterator, error) {
+  msg := &pb.SnapshotSeqHead{}
+  it := &snapshotSeqHeadIterator{ generic_it:self.NewIterator(msg), }
+  return it, nil
+}
+
+type snapshotSequenceIterator struct { generic_it *blobIterator }
+func (self *snapshotSequenceIterator) Next(ctx context.Context, msg *pb.SnapshotSequence) bool {
+  return self.generic_it.Next(ctx, msg)
+}
+func (self *snapshotSequenceIterator) Err() error { return self.generic_it.err }
+func (self *dynamoMetadata) ListAllSnapshotSeqs(ctx context.Context) (types.SnapshotSequenceIterator, error) {
+  msg := &pb.SnapshotSequence{}
+  it := &snapshotSequenceIterator{ generic_it:self.NewIterator(msg), }
+  return it, nil
+}
+
+type snapshotIterator struct { generic_it *blobIterator }
+func (self *snapshotIterator) Next(ctx context.Context, msg *pb.SubVolume) bool {
+  return self.generic_it.Next(ctx, msg)
+}
+func (self *snapshotIterator) Err() error { return self.generic_it.err }
+func (self *dynamoMetadata) ListAllSnapshots(ctx context.Context) (types.SnapshotIterator, error) {
+  msg := &pb.SubVolume{}
+  it := &snapshotIterator{ generic_it:self.NewIterator(msg), }
+  return it, nil
 }
 

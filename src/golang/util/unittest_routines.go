@@ -10,13 +10,19 @@ import "strings"
 import "testing"
 import "time"
 
+func AsJson(val interface{}) string {
+  str, err := json.MarshalIndent(val, "", "  ")
+  if err != nil { Fatalf("cannot marshal to json string: %v", err) }
+  return string(str)
+}
+
 func asJsonStrings(val interface{}, expected interface{}) (string, string) {
   var val_str, expected_str []byte
   var val_err, expected_err error
   val_str, val_err = json.MarshalIndent(val, "", "  ")
   expected_str, expected_err = json.MarshalIndent(expected, "", "  ")
   if val_err != nil || expected_err != nil {
-    Fatalf("cannot marshal to json string: %v%v, %v/%v", val, val_err, expected, expected_err)
+    Fatalf("cannot marshal to json string: \n%v err:%v\n %v err:%v", val, val_err, expected, expected_err)
   }
   return string(val_str), string(expected_str)
 }

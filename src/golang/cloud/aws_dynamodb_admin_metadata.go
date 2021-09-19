@@ -124,7 +124,7 @@ func (self *dynamoAdminMetadata) DeleteObject(
   condition_expr := fmt.Sprintf("attribute_exists(%s)", blob_col)
   params := &dynamodb.DeleteItemInput{
     TableName: &self.conf.Aws.DynamoDb.TableName,
-    Key: getItemKey(uuid, msg),
+    Key: self.getItemKey(uuid, msg),
     ConditionExpression: &condition_expr,
     ReturnConsumedCapacity: dyn_types.ReturnConsumedCapacityNone,
     ReturnValues: dyn_types.ReturnValueNone,

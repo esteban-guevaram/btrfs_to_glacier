@@ -42,6 +42,7 @@ const (
   rule_name_suffix = "chunk.lifecycle"
   // Somehow the s3 library has not declared this error
   RestoreAlreadyInProgress = "RestoreAlreadyInProgress"
+  s3_iter_buf_len = 1000
 )
 
 // The subset of the s3 client used.
@@ -52,6 +53,7 @@ type usedS3If interface {
   GetObject    (context.Context, *s3.GetObjectInput,     ...func(*s3.Options)) (*s3.GetObjectOutput, error)
   HeadBucket   (context.Context, *s3.HeadBucketInput,    ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
   HeadObject   (context.Context, *s3.HeadObjectInput,    ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
+  ListObjectsV2(context.Context, *s3.ListObjectsV2Input, ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
   PutBucketLifecycleConfiguration(context.Context, *s3.PutBucketLifecycleConfigurationInput, ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
   PutPublicAccessBlock(context.Context, *s3.PutPublicAccessBlockInput, ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error)
   RestoreObject(context.Context, *s3.RestoreObjectInput, ...func(*s3.Options)) (*s3.RestoreObjectOutput, error)
@@ -73,15 +75,26 @@ type s3Storage struct {
   deep_glacier_trans_days int32
   remove_multipart_days   int32
   restore_lifetime_days   int32
+  iter_buf_len            int32
   rule_name_suffix        string
   start_storage_class     s3_types.StorageClass
   archive_storage_class   s3_types.StorageClass
+}
+
+type s3ObjectIterator struct {
+  parent   *s3Storage
+  buffer   []s3_types.Object
+  token    *string
+  buf_next int
+  started  bool
+  err      error
 }
 
 func injectConstants(storage *s3Storage) {
   storage.deep_glacier_trans_days = deep_glacier_trans_days
   storage.remove_multipart_days = remove_multipart_days
   storage.restore_lifetime_days = restore_lifetime_days
+  storage.iter_buf_len = s3_iter_buf_len
   storage.rule_name_suffix = rule_name_suffix
   storage.start_storage_class = s3_types.StorageClassStandard
   storage.archive_storage_class = s3_types.StorageClassDeepArchive
@@ -246,7 +259,7 @@ func (self *s3Storage) WriteStream(
 func (self *s3Storage) sendSingleRestore(ctx context.Context, key string) types.ObjRestoreOrErr {
   restore_in := &s3.RestoreObjectInput{
     Bucket: &self.conf.Aws.S3.BucketName,
-    Key: &key,
+    Key: aws.String(key),
     RestoreRequest: &s3_types.RestoreRequest{
       Days: self.restore_lifetime_days,
       // Be careful it is a trap ! There are 2 ways to specify the Tier, but one is invalid
@@ -279,7 +292,7 @@ func init() {
 func (self *s3Storage) pollRestoreStatus(ctx context.Context, key string) types.ObjRestoreOrErr {
   head_in := &s3.HeadObjectInput{
     Bucket: &self.conf.Aws.S3.BucketName,
-    Key: &key,
+    Key: aws.String(key),
   }
   head_out, err := self.client.HeadObject(ctx, head_in)
   //util.Debugf("head_in: %+v\nhead_out: %+v", head_in, head_out)
@@ -335,7 +348,7 @@ func (self *s3Storage) readOneChunk(
     ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
   get_in := &s3.GetObjectInput{
     Bucket: &self.conf.Aws.S3.BucketName,
-    Key: &chunk.Uuid,
+    Key: aws.String(chunk.Uuid),
   }
   get_out, err := self.client.GetObject(ctx, get_in)
   if err != nil { return err }
@@ -370,5 +383,52 @@ func (self *s3Storage) ReadChunksIntoStream(ctx context.Context, chunks *pb.Snap
     util.Infof("Read chunks: %v", chunks.Chunks)
   }()
   return pipe.ReadEnd(), nil
+}
+
+func (self *s3Storage) ListAllChunks(ctx context.Context) (types.SnapshotChunksIterator, error) {
+  it := &s3ObjectIterator{ parent:self, }
+  return it, nil
+}
+
+func (self *s3ObjectIterator) popBuffer(chunk *pb.SnapshotChunks_Chunk) error {
+  item := self.buffer[self.buf_next]
+  self.buf_next += 1
+  chunk.Uuid = *item.Key
+  chunk.Start = 0 //unknown
+  chunk.Size = uint64(item.Size)
+  if chunk.Size < 1 { return fmt.Errorf("chunks should not be empty: %v", chunk) }
+  return nil
+}
+
+func (self *s3ObjectIterator) fillBuffer(ctx context.Context) error {
+  if self.buf_next < len(self.buffer) { util.Fatalf("filling before exhausting buffer") }
+  list_in := &s3.ListObjectsV2Input{
+    Bucket: &self.parent.conf.Aws.S3.BucketName,
+    ContinuationToken: self.token,
+    MaxKeys: self.parent.iter_buf_len,
+  }
+  list_out, err := self.parent.client.ListObjectsV2(ctx, list_in)
+  if err != nil { return err }
+  //util.Debugf("response:\n%v", util.AsJson(list_out))
+  self.token = list_out.ContinuationToken
+  self.buffer = list_out.Contents
+  self.buf_next = 0
+  if len(self.buffer) != int(list_out.KeyCount) { util.Fatalf("List yielded less than %d", list_out.KeyCount) }
+  if list_out.IsTruncated && self.token == nil { util.Fatalf("Items left but no token: %v", list_out) }
+  return nil
+}
+
+func (self *s3ObjectIterator) Err() error { return self.err }
+
+func (self *s3ObjectIterator) Next(ctx context.Context, chunk *pb.SnapshotChunks_Chunk) bool {
+  if self.err != nil { return false }
+  if self.buf_next < len(self.buffer) {
+    self.err = self.popBuffer(chunk)
+    return self.err == nil
+  }
+  if self.started && self.token == nil { return false }
+  self.started = true
+  self.err = self.fillBuffer(ctx)
+  return self.Next(ctx, chunk)
 }
 
