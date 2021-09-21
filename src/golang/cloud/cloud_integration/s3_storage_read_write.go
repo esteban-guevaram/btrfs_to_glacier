@@ -3,7 +3,9 @@ package main
 import (
   "bytes"
   "context"
+  "fmt"
   "io"
+  "math/rand"
 
   "btrfs_to_glacier/cloud"
   pb "btrfs_to_glacier/messages"
@@ -101,10 +103,15 @@ func deleteBucketOrDie(ctx context.Context, conf *pb.Config, client *s3.Client) 
   if err != nil { util.Fatalf("Failed bucket delete: %v", err) }
 }
 
-func deleteBucket(ctx context.Context, conf *pb.Config, client *s3.Client) error {
+func emptyBucketOrDie(ctx context.Context, conf *pb.Config, client *s3.Client) {
+  err := emptyBucket(ctx, conf, client)
+  if err != nil { util.Fatalf("Failed empty object: %v", err) }
+}
+
+func emptyBucket(ctx context.Context, conf *pb.Config, client *s3.Client) error {
   list_in := &s3.ListObjectsV2Input{
     Bucket: &conf.Aws.S3.BucketName,
-    MaxKeys: 100,
+    MaxKeys: 1000,
   }
   out, err := client.ListObjectsV2(ctx, list_in)
   if err != nil { return err }
@@ -114,9 +121,15 @@ func deleteBucket(ctx context.Context, conf *pb.Config, client *s3.Client) error
       Key: obj.Key,
     }
     _, err = client.DeleteObject(ctx, del_in)
-    if err != nil { util.Fatalf("Failed delete object: %v", err) }
+    if err != nil { return err }
   }
+  if out.ContinuationToken != nil { return fmt.Errorf("needs more iterations to delete all") }
+  return nil
+}
 
+func deleteBucket(ctx context.Context, conf *pb.Config, client *s3.Client) error {
+  err := emptyBucket(ctx, conf, client)
+  if err != nil { return err }
   _, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
     Bucket: &conf.Aws.S3.BucketName,
   })
@@ -267,6 +280,44 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx conte
   self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
 }
 
+func (self *s3ReadWriteTester) testListAllChunks_Helper(ctx context.Context, total int, fill_size int32) {
+  emptyBucketOrDie(ctx, self.Conf, self.Client)
+  restore_f := cloud.TestOnlyChangeIterationSize(self.Storage, fill_size)
+  defer restore_f()
+  expect_objs := make(map[string]*pb.SnapshotChunks_Chunk)
+  got_objs := make(map[string]*pb.SnapshotChunks_Chunk)
+
+  for i:=0; i<total; i+=1 {
+    key,data := self.putRandomObjectOrDie(ctx, rand.Intn(1024)+16)
+    expect_objs[key] = &pb.SnapshotChunks_Chunk{ Uuid:key, Size:uint64(len(data)), }
+  }
+
+  it, err := self.Storage.ListAllChunks(ctx)
+  if err != nil { util.Fatalf("failed while iterating: %v", err) }
+  obj := &pb.SnapshotChunks_Chunk{}
+  for it.Next(ctx, obj) {
+    got_objs[obj.Uuid] = proto.Clone(obj).(*pb.SnapshotChunks_Chunk)
+  }
+  if it.Err() != nil { util.Fatalf("failed while iterating: %v", it.Err()) }
+
+  util.EqualsOrDie("Bad len", len(got_objs), len(expect_objs))
+  for key,expect := range expect_objs {
+    util.EqualsOrDie("Bad obj", got_objs[key], expect)
+  }
+}
+
+func (self *s3ReadWriteTester) TestListAllChunksSingleFill(ctx context.Context) {
+  const fill_size = 10
+  const total = 3
+  self.testListAllChunks_Helper(ctx, total, fill_size)
+}
+
+func (self *s3ReadWriteTester) TestListAllChunksMultiFill(ctx context.Context) {
+  const fill_size = 4
+  const total = fill_size * 3
+  self.testListAllChunks_Helper(ctx, total, fill_size)
+}
+
 // we do not test with offsets, that should be covered by the unittests
 func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
   suite := s3ReadWriteTester{
@@ -278,6 +329,8 @@ func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client,
   suite.TestWriteObjectMultipleChunkLen(ctx)
   suite.TestWriteEmptyObject(ctx)
   suite.TestReadSingleChunkObject(ctx)
+  suite.TestListAllChunksSingleFill(ctx)
+  suite.TestListAllChunksMultiFill(ctx)
   suite.TestReadMultiChunkObject(ctx)
   suite.TestQueueRestoreObjects_StandardClass(ctx)
   suite.TestQueueRestoreObjects_NoSuchObject(ctx)

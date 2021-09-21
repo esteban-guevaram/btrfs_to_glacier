@@ -22,9 +22,9 @@ import (
 )
 
 const (
-  uuid_col = "Uuid"
-  type_col = "BlobType"
-  blob_col = "BlobProto"
+  Uuid_col = "uuid"
+  Type_col = "blobType"
+  Blob_col = "blobProto"
   describe_retry_millis = 2000
   dyn_iter_buf_len = 100
 )
@@ -66,9 +66,9 @@ func NewMetadata(conf *pb.Config, aws_conf *aws.Config) (types.Metadata, error) 
     conf: conf,
     aws_conf: aws_conf,
     client: dynamodb.NewFromConfig(*aws_conf),
-    uuid_col: uuid_col,
-    type_col: type_col,
-    blob_col: blob_col,
+    uuid_col: Uuid_col,
+    type_col: Type_col,
+    blob_col: Blob_col,
     iter_buf_len: dyn_iter_buf_len,
     describe_retry: describe_retry_millis * time.Millisecond,
   }
@@ -134,7 +134,7 @@ func (self *dynamoMetadata) WriteObject(ctx context.Context, key string, msg pro
   item := self.getItemKey(key, msg)
   blob, err = proto.Marshal(msg)
   if err != nil { return err }
-  item[blob_col] = &dyn_types.AttributeValueMemberB{Value: blob,}
+  item[self.blob_col] = &dyn_types.AttributeValueMemberB{Value: blob,}
   params := &dynamodb.PutItemInput{
     TableName: &self.conf.Aws.DynamoDb.TableName,
     Item: item,
@@ -312,7 +312,6 @@ func (self *blobIterator) fillBuffer(ctx context.Context) error {
     ExpressionAttributeValues: filter_proj.Values(),
     FilterExpression:          filter_proj.Filter(),
     ProjectionExpression:      filter_proj.Projection(),
-    Select:                    dyn_types.SelectAllProjectedAttributes,
     ConsistentRead:            aws.Bool(false),
     ReturnConsumedCapacity:    dyn_types.ReturnConsumedCapacityNone,
     ExclusiveStartKey:         self.token,
@@ -320,8 +319,8 @@ func (self *blobIterator) fillBuffer(ctx context.Context) error {
     TotalSegments:             nil, // sequential scan
   }
   scan_out, err := self.parent.client.Scan(ctx, scan_in)
+  //util.Debugf("request:%v\nresponse:\n%v\nerror:%v", util.AsJson(scan_in), util.AsJson(scan_out), err)
   if err != nil { return err }
-  //util.Debugf("response:\n%v", util.AsJson(scan_out))
   self.token = nil
   if len(scan_out.LastEvaluatedKey) > 0 { self.token = scan_out.LastEvaluatedKey }
   self.buffer = scan_out.Items

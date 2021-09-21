@@ -84,11 +84,14 @@ func (self *mockS3Client) ListObjectsV2(
     ctx context.Context, in *s3.ListObjectsV2Input, opts ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
   if in.Prefix != nil || in.StartAfter != nil { util.Fatalf("not_implemented") }
   var page_count int32
-  out := &s3.ListObjectsV2Output{ Contents:make([]s3_types.Object, 0, len(self.Data)), }
+  out := &s3.ListObjectsV2Output{
+    ContinuationToken: in.ContinuationToken,
+    Contents:make([]s3_types.Object, 0, len(self.Data)),
+  }
 
   if self.FirstListObjEmpty {
     self.FirstListObjEmpty = false
-    out.ContinuationToken = aws.String("1")
+    out.NextContinuationToken = aws.String("1")
     return out, self.Err
   }
 
@@ -103,7 +106,7 @@ func (self *mockS3Client) ListObjectsV2(
     item := s3_types.Object{ Key:aws.String(key), Size:int64(len(data)), }
     out.Contents = append(out.Contents, item)
     page_count += 1
-    if page_count >= in.MaxKeys { out.ContinuationToken = aws.String(key); break }
+    if page_count >= in.MaxKeys { out.NextContinuationToken = aws.String(key); break }
   }
   out.KeyCount = page_count
   return out, self.Err

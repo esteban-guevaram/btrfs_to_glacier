@@ -55,3 +55,11 @@ func dummySnapshotSequence(vol_uuid string, seq_uuid string) *pb.SnapshotSequenc
   }
 }
 
+func dummySnapshotSeqHead(seq *pb.SnapshotSequence) *pb.SnapshotSeqHead {
+  return &pb.SnapshotSeqHead{
+    Uuid: seq.Volume.Uuid,
+    CurSeqUuid: seq.Uuid,
+    PrevSeqUuid: nil,
+  }
+}
+

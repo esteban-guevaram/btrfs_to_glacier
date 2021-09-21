@@ -2,6 +2,7 @@ package main
 
 import (
   "context"
+  "fmt"
   "errors"
 
   "btrfs_to_glacier/cloud"
@@ -10,43 +11,117 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/aws"
+  dyn_expr "github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
   "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+  dyn_types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+  "github.com/google/uuid"
   "google.golang.org/protobuf/proto"
 )
 
-func deleteTable(ctx context.Context, conf *pb.Config, client *dynamodb.Client) {
-  _, err := client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
-    TableName: &conf.Aws.DynamoDb.TableName,
+type dynReadWriteTester struct {
+  Conf *pb.Config
+  Client *dynamodb.Client
+  Metadata types.AdminMetadata
+}
+
+type genIterator interface {
+  Next(context.Context) (string, proto.Message, bool)
+  Err() error
+}
+
+func toItem(key string, msg proto.Message) (map[string]dyn_types.AttributeValue, error) {
+  typename := msg.ProtoReflect().Descriptor().FullName()
+  blob, err := proto.Marshal(msg)
+  if err != nil { return nil, err }
+  item := map[string]dyn_types.AttributeValue{
+    cloud.Uuid_col: &dyn_types.AttributeValueMemberS{Value:key, },
+    cloud.Type_col: &dyn_types.AttributeValueMemberS{Value:string(typename), },
+    cloud.Blob_col: &dyn_types.AttributeValueMemberB{Value:blob, },
+  }
+  return item, nil
+}
+
+func (self *dynReadWriteTester) putItemOrDie(ctx context.Context, key string, msg proto.Message) {
+  err := self.putItem(ctx, key, msg)
+  if err != nil { util.Fatalf("Failed put item: %v", err) }
+}
+
+func (self *dynReadWriteTester) putItem(ctx context.Context, key string, msg proto.Message) error {
+  item, err := toItem(key, msg)
+  if err != nil { return err }
+  params := &dynamodb.PutItemInput{
+    TableName: &self.Conf.Aws.DynamoDb.TableName,
+    Item: item,
+  }
+  //util.Debugf("Put request:\n%s", util.AsJson(params))
+  _, err = self.Client.PutItem(ctx, params)
+  return err
+}
+
+func (self *dynReadWriteTester) deleteTable(ctx context.Context) {
+  _, err := self.Client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+    TableName: &self.Conf.Aws.DynamoDb.TableName,
   })
   if err != nil { util.Fatalf("Failed table delete: %v", err) }
 }
 
-func TestRecordSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
+func (self *dynReadWriteTester) emptyTableOrDie(ctx context.Context) {
+  err := self.emptyTable(ctx)
+  if err != nil { util.Fatalf("Failed to empty table: %v", err) }
+}
+
+func (self *dynReadWriteTester) emptyTable(ctx context.Context) error {
+  projection := dyn_expr.NamesList(dyn_expr.Name(cloud.Uuid_col), dyn_expr.Name(cloud.Type_col))
+  expr, err := dyn_expr.NewBuilder().WithProjection(projection).Build()
+  if err != nil { return err }
+  scan_in := &dynamodb.ScanInput{
+    TableName:              &self.Conf.Aws.DynamoDb.TableName,
+    ExpressionAttributeNames: expr.Names(),
+    ProjectionExpression:   expr.Projection(),
+    ConsistentRead:         aws.Bool(true),
+    ReturnConsumedCapacity: dyn_types.ReturnConsumedCapacityNone,
+  }
+  scan_out, err := self.Client.Scan(ctx, scan_in)
+  if err != nil { return err }
+  if len(scan_out.LastEvaluatedKey) > 0 { return fmt.Errorf("need more iterations") }
+  for _,item := range scan_out.Items {
+    del_in := &dynamodb.DeleteItemInput{
+      TableName: &self.Conf.Aws.DynamoDb.TableName,
+      Key: item,
+    }
+    _, err := self.Client.DeleteItem(ctx, del_in)
+    if err != nil { return err }
+  }
+  //util.Debugf("Scan response:\n%s", util.AsJson(scan_out))
+  return nil
+}
+
+func (self *dynReadWriteTester) TestRecordSnapshotSeqHead(ctx context.Context) {
   var err error
   var head1, head2, head3 *pb.SnapshotSeqHead
   vol_uuid := timedUuid("vol")
   new_seq := dummySnapshotSequence(vol_uuid, timedUuid("seq1"))
   new_seq_2 := dummySnapshotSequence(vol_uuid, timedUuid("seq2"))
 
-  head1, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
+  head1, err = self.Metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad subvol uuid", head1.Uuid, new_seq.Volume.Uuid)
   util.EqualsOrDie("Bad sequence uuid", head1.CurSeqUuid, new_seq.Uuid)
 
-  head2, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
+  head2, err = self.Metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad SnapshotSeqHead", head2, head1)
 
-  head3, err = metadata.RecordSnapshotSeqHead(ctx, new_seq_2)
+  head3, err = self.Metadata.RecordSnapshotSeqHead(ctx, new_seq_2)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad sequence uuid2", head3.CurSeqUuid, new_seq_2.Uuid)
 
-  _, err = metadata.RecordSnapshotSeqHead(ctx, new_seq)
+  _, err = self.Metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err == nil { util.Fatalf("Adding an old sequence should be an error") }
 }
 
-func TestAppendSnapshotToSeq(ctx context.Context, metadata types.Metadata) {
+func (self *dynReadWriteTester) TestAppendSnapshotToSeq(ctx context.Context) {
   var err error
   var seq_1, seq_noop, seq_2 *pb.SnapshotSequence
   vol_uuid := timedUuid("vol")
@@ -62,20 +137,20 @@ func TestAppendSnapshotToSeq(ctx context.Context, metadata types.Metadata) {
   expect_seq_2 := dummySnapshotSequence(vol_uuid, seq_uuid)
   expect_seq_2.SnapUuids = []string{snap1_uuid, snap2_uuid}
 
-  seq_1, err = metadata.AppendSnapshotToSeq(ctx, expect_seq_0, snap_1)
+  seq_1, err = self.Metadata.AppendSnapshotToSeq(ctx, expect_seq_0, snap_1)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad SnapshotSequence", seq_1, expect_seq_1)
 
-  seq_noop, err = metadata.AppendSnapshotToSeq(ctx, seq_1, snap_1)
+  seq_noop, err = self.Metadata.AppendSnapshotToSeq(ctx, seq_1, snap_1)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad SnapshotSequence2", seq_noop, expect_seq_1)
 
-  seq_2, err = metadata.AppendSnapshotToSeq(ctx, expect_seq_1, snap_2)
+  seq_2, err = self.Metadata.AppendSnapshotToSeq(ctx, expect_seq_1, snap_2)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad SnapshotSequence3", seq_2, expect_seq_2)
 }
 
-func TestAppendChunkToSnapshot(ctx context.Context, metadata types.Metadata) {
+func (self *dynReadWriteTester) TestAppendChunkToSnapshot(ctx context.Context) {
   snap := dummySnapshot(timedUuid("snap"), timedUuid("par"))
   chunk_1 := dummyChunks(timedUuid("chunk_1"))
   chunk_2 := dummyChunks(timedUuid("chunk_2"))
@@ -89,41 +164,41 @@ func TestAppendChunkToSnapshot(ctx context.Context, metadata types.Metadata) {
 
   var err error
   var written_snap_1, written_snap_2, written_snap_3, written_snap_4 *pb.SubVolume
-  written_snap_1, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_1)
+  written_snap_1, err = self.Metadata.AppendChunkToSnapshot(ctx, snap, chunk_1)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad Snapshot", written_snap_1, expect_first)
 
-  written_snap_2, err = metadata.AppendChunkToSnapshot(ctx, written_snap_1, chunk_1)
+  written_snap_2, err = self.Metadata.AppendChunkToSnapshot(ctx, written_snap_1, chunk_1)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad Snapshot2", written_snap_2, written_snap_1)
 
-  written_snap_3, err = metadata.AppendChunkToSnapshot(ctx, written_snap_1, chunk_2)
+  written_snap_3, err = self.Metadata.AppendChunkToSnapshot(ctx, written_snap_1, chunk_2)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad Snapshot3", written_snap_3, expect_second)
 
-  written_snap_4, err = metadata.AppendChunkToSnapshot(ctx, written_snap_3, chunk_2)
+  written_snap_4, err = self.Metadata.AppendChunkToSnapshot(ctx, written_snap_3, chunk_2)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad Snapshot4", written_snap_4, written_snap_3)
 }
 
-func TestReadSnapshotSeqHead(ctx context.Context, metadata types.Metadata) {
+func (self *dynReadWriteTester) TestReadSnapshotSeqHead(ctx context.Context) {
   var err error
   var expect_head, head *pb.SnapshotSeqHead
   vol_uuid := timedUuid("vol")
   seq := dummySnapshotSequence(vol_uuid, timedUuid("seq1"))
 
-  _, err = metadata.ReadSnapshotSeqHead(ctx, vol_uuid)
+  _, err = self.Metadata.ReadSnapshotSeqHead(ctx, vol_uuid)
   if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
 
-  expect_head, err = metadata.RecordSnapshotSeqHead(ctx, seq)
+  expect_head, err = self.Metadata.RecordSnapshotSeqHead(ctx, seq)
   if err != nil { util.Fatalf("%v", err) }
 
-  head, err = metadata.ReadSnapshotSeqHead(ctx, vol_uuid)
+  head, err = self.Metadata.ReadSnapshotSeqHead(ctx, vol_uuid)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad SnapshotSeqHead", expect_head, head)
 }
 
-func TestReadSnapshotSeq(ctx context.Context, metadata types.Metadata) {
+func (self *dynReadWriteTester) TestReadSnapshotSeq(ctx context.Context) {
   var err error
   var empty_seq, expect_seq, seq *pb.SnapshotSequence
   vol_uuid := timedUuid("vol")
@@ -132,18 +207,18 @@ func TestReadSnapshotSeq(ctx context.Context, metadata types.Metadata) {
   snap := dummySnapshot(snap_uuid, vol_uuid)
   empty_seq = dummySnapshotSequence(vol_uuid, seq_uuid)
 
-  _, err = metadata.ReadSnapshotSeq(ctx, empty_seq.Uuid)
+  _, err = self.Metadata.ReadSnapshotSeq(ctx, empty_seq.Uuid)
   if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
 
-  expect_seq, err = metadata.AppendSnapshotToSeq(ctx, empty_seq, snap)
+  expect_seq, err = self.Metadata.AppendSnapshotToSeq(ctx, empty_seq, snap)
   if err != nil { util.Fatalf("%v", err) }
 
-  seq, err = metadata.ReadSnapshotSeq(ctx, empty_seq.Uuid)
+  seq, err = self.Metadata.ReadSnapshotSeq(ctx, empty_seq.Uuid)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad SnapshotSequence", expect_seq, seq)
 }
 
-func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
+func (self *dynReadWriteTester) TestReadSnapshot(ctx context.Context) {
   var err error
   var snap *pb.SubVolume
   vol_uuid := timedUuid("vol")
@@ -153,34 +228,150 @@ func TestReadSnapshot(ctx context.Context, metadata types.Metadata) {
   expect_snap := dummySnapshot(snap_uuid, vol_uuid)
   expect_snap.Data = dummyChunks(chunk_uuid)
 
-  _, err = metadata.ReadSnapshot(ctx, expect_snap.Uuid)
+  _, err = self.Metadata.ReadSnapshot(ctx, expect_snap.Uuid)
   if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
 
-  expect_snap, err = metadata.AppendChunkToSnapshot(ctx, empty_snap, dummyChunks(chunk_uuid))
+  expect_snap, err = self.Metadata.AppendChunkToSnapshot(ctx, empty_snap, dummyChunks(chunk_uuid))
   if err != nil { util.Fatalf("%v", err) }
 
-  snap, err = metadata.ReadSnapshot(ctx, expect_snap.Uuid)
+  snap, err = self.Metadata.ReadSnapshot(ctx, expect_snap.Uuid)
   if err != nil { util.Fatalf("%v", err) }
   util.EqualsOrDie("Bad Snapshot", expect_snap, snap)
 }
 
-func TestAllDynamoDbReadWrite(ctx context.Context, metadata types.Metadata) {
-  TestRecordSnapshotSeqHead(ctx, metadata)
-  TestAppendSnapshotToSeq(ctx, metadata)
-  TestAppendChunkToSnapshot(ctx, metadata)
-  TestReadSnapshotSeqHead(ctx, metadata)
-  TestReadSnapshotSeq(ctx, metadata)
-  TestReadSnapshot(ctx, metadata)
+type pb_create_f = func() (string, proto.Message)
+type iter_create_f = func(context.Context, types.Metadata) (genIterator, error)
+func (self *dynReadWriteTester) testDynamotListAll_Helper(
+    ctx context.Context, total int, fill_size int32, pb_f pb_create_f, iter_f iter_create_f) {
+  self.emptyTableOrDie(ctx)
+  cloud.TestOnlyDynMetaChangeIterationSize(self.Metadata, fill_size)
+  expect_objs := make(map[string]proto.Message)
+  got_objs := make(map[string]proto.Message)
+
+  for i:=0; i<total; i+=1 {
+    key,msg := pb_f()
+    expect_objs[key] = msg
+    self.putItemOrDie(ctx, key, msg)
+  }
+
+  it, err := iter_f(ctx, self.Metadata)
+  if err != nil { util.Fatalf("failed creating iterator: %v", err) }
+  for {
+    key,msg,more := it.Next(ctx)
+    if !more { break }
+    if len(key) < 1 { util.Fatalf("returned bad object: %v", msg) }
+    got_objs[key] = msg
+  }
+  if it.Err() != nil { util.Fatalf("failed while iterating: %v", it.Err()) }
+  util.EqualsOrDie("Bad len", len(got_objs), len(expect_objs))
+  for key,expect := range expect_objs {
+    util.EqualsOrDie("Bad obj", got_objs[key], expect)
+  }
+}
+
+type headIterator struct { inner types.SnapshotSeqHeadIterator }
+func (self * headIterator) Next(ctx context.Context) (string, proto.Message, bool) {
+  obj := &pb.SnapshotSeqHead{}
+  more := self.inner.Next(ctx, obj)
+  return obj.Uuid, obj, more
+}
+func (self * headIterator) Err() error { return self.inner.Err() }
+func head_pb_f() (string, proto.Message) {
+  new_seq := dummySnapshotSequence(uuid.NewString(), uuid.NewString())
+  new_head := dummySnapshotSeqHead(new_seq)
+  return new_head.Uuid, new_head
+}
+func head_iter_f(ctx context.Context, metadata types.Metadata) (genIterator, error) {
+  it,err := metadata.ListAllSnapshotSeqHeads(ctx)
+  return &headIterator{it}, err
+}
+func (self *dynReadWriteTester) TestListAllSnapshotSeqHeads_Single(ctx context.Context) {
+  const fill_size = 10
+  const total = 3
+  self.testDynamotListAll_Helper(ctx, total, fill_size, head_pb_f, head_iter_f)
+}
+func (self *dynReadWriteTester) TestListAllSnapshotSeqHeads_Multi(ctx context.Context) {
+  const fill_size = 3
+  const total = fill_size * 3
+  self.testDynamotListAll_Helper(ctx, total, fill_size, head_pb_f, head_iter_f)
+}
+
+type seqIterator struct { inner types.SnapshotSequenceIterator }
+func (self * seqIterator) Next(ctx context.Context) (string, proto.Message, bool) {
+  obj := &pb.SnapshotSequence{}
+  more := self.inner.Next(ctx, obj)
+  return obj.Uuid, obj, more
+}
+func (self * seqIterator) Err() error { return self.inner.Err() }
+func seq_pb_f() (string, proto.Message) {
+  new_seq := dummySnapshotSequence(uuid.NewString(), uuid.NewString())
+  return new_seq.Uuid, new_seq
+}
+func seq_iter_f(ctx context.Context, metadata types.Metadata) (genIterator, error) {
+  it,err := metadata.ListAllSnapshotSeqs(ctx)
+  return &seqIterator{it}, err
+}
+func (self *dynReadWriteTester) TestListAllSnapshotSeqs_Single(ctx context.Context) {
+  const fill_size = 10
+  const total = 3
+  self.testDynamotListAll_Helper(ctx, total, fill_size, seq_pb_f, seq_iter_f)
+}
+func (self *dynReadWriteTester) TestListAllSnapshotSeqs_Multi(ctx context.Context) {
+  const fill_size = 2
+  const total = fill_size * 2
+  self.testDynamotListAll_Helper(ctx, total, fill_size, seq_pb_f, seq_iter_f)
+}
+
+type snapIterator struct { inner types.SnapshotIterator }
+func (self * snapIterator) Next(ctx context.Context) (string, proto.Message, bool) {
+  obj := &pb.SubVolume{}
+  more := self.inner.Next(ctx, obj)
+  return obj.Uuid, obj, more
+}
+func (self * snapIterator) Err() error { return self.inner.Err() }
+func snap_pb_f() (string, proto.Message) {
+  new_snap := dummySnapshot(uuid.NewString(), uuid.NewString())
+  return new_snap.Uuid, new_snap
+}
+func snap_iter_f(ctx context.Context, metadata types.Metadata) (genIterator, error) {
+  it,err := metadata.ListAllSnapshots(ctx)
+  return &snapIterator{it}, err
+}
+func (self *dynReadWriteTester) TestListAllSnapshots_Single(ctx context.Context) {
+  const fill_size = 10
+  const total = 3
+  self.testDynamotListAll_Helper(ctx, total, fill_size, snap_pb_f, snap_iter_f)
+}
+func (self *dynReadWriteTester) TestListAllSnapshots_Multi(ctx context.Context) {
+  const fill_size = 2
+  const total = fill_size * 2
+  self.testDynamotListAll_Helper(ctx, total, fill_size, snap_pb_f, snap_iter_f)
+}
+
+func (self *dynReadWriteTester) TestAllDynamoDbReadWrite(ctx context.Context) {
+  self.TestRecordSnapshotSeqHead(ctx)
+  self.TestAppendSnapshotToSeq(ctx)
+  self.TestAppendChunkToSnapshot(ctx)
+  self.TestReadSnapshotSeqHead(ctx)
+  self.TestReadSnapshotSeq(ctx)
+  self.TestReadSnapshot(ctx)
+  self.TestListAllSnapshotSeqHeads_Single(ctx)
+  self.TestListAllSnapshotSeqHeads_Multi(ctx)
+  self.TestListAllSnapshotSeqs_Single(ctx)
+  self.TestListAllSnapshotSeqs_Multi(ctx)
+  self.TestListAllSnapshots_Single(ctx)
+  self.TestListAllSnapshots_Multi(ctx)
 }
 
 func TestAllDynamoDbMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
   client := dynamodb.NewFromConfig(*aws_conf)
   metadata, err := cloud.NewAdminMetadata(conf, aws_conf)
   if err != nil { util.Fatalf("%v", err) }
+  suite := &dynReadWriteTester{ Conf:conf, Client:client, Metadata:metadata, }
 
   TestDynamoDbMetadataSetup(ctx, conf, client, metadata)
-  TestAllDynamoDbReadWrite(ctx, metadata)
+  suite.TestAllDynamoDbReadWrite(ctx)
   TestAllDynamoDbDelete(ctx, metadata)
-  deleteTable(ctx, conf, client)
+  suite.deleteTable(ctx)
 }
 

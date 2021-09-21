@@ -143,14 +143,6 @@ func IsS3Error(err_to_compare error, err error) bool {
   return false
 }
 
-func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
-  s3_impl,ok := storage.(*s3Storage)
-  if !ok { util.Fatalf("called with the wrong impl") }
-  old_conf := s3_impl.conf
-  s3_impl.conf = conf
-  return func() { s3_impl.conf = old_conf }
-}
-
 func (self *s3Storage) uploadSummary(result types.ChunksOrError) string {
   var total_size uint64 = 0
   var uuids strings.Builder
@@ -410,7 +402,7 @@ func (self *s3ObjectIterator) fillBuffer(ctx context.Context) error {
   list_out, err := self.parent.client.ListObjectsV2(ctx, list_in)
   if err != nil { return err }
   //util.Debugf("response:\n%v", util.AsJson(list_out))
-  self.token = list_out.ContinuationToken
+  self.token = list_out.NextContinuationToken
   self.buffer = list_out.Contents
   self.buf_next = 0
   if len(self.buffer) != int(list_out.KeyCount) { util.Fatalf("List yielded less than %d", list_out.KeyCount) }

@@ -81,15 +81,15 @@ func (self *mockDynamoDbClient) DescribeTable(
 func (self *mockDynamoDbClient) GetItem(
     ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
   key := keyAndtype{
-    Key: stringOrDie(params.Key, uuid_col),
-    Type: stringOrDie(params.Key, type_col),
+    Key: stringOrDie(params.Key, Uuid_col),
+    Type: stringOrDie(params.Key, Type_col),
   }
   data, found := self.Data[key]
   if !found {
     return &dynamodb.GetItemOutput{ Item: nil }, self.Err
   }
   item := map[string]dyn_types.AttributeValue{
-    blob_col: &dyn_types.AttributeValueMemberB{Value: data,},
+    Blob_col: &dyn_types.AttributeValueMemberB{Value: data,},
   }
   result := &dynamodb.GetItemOutput{ Item: item, }
   return result, self.Err
@@ -124,7 +124,7 @@ func (self *mockDynamoDbClient) Scan(
     }
     data := self.Data[keyAndtype{ Key:key, Type:type_str, }]
     item := make(map[string]dyn_types.AttributeValue)
-    item[blob_col] = &dyn_types.AttributeValueMemberB{ Value:data, }
+    item[Blob_col] = &dyn_types.AttributeValueMemberB{ Value:data, }
     out.Items = append(out.Items, item)
     page_count += 1
     if page_count >= *in.Limit {
@@ -140,17 +140,17 @@ func (self *mockDynamoDbClient) Scan(
 func (self *mockDynamoDbClient) PutItem(
     ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
   key := keyAndtype{
-    Key: stringOrDie(params.Item, uuid_col),
-    Type: stringOrDie(params.Item, type_col),
+    Key: stringOrDie(params.Item, Uuid_col),
+    Type: stringOrDie(params.Item, Type_col),
   }
-  self.Data[key] = blobOrDie(params.Item, blob_col)
+  self.Data[key] = blobOrDie(params.Item, Blob_col)
   return &dynamodb.PutItemOutput{}, nil
 }
 func (self *mockDynamoDbClient) DeleteItem(
     ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
   key := keyAndtype{
-    Key: stringOrDie(params.Key, uuid_col),
-    Type: stringOrDie(params.Key, type_col),
+    Key: stringOrDie(params.Key, Uuid_col),
+    Type: stringOrDie(params.Key, Type_col),
   }
   _, found := self.Data[key]
   if !found {
@@ -199,9 +199,9 @@ func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {
     conf: conf,
     aws_conf: aws_conf,
     client: client,
-    uuid_col: uuid_col,
-    type_col: type_col,
-    blob_col: blob_col,
+    uuid_col: Uuid_col,
+    type_col: Type_col,
+    blob_col: Blob_col,
     describe_retry: 2 * time.Millisecond,
   }
   return meta, client

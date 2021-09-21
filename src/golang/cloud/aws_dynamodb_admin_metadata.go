@@ -27,6 +27,14 @@ func NewAdminMetadata(conf *pb.Config, aws_conf *aws.Config) (types.AdminMetadat
   return &dynamoAdminMetadata{ meta.(*dynamoMetadata) }, nil
 }
 
+func TestOnlyDynMetaChangeIterationSize(metadata types.Metadata, fill_size int32) func() {
+  impl,ok := metadata.(*dynamoAdminMetadata)
+  if !ok { util.Fatalf("called with the wrong impl") }
+  old_val := impl.iter_buf_len
+  impl.iter_buf_len = fill_size
+  return func() { impl.iter_buf_len = old_val }
+}
+
 func (self *dynamoMetadata) describeTable(ctx context.Context, tabname string) (*dyn_types.TableDescription, error) {
   params := &dynamodb.DescribeTableInput{
     TableName: &self.conf.Aws.DynamoDb.TableName,
@@ -121,7 +129,7 @@ func (self *dynamoAdminMetadata) DeleteObject(
   ctx context.Context, uuid string, msg proto.Message) error {
   // We use a condition expression to trigger an error in case the key does not exist.
   // Otherwise we cannot distinguish between the item not existing and a successful delete.
-  condition_expr := fmt.Sprintf("attribute_exists(%s)", blob_col)
+  condition_expr := fmt.Sprintf("attribute_exists(%s)", self.blob_col)
   params := &dynamodb.DeleteItemInput{
     TableName: &self.conf.Aws.DynamoDb.TableName,
     Key: self.getItemKey(uuid, msg),

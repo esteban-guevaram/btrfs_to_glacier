@@ -177,6 +177,22 @@ func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Cl
   return client
 }
 
+func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
+  s3_impl,ok := storage.(*s3AdminStorage)
+  if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
+  old_conf := s3_impl.conf
+  s3_impl.conf = conf
+  return func() { s3_impl.conf = old_conf }
+}
+
+func TestOnlyChangeIterationSize(storage types.Storage, size int32) func() {
+  s3_impl,ok := storage.(*s3AdminStorage)
+  if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
+  old_size := s3_impl.iter_buf_len
+  s3_impl.iter_buf_len = size
+  return func() { s3_impl.iter_buf_len = old_size }
+}
+
 func (self *s3AdminStorage) deleteBatch(
     ctx context.Context, low_bound int, up_bound int, chunks *pb.SnapshotChunks) error {
   del_in := &s3.DeleteObjectsInput{
