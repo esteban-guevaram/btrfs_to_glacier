@@ -5,7 +5,7 @@ import (
   "fmt"
   "errors"
 
-  "btrfs_to_glacier/cloud"
+  meta "btrfs_to_glacier/volume_store/aws_dynamodb_metadata"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
@@ -35,9 +35,9 @@ func toItem(key string, msg proto.Message) (map[string]dyn_types.AttributeValue,
   blob, err := proto.Marshal(msg)
   if err != nil { return nil, err }
   item := map[string]dyn_types.AttributeValue{
-    cloud.Uuid_col: &dyn_types.AttributeValueMemberS{Value:key, },
-    cloud.Type_col: &dyn_types.AttributeValueMemberS{Value:string(typename), },
-    cloud.Blob_col: &dyn_types.AttributeValueMemberB{Value:blob, },
+    meta.Uuid_col: &dyn_types.AttributeValueMemberS{Value:key, },
+    meta.Type_col: &dyn_types.AttributeValueMemberS{Value:string(typename), },
+    meta.Blob_col: &dyn_types.AttributeValueMemberB{Value:blob, },
   }
   return item, nil
 }
@@ -72,7 +72,7 @@ func (self *dynReadWriteTester) emptyTableOrDie(ctx context.Context) {
 }
 
 func (self *dynReadWriteTester) emptyTable(ctx context.Context) error {
-  projection := dyn_expr.NamesList(dyn_expr.Name(cloud.Uuid_col), dyn_expr.Name(cloud.Type_col))
+  projection := dyn_expr.NamesList(dyn_expr.Name(meta.Uuid_col), dyn_expr.Name(meta.Type_col))
   expr, err := dyn_expr.NewBuilder().WithProjection(projection).Build()
   if err != nil { return err }
   scan_in := &dynamodb.ScanInput{
@@ -101,8 +101,8 @@ func (self *dynReadWriteTester) TestRecordSnapshotSeqHead(ctx context.Context) {
   var err error
   var head1, head2, head3 *pb.SnapshotSeqHead
   vol_uuid := timedUuid("vol")
-  new_seq := dummySnapshotSequence(vol_uuid, timedUuid("seq1"))
-  new_seq_2 := dummySnapshotSequence(vol_uuid, timedUuid("seq2"))
+  new_seq := util.DummySnapshotSequence(vol_uuid, timedUuid("seq1"))
+  new_seq_2 := util.DummySnapshotSequence(vol_uuid, timedUuid("seq2"))
 
   head1, err = self.Metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { util.Fatalf("%v", err) }
@@ -128,13 +128,13 @@ func (self *dynReadWriteTester) TestAppendSnapshotToSeq(ctx context.Context) {
   seq_uuid := timedUuid("seq")
   snap1_uuid := timedUuid("snap1")
   snap2_uuid := timedUuid("snap2")
-  snap_1 := dummySnapshot(snap1_uuid, vol_uuid)
-  snap_2 := dummySnapshot(snap2_uuid, vol_uuid)
-  expect_seq_0 := dummySnapshotSequence(vol_uuid, seq_uuid)
+  snap_1 := util.DummySnapshot(snap1_uuid, vol_uuid)
+  snap_2 := util.DummySnapshot(snap2_uuid, vol_uuid)
+  expect_seq_0 := util.DummySnapshotSequence(vol_uuid, seq_uuid)
   expect_seq_0.SnapUuids = nil
-  expect_seq_1 := dummySnapshotSequence(vol_uuid, seq_uuid)
+  expect_seq_1 := util.DummySnapshotSequence(vol_uuid, seq_uuid)
   expect_seq_1.SnapUuids = []string{snap1_uuid}
-  expect_seq_2 := dummySnapshotSequence(vol_uuid, seq_uuid)
+  expect_seq_2 := util.DummySnapshotSequence(vol_uuid, seq_uuid)
   expect_seq_2.SnapUuids = []string{snap1_uuid, snap2_uuid}
 
   seq_1, err = self.Metadata.AppendSnapshotToSeq(ctx, expect_seq_0, snap_1)
@@ -151,9 +151,9 @@ func (self *dynReadWriteTester) TestAppendSnapshotToSeq(ctx context.Context) {
 }
 
 func (self *dynReadWriteTester) TestAppendChunkToSnapshot(ctx context.Context) {
-  snap := dummySnapshot(timedUuid("snap"), timedUuid("par"))
-  chunk_1 := dummyChunks(timedUuid("chunk_1"))
-  chunk_2 := dummyChunks(timedUuid("chunk_2"))
+  snap := util.DummySnapshot(timedUuid("snap"), timedUuid("par"))
+  chunk_1 := util.DummyChunks(timedUuid("chunk_1"))
+  chunk_2 := util.DummyChunks(timedUuid("chunk_2"))
   chunk_2.Chunks[0].Start = chunk_1.Chunks[0].Size
 
   expect_first := proto.Clone(snap).(*pb.SubVolume)
@@ -185,7 +185,7 @@ func (self *dynReadWriteTester) TestReadSnapshotSeqHead(ctx context.Context) {
   var err error
   var expect_head, head *pb.SnapshotSeqHead
   vol_uuid := timedUuid("vol")
-  seq := dummySnapshotSequence(vol_uuid, timedUuid("seq1"))
+  seq := util.DummySnapshotSequence(vol_uuid, timedUuid("seq1"))
 
   _, err = self.Metadata.ReadSnapshotSeqHead(ctx, vol_uuid)
   if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
@@ -204,8 +204,8 @@ func (self *dynReadWriteTester) TestReadSnapshotSeq(ctx context.Context) {
   vol_uuid := timedUuid("vol")
   seq_uuid := timedUuid("seq")
   snap_uuid := timedUuid("snap")
-  snap := dummySnapshot(snap_uuid, vol_uuid)
-  empty_seq = dummySnapshotSequence(vol_uuid, seq_uuid)
+  snap := util.DummySnapshot(snap_uuid, vol_uuid)
+  empty_seq = util.DummySnapshotSequence(vol_uuid, seq_uuid)
 
   _, err = self.Metadata.ReadSnapshotSeq(ctx, empty_seq.Uuid)
   if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
@@ -224,14 +224,14 @@ func (self *dynReadWriteTester) TestReadSnapshot(ctx context.Context) {
   vol_uuid := timedUuid("vol")
   snap_uuid := timedUuid("snap")
   chunk_uuid := timedUuid("seq")
-  empty_snap := dummySnapshot(snap_uuid, vol_uuid)
-  expect_snap := dummySnapshot(snap_uuid, vol_uuid)
-  expect_snap.Data = dummyChunks(chunk_uuid)
+  empty_snap := util.DummySnapshot(snap_uuid, vol_uuid)
+  expect_snap := util.DummySnapshot(snap_uuid, vol_uuid)
+  expect_snap.Data = util.DummyChunks(chunk_uuid)
 
   _, err = self.Metadata.ReadSnapshot(ctx, expect_snap.Uuid)
   if !errors.Is(err, types.ErrNotFound) { util.Fatalf("%v", err) }
 
-  expect_snap, err = self.Metadata.AppendChunkToSnapshot(ctx, empty_snap, dummyChunks(chunk_uuid))
+  expect_snap, err = self.Metadata.AppendChunkToSnapshot(ctx, empty_snap, util.DummyChunks(chunk_uuid))
   if err != nil { util.Fatalf("%v", err) }
 
   snap, err = self.Metadata.ReadSnapshot(ctx, expect_snap.Uuid)
@@ -244,7 +244,7 @@ type iter_create_f = func(context.Context, types.Metadata) (genIterator, error)
 func (self *dynReadWriteTester) testDynamotListAll_Helper(
     ctx context.Context, total int, fill_size int32, pb_f pb_create_f, iter_f iter_create_f) {
   self.emptyTableOrDie(ctx)
-  cloud.TestOnlyDynMetaChangeIterationSize(self.Metadata, fill_size)
+  meta.TestOnlyDynMetaChangeIterationSize(self.Metadata, fill_size)
   expect_objs := make(map[string]proto.Message)
   got_objs := make(map[string]proto.Message)
 
@@ -277,8 +277,8 @@ func (self * headIterator) Next(ctx context.Context) (string, proto.Message, boo
 }
 func (self * headIterator) Err() error { return self.inner.Err() }
 func head_pb_f() (string, proto.Message) {
-  new_seq := dummySnapshotSequence(uuid.NewString(), uuid.NewString())
-  new_head := dummySnapshotSeqHead(new_seq)
+  new_seq := util.DummySnapshotSequence(uuid.NewString(), uuid.NewString())
+  new_head := util.DummySnapshotSeqHead(new_seq)
   return new_head.Uuid, new_head
 }
 func head_iter_f(ctx context.Context, metadata types.Metadata) (genIterator, error) {
@@ -304,7 +304,7 @@ func (self * seqIterator) Next(ctx context.Context) (string, proto.Message, bool
 }
 func (self * seqIterator) Err() error { return self.inner.Err() }
 func seq_pb_f() (string, proto.Message) {
-  new_seq := dummySnapshotSequence(uuid.NewString(), uuid.NewString())
+  new_seq := util.DummySnapshotSequence(uuid.NewString(), uuid.NewString())
   return new_seq.Uuid, new_seq
 }
 func seq_iter_f(ctx context.Context, metadata types.Metadata) (genIterator, error) {
@@ -330,7 +330,7 @@ func (self * snapIterator) Next(ctx context.Context) (string, proto.Message, boo
 }
 func (self * snapIterator) Err() error { return self.inner.Err() }
 func snap_pb_f() (string, proto.Message) {
-  new_snap := dummySnapshot(uuid.NewString(), uuid.NewString())
+  new_snap := util.DummySnapshot(uuid.NewString(), uuid.NewString())
   return new_snap.Uuid, new_snap
 }
 func snap_iter_f(ctx context.Context, metadata types.Metadata) (genIterator, error) {
@@ -365,7 +365,7 @@ func (self *dynReadWriteTester) TestAllDynamoDbReadWrite(ctx context.Context) {
 
 func TestAllDynamoDbMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
   client := dynamodb.NewFromConfig(*aws_conf)
-  metadata, err := cloud.NewAdminMetadata(conf, aws_conf)
+  metadata, err := meta.NewAdminMetadata(conf, aws_conf)
   if err != nil { util.Fatalf("%v", err) }
   suite := &dynReadWriteTester{ Conf:conf, Client:client, Metadata:metadata, }
 

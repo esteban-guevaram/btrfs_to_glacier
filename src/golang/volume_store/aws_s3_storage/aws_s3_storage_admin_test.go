@@ -1,4 +1,4 @@
-package cloud
+package aws_s3_storage
 
 import (
   "context"

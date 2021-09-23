@@ -46,8 +46,8 @@ func TestDynamoDbMetadataSetup(ctx context.Context, conf *pb.Config, client *dyn
 }
 
 func TestDeleteSnapshot(ctx context.Context, metadata types.AdminMetadata) {
-  snap := dummySnapshot(timedUuid("snap"), timedUuid("par"))
-  chunk_1 := dummyChunks(timedUuid("chunk_1"))
+  snap := util.DummySnapshot(timedUuid("snap"), timedUuid("par"))
+  chunk_1 := util.DummyChunks(timedUuid("chunk_1"))
 
   err := metadata.DeleteSnapshot(ctx, snap.Uuid)
   if !errors.Is(err, types.ErrNotFound) {
@@ -63,8 +63,8 @@ func TestDeleteSnapshot(ctx context.Context, metadata types.AdminMetadata) {
 
 func TestDeleteSnapshotSeq(ctx context.Context, metadata types.AdminMetadata) {
   vol_uuid := timedUuid("vol")
-  snap := dummySnapshot(timedUuid("snap"), vol_uuid)
-  seq := dummySnapshotSequence(vol_uuid, timedUuid("seq"))
+  snap := util.DummySnapshot(timedUuid("snap"), vol_uuid)
+  seq := util.DummySnapshotSequence(vol_uuid, timedUuid("seq"))
 
   err := metadata.DeleteSnapshotSeq(ctx, seq.Uuid)
   if !errors.Is(err, types.ErrNotFound) {
@@ -80,7 +80,7 @@ func TestDeleteSnapshotSeq(ctx context.Context, metadata types.AdminMetadata) {
 
 func TestDeleteSnapshotSeqHead(ctx context.Context, metadata types.AdminMetadata) {
   vol_uuid := timedUuid("vol")
-  seq := dummySnapshotSequence(vol_uuid, timedUuid("seq"))
+  seq := util.DummySnapshotSequence(vol_uuid, timedUuid("seq"))
 
   err := metadata.DeleteSnapshotSeqHead(ctx, vol_uuid)
   if !errors.Is(err, types.ErrNotFound) {

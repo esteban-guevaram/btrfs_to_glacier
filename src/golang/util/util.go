@@ -1,13 +1,18 @@
 package util
 
-import "bytes"
-import "context"
-import "fmt"
-import "io"
-import "os"
-import "os/exec"
-import "reflect"
-import "btrfs_to_glacier/types"
+import (
+  "bytes"
+  "context"
+  "errors"
+  "fmt"
+  "io"
+  "os"
+  "os/exec"
+  "reflect"
+  "btrfs_to_glacier/types"
+
+  "google.golang.org/protobuf/proto"
+)
 
 type PipeImpl struct {
   read_end  io.ReadCloser
@@ -156,5 +161,9 @@ func WrapInChan(err error) (<-chan error) {
   done <- err
   close(done)
   return done
+}
+
+func PbErrorf(format string, pbs ...proto.Message) error {
+  return errors.New(PbPrintf(format, pbs...))
 }
 

@@ -1,4 +1,4 @@
-package cloud
+package aws_s3_storage
 
 import (
   "bytes"
@@ -186,7 +186,7 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *mockS
     HeadAlwaysAccessDenied: false,
   }
   codec := new(mocks.Codec)
-  aws_conf, err := NewAwsConfig(context.TODO(), conf)
+  aws_conf, err := util.NewAwsConfig(context.TODO(), conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
 
   storage := &s3Storage{

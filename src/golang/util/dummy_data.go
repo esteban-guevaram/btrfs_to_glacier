@@ -1,17 +1,12 @@
-package main
+package util
 
 import (
   "fmt"
-  "time"
 
   pb "btrfs_to_glacier/messages"
 )
 
-func timedUuid(base_uuid string) string {
-  return fmt.Sprintf("%s-%d", base_uuid, time.Now().UnixNano())
-}
-
-func dummyChunks(chunk_uuid string) *pb.SnapshotChunks {
+func DummyChunks(chunk_uuid string) *pb.SnapshotChunks {
   chunk := &pb.SnapshotChunks_Chunk {
     Uuid: chunk_uuid,
     Start: 0,
@@ -23,7 +18,7 @@ func dummyChunks(chunk_uuid string) *pb.SnapshotChunks {
   }
 }
 
-func dummySubVolume(vol_uuid string) *pb.SubVolume {
+func DummySubVolume(vol_uuid string) *pb.SubVolume {
  return &pb.SubVolume{
     Uuid: vol_uuid,
     MountedPath: "/monkey/biz",
@@ -36,8 +31,8 @@ func dummySubVolume(vol_uuid string) *pb.SubVolume {
   }
 }
 
-func dummySnapshot(snap_uuid string, vol_uuid string) *pb.SubVolume {
-  vol := dummySubVolume(snap_uuid)
+func DummySnapshot(snap_uuid string, vol_uuid string) *pb.SubVolume {
+  vol := DummySubVolume(snap_uuid)
   vol.ParentUuid = vol_uuid
   vol.ReadOnly = true
   vol.CreatedTs += 111
@@ -45,8 +40,8 @@ func dummySnapshot(snap_uuid string, vol_uuid string) *pb.SubVolume {
   return vol
 }
 
-func dummySnapshotSequence(vol_uuid string, seq_uuid string) *pb.SnapshotSequence {
-  vol := dummySubVolume(vol_uuid)
+func DummySnapshotSequence(vol_uuid string, seq_uuid string) *pb.SnapshotSequence {
+  vol := DummySubVolume(vol_uuid)
   snap := fmt.Sprintf("%s_snap", vol_uuid)
   return &pb.SnapshotSequence{
     Uuid: seq_uuid,
@@ -55,11 +50,11 @@ func dummySnapshotSequence(vol_uuid string, seq_uuid string) *pb.SnapshotSequenc
   }
 }
 
-func dummySnapshotSeqHead(seq *pb.SnapshotSequence) *pb.SnapshotSeqHead {
+func DummySnapshotSeqHead(seq *pb.SnapshotSequence, prev ...string) *pb.SnapshotSeqHead {
   return &pb.SnapshotSeqHead{
     Uuid: seq.Volume.Uuid,
     CurSeqUuid: seq.Uuid,
-    PrevSeqUuid: nil,
+    PrevSeqUuid: prev,
   }
 }
 

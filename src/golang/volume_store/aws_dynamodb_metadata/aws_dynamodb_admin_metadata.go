@@ -1,4 +1,4 @@
-package cloud
+package aws_dynamodb_metadata
 
 import (
   "context"

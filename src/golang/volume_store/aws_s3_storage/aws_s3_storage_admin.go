@@ -1,4 +1,4 @@
-package cloud
+package aws_s3_storage
 
 import (
   "context"
@@ -35,7 +35,7 @@ func NewAdminStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (
 func (self *s3AdminStorage) checkBucketExistsAndIsOwnedByMyAccount(ctx context.Context) (bool, error) {
   var err error
   if len(self.account_id) < 1 {
-    self.account_id, err = GetAccountId(ctx, self.aws_conf)
+    self.account_id, err = util.GetAccountId(ctx, self.aws_conf)
     if err != nil { return false, err }
   }
 

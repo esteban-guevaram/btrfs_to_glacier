@@ -1,4 +1,4 @@
-package cloud
+package aws_dynamodb_metadata
 
 import (
   "context"
@@ -11,6 +11,7 @@ import (
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+  store "btrfs_to_glacier/volume_store"
 
   "github.com/aws/aws-sdk-go-v2/service/dynamodb"
   dyn_types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -192,7 +193,7 @@ func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {
   conf := util.LoadTestConf()
   client := new(mockDynamoDbClient)
   client.Data = make(map[keyAndtype][]byte)
-  aws_conf, err := NewAwsConfig(context.TODO(), conf)
+  aws_conf, err := util.NewAwsConfig(context.TODO(), conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
 
   meta := &dynamoMetadata{
@@ -211,8 +212,8 @@ func TestRecordSnapshotSeqHead_New(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, _ := buildTestMetadata(t)
-  new_seq := dummySnapshotSequence("vol", "seq")
-  expect_head := dummySnapshotSeqHead(new_seq)
+  new_seq := util.DummySnapshotSequence("vol", "seq")
+  expect_head := util.DummySnapshotSeqHead(new_seq)
   head, err := metadata.RecordSnapshotSeqHead(ctx, new_seq)
   if err != nil { t.Errorf("Returned error: %v", err) }
   util.EqualsOrFailTest(t, "SnapshotSeqHead", head, expect_head)
@@ -222,9 +223,9 @@ func TestRecordSnapshotSeqHead_Add(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestMetadata(t)
-  old_seq := dummySnapshotSequence("vol", "seq1")
-  new_seq := dummySnapshotSequence("vol", "seq2")
-  expect_head := dummySnapshotSeqHead(old_seq)
+  old_seq := util.DummySnapshotSequence("vol", "seq1")
+  new_seq := util.DummySnapshotSequence("vol", "seq2")
+  expect_head := util.DummySnapshotSeqHead(old_seq)
   client.putForTest(expect_head.Uuid, expect_head)
   expect_head.CurSeqUuid = new_seq.Uuid
   expect_head.PrevSeqUuid = []string{old_seq.Uuid}
@@ -238,8 +239,8 @@ func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestMetadata(t)
-  new_seq := dummySnapshotSequence("vol", "seq")
-  expect_head := dummySnapshotSeqHead(new_seq)
+  new_seq := util.DummySnapshotSequence("vol", "seq")
+  expect_head := util.DummySnapshotSeqHead(new_seq)
   client.putForTest(expect_head.Uuid, expect_head)
 
   head, err := metadata.RecordSnapshotSeqHead(ctx, new_seq)
@@ -251,10 +252,10 @@ func TestAppendSnapshotToSeq_New(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestMetadata(t)
-  seq := dummySnapshotSequence("vol", "seq")
+  seq := util.DummySnapshotSequence("vol", "seq")
   seq.SnapUuids = nil
-  expect_seq := dummySnapshotSequence("vol", "seq")
-  snap_to_add := dummySnapshot(expect_seq.SnapUuids[0], "vol")
+  expect_seq := util.DummySnapshotSequence("vol", "seq")
+  snap_to_add := util.DummySnapshot(expect_seq.SnapUuids[0], "vol")
   new_seq, err := metadata.AppendSnapshotToSeq(ctx, seq, snap_to_add)
 
   if err != nil { t.Errorf("Returned error: %v", err) }
@@ -267,15 +268,15 @@ func TestAppendSnapshotToSeq_Noop(t *testing.T) {
   defer cancel()
   metadata, client := buildTestMetadata(t)
   client.Err = fmt.Errorf("No methods on the client should have been called")
-  seq := dummySnapshotSequence("vol", "seq")
-  snap_to_add := dummySnapshot(seq.SnapUuids[0], "vol")
+  seq := util.DummySnapshotSequence("vol", "seq")
+  snap_to_add := util.DummySnapshot(seq.SnapUuids[0], "vol")
   _, err := metadata.AppendSnapshotToSeq(ctx, seq, snap_to_add)
   if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
 func TestAppendSnapshotToChunk_New(t *testing.T) {
-  snap := dummySnapshot("snap_uuid", "par_uuid")
-  chunk := dummyChunks("chunk_uuid")
+  snap := util.DummySnapshot("snap_uuid", "par_uuid")
+  chunk := util.DummyChunks("chunk_uuid")
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 
@@ -290,13 +291,13 @@ func TestAppendSnapshotToChunk_New(t *testing.T) {
 }
 
 func TestAppendSnapshotToChunk_Append(t *testing.T) {
-  snap := dummySnapshot("snap_uuid", "par_uuid")
-  snap.Data = dummyChunks("chunk_uuid1")
+  snap := util.DummySnapshot("snap_uuid", "par_uuid")
+  snap.Data = util.DummyChunks("chunk_uuid1")
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 
-  chunk := dummyChunks("chunk_uuid2")
-  chunk.Chunks[0].Start = SubVolumeDataLen(snap)
+  chunk := util.DummyChunks("chunk_uuid2")
+  chunk.Chunks[0].Start = store.SubVolumeDataLen(snap)
 
   util.PbInfof("snap: %v", snap)
   util.PbInfof("chunk: %v", chunk)
@@ -305,14 +306,14 @@ func TestAppendSnapshotToChunk_Append(t *testing.T) {
   if err != nil { t.Errorf("Returned error: %v", err) }
 
   if !client.getForTest("snap_uuid", &pb.SubVolume{}) { t.Errorf("No snapshot persisted") }
-  expect_chunks := dummyChunks("chunk_uuid1")
+  expect_chunks := util.DummyChunks("chunk_uuid1")
   expect_chunks.Chunks = append(expect_chunks.Chunks, chunk.Chunks[0])
   util.EqualsOrFailTest(t, "SnapshotChunk", new_snap.Data, expect_chunks)
 }
 
 func TestAppendSnapshotToChunk_Noop(t *testing.T) {
-  snap := dummySnapshot("snap_uuid", "par_uuid")
-  chunk := dummyChunks("chunk_uuid")
+  snap := util.DummySnapshot("snap_uuid", "par_uuid")
+  chunk := util.DummyChunks("chunk_uuid")
   snap.Data = chunk
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
@@ -326,29 +327,29 @@ func TestAppendSnapshotToChunk_Noop(t *testing.T) {
 
 func TestAppendSnapshotToChunk_Errors(t *testing.T) {
   var err error
-  snap := dummySnapshot("snap_uuid", "par_uuid")
-  snap.Data = dummyChunks("chunk_uuid")
+  snap := util.DummySnapshot("snap_uuid", "par_uuid")
+  snap.Data = util.DummyChunks("chunk_uuid")
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 
   metadata, _ := buildTestMetadata(t)
 
-  chunk_1 := dummyChunks("chunk_uuid1")
+  chunk_1 := util.DummyChunks("chunk_uuid1")
   chunk_1.Chunks[0].Start += 1
   _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_1)
   if err == nil { t.Errorf("Expected error: %v", err) }
 
-  chunk_2 := dummyChunks("chunk_uuid2")
+  chunk_2 := util.DummyChunks("chunk_uuid2")
   chunk_2.Chunks[0].Size += 1
   _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_2)
   if err == nil { t.Errorf("Expected error: %v", err) }
 
-  chunk_3 := dummyChunks("chunk_uuid3")
-  chunk_3.Chunks[0].Start = SubVolumeDataLen(snap) + 1
+  chunk_3 := util.DummyChunks("chunk_uuid3")
+  chunk_3.Chunks[0].Start = store.SubVolumeDataLen(snap) + 1
   _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_3)
   if err == nil { t.Errorf("Expected error: %v", err) }
 
-  chunk_4 := dummyChunks("chunk_uuid4")
+  chunk_4 := util.DummyChunks("chunk_uuid4")
   chunk_4.KeyFingerprint = snap.Data.KeyFingerprint + "_wrong_keyfp"
   _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_4)
   if err == nil { t.Errorf("Expected error: %v", err) }
@@ -358,8 +359,8 @@ func TestReadSnapshotSeqHead(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestMetadata(t)
-  seq := dummySnapshotSequence("vol", "seq1")
-  expect_head := dummySnapshotSeqHead(seq)
+  seq := util.DummySnapshotSequence("vol", "seq1")
+  expect_head := util.DummySnapshotSeqHead(seq)
   client.putForTest(expect_head.Uuid, expect_head)
 
   head, err := metadata.ReadSnapshotSeqHead(ctx, expect_head.Uuid)
@@ -381,7 +382,7 @@ func TestReadSnapshotSeq(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestMetadata(t)
-  expect_seq := dummySnapshotSequence("vol", "seq1")
+  expect_seq := util.DummySnapshotSequence("vol", "seq1")
   client.putForTest(expect_seq.Uuid, expect_seq)
 
   seq, err := metadata.ReadSnapshotSeq(ctx, expect_seq.Uuid)
@@ -403,8 +404,8 @@ func TestReadSnapshot(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestMetadata(t)
-  expect_snap := dummySnapshot("snap_uuid", "vol_uuid")
-  expect_snap.Data = dummyChunks("chunk_uuid1")
+  expect_snap := util.DummySnapshot("snap_uuid", "vol_uuid")
+  expect_snap.Data = util.DummyChunks("chunk_uuid1")
   client.putForTest(expect_snap.Uuid, expect_snap)
 
   snap, err := metadata.ReadSnapshot(ctx, expect_snap.Uuid)
@@ -446,8 +447,8 @@ func testMetadataListAll_Helper(t *testing.T, total int, fill_size int32, pb_f c
 }
 
 func head_pb_f() (string, proto.Message) {
-  new_seq := dummySnapshotSequence(uuid.NewString(), uuid.NewString())
-  new_head := dummySnapshotSeqHead(new_seq)
+  new_seq := util.DummySnapshotSequence(uuid.NewString(), uuid.NewString())
+  new_head := util.DummySnapshotSeqHead(new_seq)
   return new_head.Uuid, new_head
 }
 func head_iter_f(ctx context.Context, metadata types.Metadata) (map[string]proto.Message, error) {
@@ -508,7 +509,7 @@ func TestListAllSnapshotSeqHeads_ErrDuringIteration(t *testing.T) {
 }
 
 func seq_pb_f() (string, proto.Message) {
-  new_seq := dummySnapshotSequence(uuid.NewString(), uuid.NewString())
+  new_seq := util.DummySnapshotSequence(uuid.NewString(), uuid.NewString())
   return new_seq.Uuid, new_seq
 }
 func seq_iter_f(ctx context.Context, metadata types.Metadata) (map[string]proto.Message, error) {
@@ -532,7 +533,7 @@ func TestListAllSnapshotSeqs_MultipleFill(t *testing.T) {
 }
 
 func snap_pb_f() (string, proto.Message) {
-  new_sv := dummySubVolume(uuid.NewString())
+  new_sv := util.DummySubVolume(uuid.NewString())
   return new_sv.Uuid, new_sv
 }
 func snap_iter_f(ctx context.Context, metadata types.Metadata) (map[string]proto.Message, error) {

@@ -1,4 +1,4 @@
-package cloud
+package aws_s3_storage
 // AFAIK S3, Glacier S3 and Glacier are all different *incompatible* APIs.
 // This implementation will use the vanilla S3 API.
 // * All objects are written to Standard class and the transitioned to Glacier using lifecycle rules.
@@ -25,6 +25,7 @@ import (
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+  store "btrfs_to_glacier/volume_store"
 
   "github.com/aws/aws-sdk-go-v2/aws"
   "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -360,7 +361,7 @@ func (self *s3Storage) readOneChunk(
 // In our case, the codec uses a stream cypher, parallel (out-of-order) downloads will make things much more complex.
 // Not to mention for a home connection bandwidth, this is an overkill...
 func (self *s3Storage) ReadChunksIntoStream(ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error) {
-  err := ValidateSnapshotChunks(CheckChunkFromStart, chunks)
+  err := store.ValidateSnapshotChunks(store.CheckChunkFromStart, chunks)
   if err != nil { return nil, err }
   pipe := util.NewFileBasedPipe(ctx)
   key_fp := types.PersistableString{chunks.KeyFingerprint}

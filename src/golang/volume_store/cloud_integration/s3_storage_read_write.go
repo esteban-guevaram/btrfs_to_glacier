@@ -7,7 +7,7 @@ import (
   "io"
   "math/rand"
 
-  "btrfs_to_glacier/cloud"
+  store "btrfs_to_glacier/volume_store/aws_s3_storage"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
@@ -250,7 +250,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.
   select {
     case res := <-done:
       got_err := res[keys[0]].Err
-      if !cloud.IsS3Error(new(s3_types.NoSuchKey), got_err) {
+      if !store.IsS3Error(new(s3_types.NoSuchKey), got_err) {
         util.Fatalf("Expected error status: %v", res)
       }
     case <-ctx.Done(): util.Fatalf("timedout")
@@ -260,7 +260,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.
 func (self *s3ReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Context, snowflake_bucket string, snowflake_key string) {
   tmp_conf := proto.Clone(self.Conf).(*pb.Config)
   tmp_conf.Aws.S3.BucketName = snowflake_bucket
-  restore_func := cloud.TestOnlySwapConf(self.Storage, tmp_conf)
+  restore_func := store.TestOnlySwapConf(self.Storage, tmp_conf)
   defer restore_func()
 
   keys := []string{snowflake_key}
@@ -272,7 +272,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Co
 func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx context.Context, snowflake_bucket string, snowflake_key string) {
   tmp_conf := proto.Clone(self.Conf).(*pb.Config)
   tmp_conf.Aws.S3.BucketName = snowflake_bucket
-  restore_func := cloud.TestOnlySwapConf(self.Storage, tmp_conf)
+  restore_func := store.TestOnlySwapConf(self.Storage, tmp_conf)
   defer restore_func()
 
   keys := []string{snowflake_key}
@@ -282,7 +282,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx conte
 
 func (self *s3ReadWriteTester) testListAllChunks_Helper(ctx context.Context, total int, fill_size int32) {
   emptyBucketOrDie(ctx, self.Conf, self.Client)
-  restore_f := cloud.TestOnlyChangeIterationSize(self.Storage, fill_size)
+  restore_f := store.TestOnlyChangeIterationSize(self.Storage, fill_size)
   defer restore_f()
   expect_objs := make(map[string]*pb.SnapshotChunks_Chunk)
   got_objs := make(map[string]*pb.SnapshotChunks_Chunk)
@@ -348,9 +348,9 @@ func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
 
   codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
-  storage, err := cloud.NewAdminStorage(new_conf, aws_conf, codec)
+  storage, err := store.NewAdminStorage(new_conf, aws_conf, codec)
   //client := s3.NewFromConfig(*aws_conf)
-  client := cloud.TestOnlyGetInnerClientToAvoidConsistencyFails(storage)
+  client := store.TestOnlyGetInnerClientToAvoidConsistencyFails(storage)
   if err != nil { util.Fatalf("%v", err) }
 
   TestS3StorageSetup(ctx, new_conf, client, storage)

@@ -1,4 +1,4 @@
-package cloud
+package aws_dynamodb_metadata
 // * Can be used as KV store but blobs limited to 400KB
 // * Eternal free tier should cover all storage needs
 // * Which replication settings to get 99.999 durability ? (already replicated in the aws region)
@@ -12,6 +12,7 @@ import (
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+  store "btrfs_to_glacier/volume_store"
 
   "github.com/aws/aws-sdk-go-v2/aws"
   dyn_expr "github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
@@ -144,7 +145,7 @@ func (self *dynamoMetadata) WriteObject(ctx context.Context, key string, msg pro
 }
 
 func (self *dynamoMetadata) RecordSnapshotSeqHead(ctx context.Context, new_seq *pb.SnapshotSequence) (*pb.SnapshotSeqHead, error) {
-  err := ValidateSnapshotSequence(new_seq)
+  err := store.ValidateSnapshotSequence(new_seq)
   if err != nil { return nil, err }
 
   head := &pb.SnapshotSeqHead{}
@@ -160,7 +161,7 @@ func (self *dynamoMetadata) RecordSnapshotSeqHead(ctx context.Context, new_seq *
   if !is_new_head { head.PrevSeqUuid = append(head.PrevSeqUuid, head.CurSeqUuid) }
   head.CurSeqUuid = new_seq.Uuid
 
-  err = ValidateSnapshotSeqHead(head)
+  err = store.ValidateSnapshotSeqHead(head)
   if err != nil { return nil, err }
   err = self.WriteObject(ctx, new_seq.Volume.Uuid, head)
   if err != nil { return nil, err }
@@ -171,7 +172,7 @@ func (self *dynamoMetadata) RecordSnapshotSeqHead(ctx context.Context, new_seq *
 
 func (self *dynamoMetadata) AppendSnapshotToSeq(
     ctx context.Context, seq *pb.SnapshotSequence, snap *pb.SubVolume) (*pb.SnapshotSequence, error) {
-  err := ValidateSubVolume(CheckSnapNoContent, snap)
+  err := store.ValidateSubVolume(store.CheckSnapNoContent, snap)
   if err != nil { return nil, err }
 
   new_seq := proto.Clone(seq).(*pb.SnapshotSequence)
@@ -185,13 +186,13 @@ func (self *dynamoMetadata) AppendSnapshotToSeq(
 
   new_seq.SnapUuids = append(new_seq.SnapUuids, snap.Uuid)
 
-  err = ValidateSnapshotSequence(new_seq)
+  err = store.ValidateSnapshotSequence(new_seq)
   if err != nil { return nil, err }
   if new_seq.Volume.Uuid != snap.ParentUuid {
-    return nil, PbErrorf("Sequence volume and snap parent do not match: %v, %v", new_seq, snap)
+    return nil, util.PbErrorf("Sequence volume and snap parent do not match: %v, %v", new_seq, snap)
   }
   if new_seq.Volume.CreatedTs >= snap.CreatedTs {
-    return nil, PbErrorf("Sequence volume created after snap: %v, %v", new_seq, snap)
+    return nil, util.PbErrorf("Sequence volume created after snap: %v, %v", new_seq, snap)
   }
   self.WriteObject(ctx, new_seq.Uuid, new_seq)
   if err != nil { return nil, err }
@@ -219,11 +220,11 @@ func isFullyContainedInSubvolume(snap *pb.SubVolume, chunk *pb.SnapshotChunks) b
 
 func (self *dynamoMetadata) AppendChunkToSnapshot(
     ctx context.Context, snap *pb.SubVolume, chunk *pb.SnapshotChunks) (*pb.SubVolume, error) {
-  err := ValidateSnapshotChunks(CheckChunkNotFirst, chunk)
+  err := store.ValidateSnapshotChunks(store.CheckChunkNotFirst, chunk)
   if err != nil { return nil, err }
 
   if snap.Data != nil && snap.Data.KeyFingerprint != chunk.KeyFingerprint {
-    return nil, PbErrorf("Snapshot chunk key mismatch: %v, %v", snap, chunk)
+    return nil, util.PbErrorf("Snapshot chunk key mismatch: %v, %v", snap, chunk)
   }
 
   new_snap := proto.Clone(snap).(*pb.SubVolume)
@@ -232,9 +233,9 @@ func (self *dynamoMetadata) AppendChunkToSnapshot(
     return new_snap, nil
   }
 
-  data_len := SubVolumeDataLen(snap)
+  data_len := store.SubVolumeDataLen(snap)
   if chunk.Chunks[0].Start != data_len {
-    return nil, PbErrorf("Snapshot chunk not contiguous: %v, %v", snap, chunk)
+    return nil, util.PbErrorf("Snapshot chunk not contiguous: %v, %v", snap, chunk)
   }
 
   if new_snap.Data == nil {
@@ -242,7 +243,7 @@ func (self *dynamoMetadata) AppendChunkToSnapshot(
   }
   new_snap.Data.Chunks = append(new_snap.Data.Chunks, chunk.Chunks...)
 
-  err = ValidateSubVolume(CheckSnapWithContent, new_snap)
+  err = store.ValidateSubVolume(store.CheckSnapWithContent, new_snap)
   if err != nil { return nil, err }
   err = self.WriteObject(ctx, new_snap.Uuid, new_snap)
   if err != nil { return nil, err }
@@ -257,7 +258,7 @@ func (self *dynamoMetadata) ReadSnapshotSeqHead(
   head := &pb.SnapshotSeqHead{}
   err := self.ReadObject(ctx, uuid, head)
   if err != nil { return nil, err }
-  err = ValidateSnapshotSeqHead(head)
+  err = store.ValidateSnapshotSeqHead(head)
   if err != nil { return nil, err }
 
   util.PbInfof("Read head: %v", head)
@@ -270,7 +271,7 @@ func (self *dynamoMetadata) ReadSnapshotSeq(
   seq := &pb.SnapshotSequence{}
   err := self.ReadObject(ctx, uuid, seq)
   if err != nil { return nil, err }
-  err = ValidateSnapshotSequence(seq)
+  err = store.ValidateSnapshotSequence(seq)
   if err != nil { return nil, err }
 
   util.PbInfof("Read sequence: %v", seq)
@@ -283,7 +284,7 @@ func (self *dynamoMetadata) ReadSnapshot(
   snap := &pb.SubVolume{}
   err := self.ReadObject(ctx, uuid, snap)
   if err != nil { return nil, err }
-  err = ValidateSubVolume(CheckSnapWithContent, snap)
+  err = store.ValidateSubVolume(store.CheckSnapWithContent, snap)
   if err != nil { return nil, err }
 
   util.PbInfof("Read subvolume: %v", snap)

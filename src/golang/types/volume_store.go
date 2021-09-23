@@ -79,13 +79,13 @@ type Metadata interface {
   // If there is no subvolume, returns `ErrNotFound`.
   ReadSnapshot(ctx context.Context, uuid string) (*pb.SubVolume, error)
 
-  // Returns all heads in no particular order. When there are no more items, the iterator returns ErrNoMore.
+  // Returns all heads in no particular order.
   ListAllSnapshotSeqHeads(ctx context.Context) (SnapshotSeqHeadIterator, error)
 
-  // Returns all sequences in no particular order. When there are no more items, the iterator returns ErrNoMore.
+  // Returns all sequences in no particular order.
   ListAllSnapshotSeqs(ctx context.Context) (SnapshotSequenceIterator, error)
 
-  // Returns all snapshots in no particular order. When there are no more items, the iterator returns ErrNoMore.
+  // Returns all snapshots in no particular order.
   ListAllSnapshots(ctx context.Context) (SnapshotIterator, error)
 }
 
@@ -138,7 +138,7 @@ type Storage interface {
   // A permanent error while reading a chunk will close the stream.
   ReadChunksIntoStream(ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error)
 
-  // Returns all chunks in no particular order. When there are no more items, the iterator returns ErrNoMore.
+  // Returns all chunks in no particular order.
   // Not all chunk fields may be filled.
   ListAllChunks(ctx context.Context) (SnapshotChunksIterator, error)
 }

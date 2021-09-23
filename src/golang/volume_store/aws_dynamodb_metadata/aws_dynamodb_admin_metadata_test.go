@@ -1,4 +1,4 @@
-package cloud
+package aws_dynamodb_metadata
 
 import (
   "context"
@@ -7,6 +7,7 @@ import (
   "time"
 
   "btrfs_to_glacier/types"
+  "btrfs_to_glacier/util"
   dyn_types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
@@ -69,7 +70,7 @@ func TestDeleteSnapshotSeqHead(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
-  expect_head := dummySnapshotSeqHead(dummySnapshotSequence("vol_uuid", "seq_uuid"))
+  expect_head := util.DummySnapshotSeqHead(util.DummySnapshotSequence("vol_uuid", "seq_uuid"))
   client.putForTest(expect_head.Uuid, expect_head)
 
   err := metadata.DeleteSnapshotSeqHead(ctx, expect_head.Uuid)
@@ -85,7 +86,7 @@ func TestDeleteSnapshotSeq(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
-  expect_seq := dummySnapshotSequence("vol_uuid", "seq_uuid")
+  expect_seq := util.DummySnapshotSequence("vol_uuid", "seq_uuid")
   client.putForTest(expect_seq.Uuid, expect_seq)
 
   err := metadata.DeleteSnapshotSeq(ctx, expect_seq.Uuid)
@@ -101,7 +102,7 @@ func TestDeleteSnapshot(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
-  expect_snap := dummySnapshot("snap_uuid", "vol_uuid")
+  expect_snap := util.DummySnapshot("snap_uuid", "vol_uuid")
   client.putForTest(expect_snap.Uuid, expect_snap)
 
   err := metadata.DeleteSnapshot(ctx, expect_snap.Uuid)

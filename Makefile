@@ -48,14 +48,14 @@ clean:
 cloud_integ: all $(AWS_TEMP_CREDS_SH)
 	source "$(AWS_TEMP_CREDS_SH)"
 	pushd "$(MYGOSRC)"
-	GOENV="$(GOENV)" go run ./cloud/cloud_integration \
+	GOENV="$(GOENV)" go run ./volume_store/cloud_integration \
 		--access="$$ACCESS" --secret="$$SECRET" --session="$$SESSION" \
 		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)" --bucket="$(AWS_BUCKET)"
 
 test: all go_unittest | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
-	GOENV="$(GOENV)" go run ./shim/shim_integration \
+	GOENV="$(GOENV)" go run ./volume_source/shim/shim_integration \
 	  --subvol="$(SUBVOL_PATH)" \
 		--rootvol="$(MOUNT_TESTVOL_SRC)" \
 		--snap1="$(SNAP1_PATH)" --snap2="$(SNAP2_PATH)"

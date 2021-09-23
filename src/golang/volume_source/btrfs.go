@@ -1,4 +1,4 @@
-package local
+package volume_source
 
 import (
   "context"
@@ -7,7 +7,7 @@ import (
   fpmod "path/filepath"
   "sort"
   "time"
-  "btrfs_to_glacier/shim"
+  "btrfs_to_glacier/volume_source/shim"
   "btrfs_to_glacier/types"
   pb "btrfs_to_glacier/messages"
 )

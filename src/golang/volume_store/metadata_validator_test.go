@@ -1,69 +1,16 @@
-package cloud
+package volume_store
 
 import (
-  "fmt"
   "testing"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
 )
 
-func dummyChunks(chunk_uuid string) *pb.SnapshotChunks {
-  chunk := &pb.SnapshotChunks_Chunk {
-    Uuid: chunk_uuid,
-    Start: 0,
-    Size: 3,
-  }
-  return &pb.SnapshotChunks{
-    KeyFingerprint: "fp",
-    Chunks: []*pb.SnapshotChunks_Chunk{chunk},
-  }
-}
-
-func dummySubVolume(vol_uuid string) *pb.SubVolume {
- return &pb.SubVolume{
-    Uuid: vol_uuid,
-    MountedPath: "/monkey/biz",
-    CreatedTs: 666,
-    OriginSys: &pb.SystemInfo{
-      KernMajor: 1,
-      BtrfsUsrMajor: 1,
-      ToolGitCommit: "commit_hash",
-    },
-  }
-}
-
-func dummySnapshot(snap_uuid string, vol_uuid string) *pb.SubVolume {
-  vol := dummySubVolume(snap_uuid)
-  vol.ParentUuid = vol_uuid
-  vol.ReadOnly = true
-  vol.CreatedTs += 111
-  vol.GenAtCreation = 777
-  return vol
-}
-
-func dummySnapshotSequence(vol_uuid string, seq_uuid string) *pb.SnapshotSequence {
-  vol := dummySubVolume(vol_uuid)
-  snap := fmt.Sprintf("%s_snap", vol_uuid)
-  return &pb.SnapshotSequence{
-    Uuid: seq_uuid,
-    Volume: vol,
-    SnapUuids: []string{snap},
-  }
-}
-
-func dummySnapshotSeqHead(seq *pb.SnapshotSequence, prev ...string) *pb.SnapshotSeqHead {
-  return &pb.SnapshotSeqHead{
-    Uuid: seq.Volume.Uuid,
-    CurSeqUuid: seq.Uuid,
-    PrevSeqUuid: prev,
-  }
-}
-
 func TestValidateSnapshotChunks(t *testing.T) {
-  chunks := dummyChunks("sldjfsldk")
+  chunks := util.DummyChunks("sldjfsldk")
   bad_chunks := &pb.SnapshotChunks{}
-  dupe_chunks := dummyChunks("skdfhk")
+  dupe_chunks := util.DummyChunks("skdfhk")
   dupe_chunks.Chunks = append(dupe_chunks.Chunks, dupe_chunks.Chunks[0])
 
   err := ValidateSnapshotChunks(CheckChunkFromStart, chunks)
@@ -75,7 +22,7 @@ func TestValidateSnapshotChunks(t *testing.T) {
 }
 
 func TestValidateSystemInfo(t *testing.T) {
-  sv := dummySubVolume("vol")
+  sv := util.DummySubVolume("vol")
   si := sv.OriginSys
   bad_si := &pb.SystemInfo{}
 
@@ -86,8 +33,8 @@ func TestValidateSystemInfo(t *testing.T) {
 }
 
 func TestSubVolumeDataLen(t *testing.T) {
-  sv := dummySubVolume("vol")
-  sv.Data = dummyChunks("first")
+  sv := util.DummySubVolume("vol")
+  sv.Data = util.DummyChunks("first")
   first_len := SubVolumeDataLen(sv)
   util.EqualsOrFailTest(t, "Bad subvol len", first_len, sv.Data.Chunks[0].Size)
 
@@ -102,9 +49,9 @@ func TestSubVolumeDataLen(t *testing.T) {
 }
 
 func TestValidateSubVolume(t *testing.T) {
-  sv := dummySubVolume("vol")
+  sv := util.DummySubVolume("vol")
   bad_sv := &pb.SubVolume{}
-  snap := dummySnapshot("snap", "parent")
+  snap := util.DummySnapshot("snap", "parent")
   bad_snap := &pb.SubVolume{}
 
   err := ValidateSubVolume(CheckSvInSeq, sv)
@@ -117,7 +64,7 @@ func TestValidateSubVolume(t *testing.T) {
   err = ValidateSubVolume(CheckSnapNoContent, bad_snap)
   if err == nil { t.Errorf("empty snapshot should be ko: %v", bad_snap) }
 
-  snap.Data = dummyChunks("sldjkf")
+  snap.Data = util.DummyChunks("sldjkf")
   err = ValidateSubVolume(CheckSnapWithContent, snap)
   if err != nil { t.Errorf("this should be ok: %v", snap) }
   err = ValidateSubVolume(CheckSnapWithContent, bad_snap)
@@ -125,9 +72,9 @@ func TestValidateSubVolume(t *testing.T) {
 }
 
 func TestValidateSnapshotSeqHead(t *testing.T) {
-  seq := dummySnapshotSequence("vol", "seq")
+  seq := util.DummySnapshotSequence("vol", "seq")
   bad_head := &pb.SnapshotSeqHead{}
-  head := dummySnapshotSeqHead(seq, "s1", "s2")
+  head := util.DummySnapshotSeqHead(seq, "s1", "s2")
   err := ValidateSnapshotSeqHead(head)
   if err != nil { t.Errorf("this should be ok: %v", head) }
   err = ValidateSnapshotSeqHead(bad_head)
@@ -135,7 +82,7 @@ func TestValidateSnapshotSeqHead(t *testing.T) {
 }
 
 func TestValidateSnapshotSequence(t *testing.T) {
-  seq := dummySnapshotSequence("vol", "seq")
+  seq := util.DummySnapshotSequence("vol", "seq")
   bad_seq := &pb.SnapshotSequence{}
   err := ValidateSnapshotSequence(seq)
   if err != nil { t.Errorf("this should be ok: %v", seq) }
