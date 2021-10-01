@@ -33,12 +33,13 @@ const (
 // The subset of the dynamodb client used.
 // Convenient for unittesting purposes.
 type usedDynamoDbIf interface {
-  CreateTable  (context.Context, *dynamodb.CreateTableInput,   ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
-  DeleteItem   (context.Context, *dynamodb.DeleteItemInput,    ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
-  DescribeTable(context.Context, *dynamodb.DescribeTableInput, ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
-  GetItem      (context.Context, *dynamodb.GetItemInput,       ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
-  PutItem      (context.Context, *dynamodb.PutItemInput,       ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
-  Scan         (context.Context, *dynamodb.ScanInput,          ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
+  BatchWriteItem(context.Context, *dynamodb.BatchWriteItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
+  CreateTable   (context.Context, *dynamodb.CreateTableInput,    ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
+  DeleteItem    (context.Context, *dynamodb.DeleteItemInput,     ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
+  DescribeTable (context.Context, *dynamodb.DescribeTableInput,  ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
+  GetItem       (context.Context, *dynamodb.GetItemInput,        ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+  PutItem       (context.Context, *dynamodb.PutItemInput,        ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+  Scan          (context.Context, *dynamodb.ScanInput,           ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
 }
 
 type dynamoMetadata struct {
@@ -90,13 +91,22 @@ func (self *dynamoMetadata) getScanExpression(msg proto.Message) dyn_expr.Expres
   return expr
 }
 
-func (self *dynamoMetadata) getItemKey(key string, msg proto.Message) map[string]dyn_types.AttributeValue {
+func typeColValue(msg proto.Message) string {
   typename := msg.ProtoReflect().Descriptor().FullName()
+  return string(typename)
+}
+
+func (self *dynamoMetadata) uuidTypeToKey(uuid string, typename string) map[string]dyn_types.AttributeValue {
   composite_k := map[string]dyn_types.AttributeValue{
-    self.uuid_col: &dyn_types.AttributeValueMemberS{Value: key,},
-    self.type_col: &dyn_types.AttributeValueMemberS{Value: string(typename),},
+    self.uuid_col: &dyn_types.AttributeValueMemberS{Value: uuid,},
+    self.type_col: &dyn_types.AttributeValueMemberS{Value: typename,},
   }
   return composite_k
+}
+
+func (self *dynamoMetadata) getItemKey(uuid string, msg proto.Message) map[string]dyn_types.AttributeValue {
+  typename := typeColValue(msg)
+  return self.uuidTypeToKey(uuid, typename)
 }
 
 func (self *dynamoMetadata) getBlobFromItem(item map[string]dyn_types.AttributeValue) ([]byte, error) {

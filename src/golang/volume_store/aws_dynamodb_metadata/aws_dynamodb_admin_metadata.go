@@ -9,6 +9,7 @@ import (
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+  store "btrfs_to_glacier/volume_store"
 
   "github.com/aws/aws-sdk-go-v2/aws"
   "github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -17,14 +18,23 @@ import (
   "google.golang.org/protobuf/proto"
 )
 
+const (
+  delete_batch = 100
+)
+
 type dynamoAdminMetadata struct {
   *dynamoMetadata
+  delete_batch int
 }
 
 func NewAdminMetadata(conf *pb.Config, aws_conf *aws.Config) (types.AdminMetadata, error) {
   meta, err := NewMetadata(conf, aws_conf)
   if err != nil { return nil, err }
-  return &dynamoAdminMetadata{ meta.(*dynamoMetadata) }, nil
+  admin := &dynamoAdminMetadata{
+    dynamoMetadata: meta.(*dynamoMetadata),
+    delete_batch: delete_batch,
+  }
+  return admin, nil
 }
 
 func TestOnlyDynMetaChangeIterationSize(metadata types.Metadata, fill_size int32) func() {
@@ -175,5 +185,90 @@ func (self *dynamoAdminMetadata) DeleteSnapshot(
     util.Infof("Delete snapshot: %v", uuid)
   }
   return err
+}
+
+func (self *dynamoAdminMetadata) buildDeleteRequest(uuid string, typename string) dyn_types.WriteRequest {
+  return dyn_types.WriteRequest{
+    DeleteRequest: &dyn_types.DeleteRequest{ Key:self.uuidTypeToKey(uuid, typename), },
+  }
+}
+
+func (self *dynamoAdminMetadata) flushDeletes(ctx context.Context, keys []dyn_types.WriteRequest) error {
+  tabname := self.conf.Aws.DynamoDb.TableName
+  remaining_keys := map[string][]dyn_types.WriteRequest {
+    tabname: keys,
+  }
+  for len(remaining_keys[tabname]) > 0 {
+    del_in := &dynamodb.BatchWriteItemInput{
+      RequestItems: remaining_keys,
+      ReturnConsumedCapacity: dyn_types.ReturnConsumedCapacityNone,
+    }
+    del_out, err := self.client.BatchWriteItem(ctx, del_in)
+    if err != nil { return err }
+    remaining_keys = del_out.UnprocessedItems
+  }
+  return nil
+}
+
+func (self *dynamoAdminMetadata) DeleteMetadataUuids(
+    ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error) {
+  done := make(chan error, 1)
+  go func() {
+    defer close(done)
+    uuid_map := map[string][]string {
+      typeColValue(&pb.SnapshotSequence{}): seq_uuids,
+      typeColValue(&pb.SubVolume{}): snap_uuids,
+    }
+    keys := make([]dyn_types.WriteRequest, 0, self.delete_batch)
+
+    for typename,uuids := range uuid_map {
+      for _,uuid := range uuids {
+        keys = append(keys, self.buildDeleteRequest(uuid, typename))
+        if len(keys) >= self.delete_batch {
+          err := self.flushDeletes(ctx, keys)
+          if err != nil { done <- err ; return }
+          keys = keys[:0]
+        }
+      }
+    }
+    err := self.flushDeletes(ctx, keys)
+    if err != nil { done <- err ; return }
+    util.Infof("Deleted seq=%v, snap=%v", seq_uuids, snap_uuids)
+  }()
+  return done
+}
+
+func (self *dynamoAdminMetadata) ReplaceSnapshotSeqHead(
+    ctx context.Context, head *pb.SnapshotSeqHead) (*pb.SnapshotSeqHead, error) {
+  var blob []byte
+  var err error
+  var put_out *dynamodb.PutItemOutput
+  old_head := &pb.SnapshotSeqHead{}
+  err = store.ValidateSnapshotSeqHead(head)
+  if err != nil { return nil, err }
+
+  item := self.getItemKey(head.Uuid, head)
+  blob, err = proto.Marshal(head)
+  if err != nil { return nil, err }
+  item[self.blob_col] = &dyn_types.AttributeValueMemberB{Value: blob,}
+
+  put_in := &dynamodb.PutItemInput{
+    TableName: &self.conf.Aws.DynamoDb.TableName,
+    Item: item,
+    ConditionExpression: aws.String(fmt.Sprintf("attribute_exists(%s)", self.blob_col)),
+    ReturnValues: dyn_types.ReturnValueAllOld,
+  }
+  put_out, err = self.client.PutItem(ctx, put_in)
+  if err != nil {
+    apiErr := new(dyn_types.ConditionalCheckFailedException)
+    if errors.As(err, &apiErr) { return nil, fmt.Errorf("%w uuid=%v", types.ErrNotFound, head.Uuid) }
+  }
+  if err != nil { return nil, err }
+
+  util.PbInfof("Wrote head: %v", head)
+  blob, err = self.getBlobFromItem(put_out.Attributes)
+  if err != nil { return nil, err }
+  err = proto.Unmarshal(blob, old_head)
+  return old_head, err
 }
 

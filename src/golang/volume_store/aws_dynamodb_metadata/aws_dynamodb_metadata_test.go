@@ -144,8 +144,18 @@ func (self *mockDynamoDbClient) PutItem(
     Key: stringOrDie(params.Item, Uuid_col),
     Type: stringOrDie(params.Item, Type_col),
   }
+  old_data, found := self.Data[key]
+  if !found && params.ConditionExpression != nil {
+    err := new(dyn_types.ConditionalCheckFailedException)
+    return &dynamodb.PutItemOutput{}, err
+  }
   self.Data[key] = blobOrDie(params.Item, Blob_col)
-  return &dynamodb.PutItemOutput{}, nil
+  put_out := &dynamodb.PutItemOutput{
+    Attributes: map[string]dyn_types.AttributeValue{
+      Blob_col: &dyn_types.AttributeValueMemberB{Value: old_data,},
+    },
+  }
+  return put_out, nil
 }
 func (self *mockDynamoDbClient) DeleteItem(
     ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
@@ -160,6 +170,28 @@ func (self *mockDynamoDbClient) DeleteItem(
   }
   delete(self.Data, key)
   return &dynamodb.DeleteItemOutput{}, nil
+}
+func (self *mockDynamoDbClient) BatchWriteItem(
+    ctx context.Context, del_in *dynamodb.BatchWriteItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
+  for tabname,rq_list := range del_in.RequestItems {
+    if len(rq_list) < 1 { return nil, fmt.Errorf("Bad request: %v", del_in) }
+    if rq_list[0].DeleteRequest == nil { return nil, fmt.Errorf("Bad request: %v", del_in) }
+    del_key := rq_list[0].DeleteRequest.Key
+    if len(del_key) != 2 { return nil, fmt.Errorf("Bad request: %v", del_in) }
+    mock_key := keyAndtype{
+      Key: stringOrDie (del_key, Uuid_col),
+      Type: stringOrDie(del_key, Type_col),
+    }
+    delete(self.Data, mock_key)
+
+    del_out := &dynamodb.BatchWriteItemOutput{
+      UnprocessedItems: map[string][]dyn_types.WriteRequest{
+        tabname: rq_list[1:],
+      },
+    }
+    return del_out, self.Err
+  }
+  return nil, fmt.Errorf("Bad request: %v", del_in)
 }
 func (self *mockDynamoDbClient) putForTest(k string, p proto.Message) {
   key := keyAndtype{

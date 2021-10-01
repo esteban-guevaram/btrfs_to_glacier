@@ -112,6 +112,16 @@ type AdminMetadata interface {
   // Deletes subvolume with `uuid`.
   // If there is no subvolume, returns `ErrNotFound`.
   DeleteSnapshot(ctx context.Context, uuid string) error
+
+  // Deletes all items corresponding to the uuids.
+  // Uuids not existing will be ignored.
+  // Even if an error is returned, some items may have been deleted.
+  DeleteMetadataUuids(ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error)
+
+  // Replaces a head with a different one.
+  // Returns the old head that got replaced.
+  // If there was no old head, returns `ErrNotFound` and no item will be written.
+  ReplaceSnapshotSeqHead(ctx context.Context, head *pb.SnapshotSeqHead) (*pb.SnapshotSeqHead, error)
 }
 
 type Storage interface {
