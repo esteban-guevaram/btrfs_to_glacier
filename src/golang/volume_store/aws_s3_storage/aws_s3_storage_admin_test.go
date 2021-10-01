@@ -114,21 +114,18 @@ func testDeleteChunks_Helper(t *testing.T, obj_count int) {
   defer cancel()
 
   storage, client := buildTestAdminStorage(t)
-  chunks := &pb.SnapshotChunks{
-    //KeyFingerprint: "whatever",
-    Chunks: make([]*pb.SnapshotChunks_Chunk, obj_count),
-  }
-  for i,_ := range chunks.Chunks {
-    chunks.Chunks[i] = &pb.SnapshotChunks_Chunk{
+  chunks := make([]*pb.SnapshotChunks_Chunk, obj_count)
+  for i,_ := range chunks {
+    chunks[i] = &pb.SnapshotChunks_Chunk{
       Uuid: uuid.NewString(),
     }
-    client.setObject(chunks.Chunks[i].Uuid, []byte("value"), s3_types.StorageClassStandard, false)
+    client.setObject(chunks[i].Uuid, []byte("value"), s3_types.StorageClassStandard, false)
   }
 
   done := storage.DeleteChunks(ctx, chunks)
   util.WaitForClosure(t, ctx, done)
 
-  for _,chunk := range chunks.Chunks {
+  for _,chunk := range chunks {
     _,found := client.Data[chunk.Uuid]
     if found { t.Errorf("Failed deletion of: %s", chunk.Uuid) }
   }
@@ -148,7 +145,7 @@ func TestDeleteChunks_NoKeysErr(t *testing.T) {
   defer cancel()
 
   storage,_ := buildTestAdminStorage(t)
-  chunks := &pb.SnapshotChunks{}
+  chunks := make([]*pb.SnapshotChunks_Chunk, 0, 1)
   done := storage.DeleteChunks(ctx, chunks)
 
   select {

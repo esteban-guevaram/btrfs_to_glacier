@@ -54,11 +54,9 @@ func (self *s3AdminTester) testDeleteChunks_Helper(ctx context.Context, obj_coun
   for i:=0; i<obj_count; i+=1 {
     keys[i],_ = self.putRandomObjectOrDie(ctx, 1024)
   }
-  chunks := &pb.SnapshotChunks{
-    Chunks: make([]*pb.SnapshotChunks_Chunk, obj_count),
-  }
+  chunks := make([]*pb.SnapshotChunks_Chunk, obj_count)
   for i,key := range keys {
-    chunks.Chunks[i] = &pb.SnapshotChunks_Chunk{ Uuid:key, }
+    chunks[i] = &pb.SnapshotChunks_Chunk{ Uuid:key, }
   }
 
   done := self.Storage.DeleteChunks(ctx, chunks)
@@ -86,8 +84,7 @@ func (self *s3AdminTester) TestDeleteChunks_NoSuchKey(ctx context.Context) {
   uuids := []*pb.SnapshotChunks_Chunk{
     &pb.SnapshotChunks_Chunk{ Uuid:key, },
   }
-  chunks := &pb.SnapshotChunks{ Chunks: uuids, }
-  done := self.Storage.DeleteChunks(ctx, chunks)
+  done := self.Storage.DeleteChunks(ctx, uuids)
   err := util.WaitForClosureOrDie(ctx, done)
   if err != nil { util.Fatalf("delete of unexisting object should be a noop: %v", err) }
 }

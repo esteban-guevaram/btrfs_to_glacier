@@ -194,7 +194,7 @@ func TestOnlyChangeIterationSize(storage types.Storage, size int32) func() {
 }
 
 func (self *s3AdminStorage) deleteBatch(
-    ctx context.Context, low_bound int, up_bound int, chunks *pb.SnapshotChunks) error {
+    ctx context.Context, low_bound int, up_bound int, chunks []*pb.SnapshotChunks_Chunk) error {
   del_in := &s3.DeleteObjectsInput{
     Bucket: &self.conf.Aws.S3.BucketName,
     Delete: &s3_types.Delete{
@@ -203,7 +203,7 @@ func (self *s3AdminStorage) deleteBatch(
     },
   }
   for i:=low_bound; i<up_bound; i+=1 {
-    del_in.Delete.Objects[i-low_bound].Key = &chunks.Chunks[i].Uuid
+    del_in.Delete.Objects[i-low_bound].Key = &chunks[i].Uuid
   }
   del_out,err := self.client.DeleteObjects(ctx, del_in)
   if err != nil { return err }
@@ -211,21 +211,22 @@ func (self *s3AdminStorage) deleteBatch(
   return nil
 }
 
-func (self *s3AdminStorage) DeleteChunks(ctx context.Context, chunks *pb.SnapshotChunks) (<-chan error) {
-  if len(chunks.Chunks) < 1 { return util.WrapInChan(fmt.Errorf("cannot delete 0 keys")) }
+func (self *s3AdminStorage) DeleteChunks(
+    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error) {
+  if len(chunks) < 1 { return util.WrapInChan(fmt.Errorf("cannot delete 0 keys")) }
   done := make(chan error, 1)
 
   go func() {
     var err error
     defer close(done)
-    for low_bound:=0; low_bound<len(chunks.Chunks); low_bound+=delete_objects_max {
+    for low_bound:=0; low_bound<len(chunks); low_bound+=delete_objects_max {
       up_bound := low_bound + delete_objects_max
-      if up_bound > len(chunks.Chunks) { up_bound = len(chunks.Chunks) }
+      if up_bound > len(chunks) { up_bound = len(chunks) }
       err := self.deleteBatch(ctx, low_bound, up_bound, chunks)
       if err != nil { break }
     }
     util.Infof("Deleted %d keys: '%s'...'%s'",
-               len(chunks.Chunks), chunks.Chunks[0].Uuid, chunks.Chunks[len(chunks.Chunks)-1].Uuid)
+               len(chunks), chunks[0].Uuid, chunks[len(chunks)-1].Uuid)
     done <- err
   }()
   return done

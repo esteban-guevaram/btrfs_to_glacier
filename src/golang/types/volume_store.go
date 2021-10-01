@@ -124,14 +124,14 @@ type Storage interface {
   // Takes ownership of `read_pipe` and will close it once done.
   WriteStream(ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan ChunksOrError, error)
 
-  // Request all objects identified by `keys` to be restored so they can be downloaded.
+  // Request all objects identified by `uuids` to be restored so they can be downloaded.
   // Restoration can take several hours, this method will return sooner, after all object restore requests
   // have been sent.
   // Restoring an already restored object is a noop (or it can extend the restored lifetime).
   // Restoring an object which is not archived is a noop.
   // Clients can use this method to poll and get the status of their pending restores.
   // Returns a result per object, for some the restore may have failed.
-  QueueRestoreObjects(ctx context.Context, keys []string) (<-chan RestoreResult, error)
+  QueueRestoreObjects(ctx context.Context, uuids []string) (<-chan RestoreResult, error)
 
   // Reads all `chunks` in order and outputs them to a stream.
   // Data may be filtered by a codec depending on the implementation.
@@ -156,6 +156,6 @@ type AdminStorage interface {
   // Deletes all objects in `chunks`.
   // If the channel contains a null error then all objects got deleted.
   // Objects not found (already deleted?) should be a noop.
-  DeleteChunks(ctx context.Context, chunks *pb.SnapshotChunks) (<-chan error)
+  DeleteChunks(ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error)
 }
 
