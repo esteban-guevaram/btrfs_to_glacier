@@ -42,6 +42,44 @@ func toItem(key string, msg proto.Message) (map[string]dyn_types.AttributeValue,
   return item, nil
 }
 
+func getBlobFromItem(item map[string]dyn_types.AttributeValue) ([]byte, error) {
+  abstract_val, found := item[meta.Blob_col]
+  if !found { return nil, types.ErrNotFound }
+
+  switch v := abstract_val.(type) {
+    case *dyn_types.AttributeValueMemberB:
+      return v.Value, nil
+   default:
+     return nil, fmt.Errorf("Malformed value for: %v", v)
+  }
+}
+
+func (self *dynReadWriteTester) getItem(ctx context.Context, key string, msg proto.Message) error {
+  var data []byte
+  var get_out *dynamodb.GetItemOutput
+  key_map, err := toItem(key, msg)
+  if err != nil { return err }
+  delete(key_map, meta.Blob_col)
+  get_in := &dynamodb.GetItemInput{
+    TableName: &self.Conf.Aws.DynamoDb.TableName,
+    Key: key_map,
+    AttributesToGet: []string{ meta.Blob_col },
+    ConsistentRead: aws.Bool(true),
+  }
+  get_out, err = self.Client.GetItem(ctx, get_in)
+  //util.Debugf("Get request:\n%s\n%s\nerr: %v", util.AsJson(get_in), util.AsJson(get_out), err)
+  if err != nil { return err }
+  data, err = getBlobFromItem(get_out.Item)
+  if err != nil { return err }
+  err = proto.Unmarshal(data, msg)
+  return err
+}
+
+func (self *dynReadWriteTester) getItemOrDie(ctx context.Context, key string, msg proto.Message) {
+  err := self.getItem(ctx, key, msg)
+  if err != nil { util.Fatalf("Failed get item: %v", err) }
+}
+
 func (self *dynReadWriteTester) putItemOrDie(ctx context.Context, key string, msg proto.Message) {
   err := self.putItem(ctx, key, msg)
   if err != nil { util.Fatalf("Failed put item: %v", err) }
@@ -371,7 +409,7 @@ func TestAllDynamoDbMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws
 
   TestDynamoDbMetadataSetup(ctx, conf, client, metadata)
   suite.TestAllDynamoDbReadWrite(ctx)
-  TestAllDynamoDbDelete(ctx, metadata)
+  TestAllDynamoDbDelete(ctx, conf, client, metadata)
   suite.deleteTable(ctx)
 }
 
