@@ -117,3 +117,20 @@ func ValidateSnapshotSeqHead(head *pb.SnapshotSeqHead) error {
   return nil
 }
 
+func IsFullyContainedInSubvolume(snap *pb.SubVolume, data *pb.SnapshotChunks) bool {
+  if snap.Data == nil { return false }
+
+  for start_idx,chunk_snap := range snap.Data.Chunks {
+    if chunk_snap.Start == data.Chunks[0].Start {
+      for idx,chunk_chunk := range data.Chunks {
+        snap_idx := idx + start_idx
+        if snap_idx >= len(snap.Data.Chunks) { return false }
+        if snap.Data.Chunks[snap_idx].Start != chunk_chunk.Start { return false }
+        if snap.Data.Chunks[snap_idx].Size != chunk_chunk.Size { return false }
+      }
+      return true
+    }
+  }
+  return false
+}
+

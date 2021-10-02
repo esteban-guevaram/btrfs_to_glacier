@@ -211,47 +211,30 @@ func (self *dynamoMetadata) AppendSnapshotToSeq(
   return new_seq, nil
 }
 
-func isFullyContainedInSubvolume(snap *pb.SubVolume, chunk *pb.SnapshotChunks) bool {
-  if snap.Data == nil { return false }
-
-  for start_idx,chunk_snap := range snap.Data.Chunks {
-    if chunk_snap.Start == chunk.Chunks[0].Start {
-      for idx,chunk_chunk := range chunk.Chunks {
-        snap_idx := idx + start_idx
-        if snap_idx >= len(snap.Data.Chunks) { return false }
-        if snap.Data.Chunks[snap_idx].Start != chunk_chunk.Start { return false }
-        if snap.Data.Chunks[snap_idx].Size != chunk_chunk.Size { return false }
-      }
-      return true
-    }
-  }
-  return false
-}
-
 func (self *dynamoMetadata) AppendChunkToSnapshot(
-    ctx context.Context, snap *pb.SubVolume, chunk *pb.SnapshotChunks) (*pb.SubVolume, error) {
-  err := store.ValidateSnapshotChunks(store.CheckChunkNotFirst, chunk)
+    ctx context.Context, snap *pb.SubVolume, data *pb.SnapshotChunks) (*pb.SubVolume, error) {
+  err := store.ValidateSnapshotChunks(store.CheckChunkNotFirst, data)
   if err != nil { return nil, err }
 
-  if snap.Data != nil && snap.Data.KeyFingerprint != chunk.KeyFingerprint {
-    return nil, util.PbErrorf("Snapshot chunk key mismatch: %v, %v", snap, chunk)
+  if snap.Data != nil && snap.Data.KeyFingerprint != data.KeyFingerprint {
+    return nil, util.PbErrorf("Snapshot chunk key mismatch: %v, %v", snap, data)
   }
 
   new_snap := proto.Clone(snap).(*pb.SubVolume)
-  if isFullyContainedInSubvolume(snap, chunk) {
+  if store.IsFullyContainedInSubvolume(snap, data) {
     util.PbInfof("Noop already last chunk in snap: %v", snap)
     return new_snap, nil
   }
 
   data_len := store.SubVolumeDataLen(snap)
-  if chunk.Chunks[0].Start != data_len {
-    return nil, util.PbErrorf("Snapshot chunk not contiguous: %v, %v", snap, chunk)
+  if data.Chunks[0].Start != data_len {
+    return nil, util.PbErrorf("Snapshot chunk not contiguous: %v, %v", snap, data)
   }
 
   if new_snap.Data == nil {
-    new_snap.Data = &pb.SnapshotChunks { KeyFingerprint: chunk.KeyFingerprint }
+    new_snap.Data = &pb.SnapshotChunks { KeyFingerprint: data.KeyFingerprint }
   }
-  new_snap.Data.Chunks = append(new_snap.Data.Chunks, chunk.Chunks...)
+  new_snap.Data.Chunks = append(new_snap.Data.Chunks, data.Chunks...)
 
   err = store.ValidateSubVolume(store.CheckSnapWithContent, new_snap)
   if err != nil { return nil, err }
