@@ -6,7 +6,6 @@ import "io"
 import pb "btrfs_to_glacier/messages"
 
 var ErrNotFound = errors.New("key_not_found_in_metadata")
-var ErrMissingChunks = errors.New("not_all_chunks_uploaded")
 
 type ChunksOrError struct {
   Val *pb.SnapshotChunks
@@ -19,6 +18,13 @@ const (
   Pending  RestoreStatus = iota
   Restored RestoreStatus = iota
 )
+
+type DeletedObjectsOrErr struct {
+  Chunks []*pb.SnapshotChunks_Chunk
+  Snaps  []*pb.SubVolume
+  Seqs   []*pb.SnapshotSequence
+  Err error
+}
 
 type ObjRestoreOrErr struct {
   Stx RestoreStatus
@@ -61,11 +67,11 @@ type Metadata interface {
   // If `snap` is already the last snapshot in the sequence this is a noop.
   AppendSnapshotToSeq(ctx context.Context, seq *pb.SnapshotSequence, snap *pb.SubVolume) (*pb.SnapshotSequence, error)
 
-  // Adds `chunk` and records it into the subvolume `snap`.
-  // If `chunk` is not the first, it must match the previous fingerprint.
+  // Adds all of `data` chunks into the subvolume `snap` and persists it.
+  // If there are aready chunks in `snap` then `data` must match the previous fingerprint.
   // Returns the new state of the subvolume metadata.
-  // If `chunk` is already the last recorded in `snap` this is a noop.
-  AppendChunkToSnapshot(ctx context.Context, snap *pb.SubVolume, chunk *pb.SnapshotChunks) (*pb.SubVolume, error)
+  // If `data` chunks are a subset of `snap` chunks then this is a noop.
+  AppendChunkToSnapshot(ctx context.Context, snap *pb.SubVolume, data *pb.SnapshotChunks) (*pb.SubVolume, error)
 
   // Reads sequence head for subvolume with `uuid`.
   // If there is no head, returns `ErrNotFound`.
@@ -130,7 +136,7 @@ type Storage interface {
   // Data may be filtered by a codec depending on the implementation.
   // Chunk length is determined by configuration.
   // Returns the ids of all chunks uploaded. If some error prevented all pipe content from being uploaded,
-  // then ChunksOrError.Err will contain ErrMissingChunks as well as the chunks that got uploaded.
+  // then ChunksOrError.Err will be non nil and `Val` will contain the chunks that got uploaded.
   // Takes ownership of `read_pipe` and will close it once done.
   WriteStream(ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan ChunksOrError, error)
 
@@ -167,5 +173,25 @@ type AdminStorage interface {
   // If the channel contains a null error then all objects got deleted.
   // Objects not found (already deleted?) should be a noop.
   DeleteChunks(ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error)
+}
+
+type GarbageCollector interface {
+  // Remove from storage all chunks that are not linked to any snapshot in the metadata.
+  // Returns the list of chunks deleted and any error that may have interrupted the cleaning.
+  // In dry-run mode, nothing will be deleted.
+  CleanUnreachableChunks(context.Context, bool) (<-chan DeletedObjectsOrErr)
+
+  // Removes any metadata objects that cannot be reached starting from a SnapshotSeqHead.
+  // Returns the list of metadata objects and any error that may have interrupted the cleaning.
+  // In dry-run mode, nothing will be deleted.
+  //
+  // Note: you can clean the orphan chunks calling CleanUnreachableChunks after.
+  // This has the advantage of also cleaning the chunks that were never mentioned in the metadata to begin with.
+  CleanUnreachableMetadata(context.Context, bool) (<-chan DeletedObjectsOrErr)
+
+  // Cascade removal of all objects reachable from a SnapshotSequence.
+  // Returns the list of metadata and storage objects and any error that may have interrupted the cleaning.
+  // In dry-run mode, nothing will be deleted. If the sequence does not exists this is a noop.
+  DeleteSnapshotsequence(context.Context, bool, string) (<-chan DeletedObjectsOrErr)
 }
 
