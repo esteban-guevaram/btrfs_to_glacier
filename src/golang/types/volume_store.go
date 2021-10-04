@@ -192,6 +192,6 @@ type GarbageCollector interface {
   // Cascade removal of all objects reachable from a SnapshotSequence.
   // Returns the list of metadata and storage objects and any error that may have interrupted the cleaning.
   // In dry-run mode, nothing will be deleted. If the sequence does not exists this is a noop.
-  DeleteSnapshotsequence(context.Context, bool, string) (<-chan DeletedObjectsOrErr)
+  DeleteSnapshotSequence(context.Context, bool, string) (<-chan DeletedObjectsOrErr)
 }
 

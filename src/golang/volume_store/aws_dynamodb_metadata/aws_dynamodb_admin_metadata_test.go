@@ -175,7 +175,7 @@ func TestDeleteMetadataUuids_NoItemNoError(t *testing.T) {
 }
 
 func TestDeleteMetadataUuids_DynamoError(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10000000*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
   client.Err = fmt.Errorf("fiasco")

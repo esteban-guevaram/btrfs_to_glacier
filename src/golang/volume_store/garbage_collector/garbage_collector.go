@@ -185,7 +185,8 @@ func (self *garbageCollector) deleteMetaItems_ForwardsArgsInReturn(
 
     done_del := self.metadata.DeleteMetadataUuids(ctx, seq_uuids, snap_uuids)
     select {
-      case err := <-done_del: return types.DeletedObjectsOrErr{ Err:err, }
+      case err := <-done_del:
+        if err != nil { return types.DeletedObjectsOrErr{ Err:err, } }
       case <-ctx.Done(): return types.DeletedObjectsOrErr{ Err:ctx.Err(), }
     }
   }
@@ -246,13 +247,15 @@ func (self *garbageCollector) removeSeqFromHead(
     new_head.PrevSeqUuid = append(new_head.PrevSeqUuid, uuid)
   }
   if len(new_head.PrevSeqUuid) >= len(head.PrevSeqUuid) {
-    return fmt.Errorf("Sequence %s not found in head %s", seq.Uuid, head.Uuid)
+    // May happen if we re-try after a failure.
+    util.Warnf("Sequence %s not found in head %s", seq.Uuid, head.Uuid)
+    return nil
   }
   _,err := self.metadata.ReplaceSnapshotSeqHead(ctx, new_head)
   return err
 }
 
-func (self *garbageCollector) DeleteSnapshotsequence(
+func (self *garbageCollector) DeleteSnapshotSequence(
     ctx context.Context, dry_run bool, uuid string) (<-chan types.DeletedObjectsOrErr) {
   done, closer := makeChannelAndErrorCloser()
 

@@ -339,6 +339,34 @@ func (self *Storage) DeleteChunks(
 
 ///////////////////////// Fill out mock ////////////////////////
 
+func (self *Metadata) ObjCounts() []int {
+  return []int{ len(self.Heads), len(self.Seqs), len(self.Snaps), }
+}
+
+func (self *Metadata) HeadKeys() []string {
+  l := make([]string, 0, len(self.Heads))
+  for uuid,_ := range self.Heads { l = append(l, uuid) }
+  return l
+}
+
+func (self *Metadata) SeqKeys() []string {
+  l := make([]string, 0, len(self.Seqs))
+  for uuid,_ := range self.Seqs { l = append(l, uuid) }
+  return l
+}
+
+func (self *Metadata) SnapKeys() []string {
+  l := make([]string, 0, len(self.Snaps))
+  for uuid,_ := range self.Snaps { l = append(l, uuid) }
+  return l
+}
+
+func (self *Metadata) CloneHeads() map[string]*pb.SnapshotSeqHead {
+  m := make(map[string]*pb.SnapshotSeqHead)
+  for k,v := range self.Heads { m[k] = proto.Clone(v).(*pb.SnapshotSeqHead) }
+  return m
+}
+
 // Builds metadata and storage with `head_cnt` heads each containing `seq_cnt` sequences
 // and so forth including storage chunks.
 func DummyMetaAndStorage(
