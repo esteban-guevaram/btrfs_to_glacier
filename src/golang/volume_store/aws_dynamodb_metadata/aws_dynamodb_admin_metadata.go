@@ -135,58 +135,6 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
   return self.waitForTableCreation(ctx, tabname)
 }
 
-func (self *dynamoAdminMetadata) DeleteObject(
-  ctx context.Context, uuid string, msg proto.Message) error {
-  // We use a condition expression to trigger an error in case the key does not exist.
-  // Otherwise we cannot distinguish between the item not existing and a successful delete.
-  condition_expr := fmt.Sprintf("attribute_exists(%s)", self.blob_col)
-  params := &dynamodb.DeleteItemInput{
-    TableName: &self.conf.Aws.DynamoDb.TableName,
-    Key: self.getItemKey(uuid, msg),
-    ConditionExpression: &condition_expr,
-    ReturnConsumedCapacity: dyn_types.ReturnConsumedCapacityNone,
-    ReturnValues: dyn_types.ReturnValueNone,
-  }
-  _, err := self.client.DeleteItem(ctx, params)
-  if err != nil {
-    apiErr := new(dyn_types.ConditionalCheckFailedException)
-    if errors.As(err, &apiErr) {
-      return fmt.Errorf("%w uuid=%v", types.ErrNotFound, uuid)
-    }
-  }
-  return err
-}
-
-func (self *dynamoAdminMetadata) DeleteSnapshotSeqHead(
-    ctx context.Context, uuid string) error {
-  if len(uuid) < 1 { return fmt.Errorf("DeleteSnapshotSeqHead: uuid is nil") }
-  err := self.DeleteObject(ctx, uuid, &pb.SnapshotSeqHead{})
-  if err == nil {
-    util.Infof("Delete head: %v", uuid)
-  }
-  return err
-}
-
-func (self *dynamoAdminMetadata) DeleteSnapshotSeq(
-    ctx context.Context, uuid string) error {
-  if len(uuid) < 1 { return fmt.Errorf("DeleteSnapshotSeq: uuid is nil") }
-  err := self.DeleteObject(ctx, uuid, &pb.SnapshotSequence{})
-  if err == nil {
-    util.Infof("Delete sequence: %v", uuid)
-  }
-  return err
-}
-
-func (self *dynamoAdminMetadata) DeleteSnapshot(
-    ctx context.Context, uuid string) error {
-  if len(uuid) < 1 { return fmt.Errorf("DeleteSnapshot: uuid is nil") }
-  err := self.DeleteObject(ctx, uuid, &pb.SubVolume{})
-  if err == nil {
-    util.Infof("Delete snapshot: %v", uuid)
-  }
-  return err
-}
-
 func (self *dynamoAdminMetadata) buildDeleteRequest(uuid string, typename string) dyn_types.WriteRequest {
   return dyn_types.WriteRequest{
     DeleteRequest: &dyn_types.DeleteRequest{ Key:self.uuidTypeToKey(uuid, typename), },
@@ -252,6 +200,8 @@ func (self *dynamoAdminMetadata) ReplaceSnapshotSeqHead(
   if err != nil { return nil, err }
   item[self.blob_col] = &dyn_types.AttributeValueMemberB{Value: blob,}
 
+  // We use a condition expression to trigger an error in case the key does not exist.
+  // Otherwise we cannot distinguish between the item not existing and a successful delete.
   put_in := &dynamodb.PutItemInput{
     TableName: &self.conf.Aws.DynamoDb.TableName,
     Item: item,

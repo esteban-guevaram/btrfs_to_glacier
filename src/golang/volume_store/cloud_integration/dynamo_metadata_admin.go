@@ -49,55 +49,6 @@ func TestDynamoDbMetadataSetup(ctx context.Context, conf *pb.Config, client *dyn
   }
 }
 
-func TestDeleteSnapshot(ctx context.Context, metadata types.AdminMetadata) {
-  snap := util.DummySnapshot(timedUuid("snap"), timedUuid("par"))
-  chunk_1 := util.DummyChunks(timedUuid("chunk_1"))
-
-  err := metadata.DeleteSnapshot(ctx, snap.Uuid)
-  if !errors.Is(err, types.ErrNotFound) {
-    util.Fatalf("TestDeleteSnapshot %s: %v", snap.Uuid, err)
-  }
-
-  _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_1)
-  if err != nil { util.Fatalf("%v", err) }
-
-  err = metadata.DeleteSnapshot(ctx, snap.Uuid)
-  if err != nil { util.Fatalf("%v", err) }
-}
-
-func TestDeleteSnapshotSeq(ctx context.Context, metadata types.AdminMetadata) {
-  vol_uuid := timedUuid("vol")
-  snap := util.DummySnapshot(timedUuid("snap"), vol_uuid)
-  seq := util.DummySnapshotSequence(vol_uuid, timedUuid("seq"))
-
-  err := metadata.DeleteSnapshotSeq(ctx, seq.Uuid)
-  if !errors.Is(err, types.ErrNotFound) {
-    util.Fatalf("TestDeleteSnapshotSeq %s: %v", seq.Uuid, err)
-  }
-
-  _, err = metadata.AppendSnapshotToSeq(ctx, seq, snap)
-  if err != nil { util.Fatalf("%v", err) }
-
-  err = metadata.DeleteSnapshotSeq(ctx, seq.Uuid)
-  if err != nil { util.Fatalf("%v", err) }
-}
-
-func TestDeleteSnapshotSeqHead(ctx context.Context, metadata types.AdminMetadata) {
-  vol_uuid := timedUuid("vol")
-  seq := util.DummySnapshotSequence(vol_uuid, timedUuid("seq"))
-
-  err := metadata.DeleteSnapshotSeqHead(ctx, vol_uuid)
-  if !errors.Is(err, types.ErrNotFound) {
-    util.Fatalf("TestDeleteSnapshotSeq %s: %v", vol_uuid, err)
-  }
-
-  _, err = metadata.RecordSnapshotSeqHead(ctx, seq)
-  if err != nil { util.Fatalf("%v", err) }
-
-  err = metadata.DeleteSnapshotSeqHead(ctx, vol_uuid)
-  if err != nil { util.Fatalf("%v", err) }
-}
-
 func (self *dynAdminTester) testDeleteMetadataUuids_Helper(
     ctx context.Context, seq_cnt int, snap_cnt int, missing_cnt int) {
   seq_uuids := make([]string, 0, seq_cnt)
@@ -173,9 +124,6 @@ func TestAllDynamoDbDelete(
   suite := &dynAdminTester{
     &dynReadWriteTester{ Conf:conf, Client:client, Metadata:metadata, },
   }
-  TestDeleteSnapshot(ctx, metadata)
-  TestDeleteSnapshotSeq(ctx, metadata)
-  TestDeleteSnapshotSeqHead(ctx, metadata)
   suite.TestDeleteMetadataUuids_Simple(ctx)
   suite.TestDeleteMetadataUuids_MissingKeys(ctx)
   suite.TestReplaceSnapshotSeqHead_Simple(ctx)

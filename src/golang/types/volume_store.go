@@ -105,20 +105,6 @@ type AdminMetadata interface {
   // It is a noop if they are already created.
   SetupMetadata(ctx context.Context) (<-chan error)
 
-  // Deletes sequence head for subvolume with `uuid`.
-  // If there is no head, returns `ErrNotFound`.
-  // This should be called **before** the snapshot sequences referenced by the head have been deleted.
-  DeleteSnapshotSeqHead(ctx context.Context, uuid string) error
-
-  // Deletes snapshot sequence with key `uuid`.
-  // If there is no sequence, returns `ErrNotFound`.
-  // This should be called **before** the snapshots referenced by the sequence have been deleted.
-  DeleteSnapshotSeq(ctx context.Context, uuid string) error
-
-  // Deletes subvolume with `uuid`.
-  // If there is no subvolume, returns `ErrNotFound`.
-  DeleteSnapshot(ctx context.Context, uuid string) error
-
   // Deletes all items corresponding to the uuids.
   // Uuids not existing will be ignored.
   // Even if an error is returned, some items may have been deleted.
