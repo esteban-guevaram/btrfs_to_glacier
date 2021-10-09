@@ -246,7 +246,7 @@ func TestReceiveSendStream(t *testing.T) {
   }
   btrfsutil.Snaps = append(btrfsutil.Snaps, mock_received)
 
-  ch, err := volmgr.ReceiveSendStream(ctx, btrfsutil.Snaps[1], read_pipe)
+  ch, err := volmgr.ReceiveSendStream(ctx, "/tmp", mock_received.ReceivedUuid, read_pipe)
   if err != nil { t.Errorf("ReceiveSendStream: %v", err) }
   select {
     case sv_or_error := <-ch:
@@ -257,12 +257,12 @@ func TestReceiveSendStream(t *testing.T) {
 }
 
 func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, _, _ := buildTestManager()
   read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 
-  ch, err := volmgr.ReceiveSendStream(ctx, btrfsutil.Snaps[1], read_pipe)
+  ch, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)
   if err != nil { t.Errorf("ReceiveSendStream: %v", err) }
   select {
     case sv_or_error := <-ch:

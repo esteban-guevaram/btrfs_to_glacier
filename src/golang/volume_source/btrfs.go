@@ -62,6 +62,10 @@ func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   return subvol, nil
 }
 
+func (self *btrfsVolumeManager) FindSnapRootForVol(sv *pb.SubVolume) (string, error) {
+  return "", nil
+}
+
 func (self *btrfsVolumeManager) FindVolume(fs_root string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
   var vols []*pb.SubVolume
   var err error
@@ -83,7 +87,10 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
   var vols []*pb.SubVolume
   var err error
   var last_gen uint64
-  vols, err = self.btrfsutil.ListSubVolumesUnder(self.conf.RootSnapPath)
+  var snap_root string
+  snap_root, err = self.FindSnapRootForVol(subvol)
+  if err != nil { return nil, err }
+  vols, err = self.btrfsutil.ListSubVolumesUnder(snap_root)
   if err != nil { return nil, err }
 
   seq := make([]*pb.SubVolume, 0, 32)
@@ -141,10 +148,14 @@ func (self *btrfsVolumeManager) GetSnapshotStream(ctx context.Context, from *pb.
 }
 
 func (self *btrfsVolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, error) {
+  var err error
+  var snap_root string
+  snap_root, err = self.FindSnapRootForVol(subvol)
+  if err != nil { return nil, err }
   ts_str    := time.Now().Format("20060201")
   snap_name := fmt.Sprintf("%s.%s.%d", fpmod.Base(subvol.MountedPath), ts_str, time.Now().Unix())
-  snap_path := fpmod.Join(self.conf.RootSnapPath, snap_name)
-  err  := self.btrfsutil.CreateSnapshot(subvol.MountedPath, snap_path)
+  snap_path := fpmod.Join(snap_root, snap_name)
+  err = self.btrfsutil.CreateSnapshot(subvol.MountedPath, snap_path)
   if err != nil { return nil, err }
   return self.GetVolume(snap_path)
 }
@@ -164,7 +175,8 @@ func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
   return nil
 }
 
-func (self *btrfsVolumeManager) ReceiveSendStream(ctx context.Context, src_subvol *pb.SubVolume, read_pipe io.ReadCloser)  (<-chan types.SubVolumeOrError, error) {
+func (self *btrfsVolumeManager) ReceiveSendStream(
+    ctx context.Context, root_path string, rec_uuid string, read_pipe io.ReadCloser)  (<-chan types.SubVolumeOrError, error) {
   ch := make(chan types.SubVolumeOrError, 1)
   go func() {
     var err error
@@ -172,18 +184,18 @@ func (self *btrfsVolumeManager) ReceiveSendStream(ctx context.Context, src_subvo
     defer close(ch)
     defer read_pipe.Close()
 
-    err = self.btrfsutil.ReceiveSendStream(ctx, self.conf.RootRestorePath, read_pipe)
+    err = self.btrfsutil.ReceiveSendStream(ctx, root_path, read_pipe)
     if err != nil {
       ch <- types.SubVolumeOrError{Err: err}
       return
     }
-    sv, err = self.FindVolume(self.conf.RootRestorePath, types.ByReceivedUuid(src_subvol.Uuid))
+    sv, err = self.FindVolume(root_path, types.ByReceivedUuid(rec_uuid))
     if err != nil {
       ch <- types.SubVolumeOrError{Err: err}
       return
     }
     if sv == nil {
-      ch <- types.SubVolumeOrError{Err: fmt.Errorf("No subvolume with received uuid '%s' got created", src_subvol.Uuid)}
+      ch <- types.SubVolumeOrError{Err: fmt.Errorf("No subvolume with received uuid '%s' got created", rec_uuid)}
       return
     }
     ch <- types.SubVolumeOrError{Val: sv}

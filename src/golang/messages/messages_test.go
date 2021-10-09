@@ -42,10 +42,28 @@ func TestMessagesGotGenerated(t *testing.T) {
 }
 
 func TestConfigTextMarshal(t *testing.T) {
+  source := &Source{
+    Type: Source_BTRFS,
+    Paths: []*Source_VolSnapPathPair{
+      &Source_VolSnapPathPair{
+        VolPath: "/tmp/subvol1",
+        SnapPath: "/tmp/snaps",
+      },
+    },
+    History: &Source_SnapHistory{
+      DaysKeepAll: 30,
+      KeepOnePeriodDays: 30,
+    },
+  }
   conf := Config {
-    RootSnapPath: "/choco/lat",
-    SubvolPaths: []string { "/coco/loco", },
-    EncryptionKeys: []string { "secret", },
+    Sources: []*Source{ source, },
+    Aws: &Aws {
+      AccessKeyId: "coucou",
+      SecretAccessKey: "coucou",
+      Region: "eu-central-1", // needs to be valid for unittests
+      DynamoDb: &Aws_DynamoDb{ TableName: "coucou", },
+      S3: &Aws_S3{ BucketName: "coucou", ChunkLen: 1024*1024, },
+    },
   }
   var loadedConf Config
   txt, _ := prototext.Marshal(&conf)

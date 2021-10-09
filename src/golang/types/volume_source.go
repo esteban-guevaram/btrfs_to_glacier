@@ -66,9 +66,17 @@ type VolumeDestination interface {
   // Deletes a snapshot. Returns an error if attempting to delete a write snapshot or subvolume.
   DeleteSnapshot(snap *pb.SubVolume) error
   // Reads subvolume data from the pipe and creates a subvolume using `btrfs receive`.
-  // The path for the new subvolume will be determined by configuration.
+  // Received subvolume will be mounted at `root_path` and should have received uuid `rec_uuid`.
   // Takes ownership of `read_pipe` and will close it once done.
-  ReceiveSendStream(ctx context.Context, src_subvol *pb.SubVolume, read_pipe io.ReadCloser) (<-chan SubVolumeOrError, error)
+  ReceiveSendStream(ctx context.Context, root_path string, rec_uuid string, read_pipe io.ReadCloser) (<-chan SubVolumeOrError, error)
+}
+
+type VolumeAdmin interface {
+  VolumeManager
+  // Goes through all snapshots fathered by `src_subvol` and deletes the oldest ones according to the parameters in the config.
+  // Returns the list of snapshots deleted.
+  // If there are no old snapshots this is a noop.
+  TrimOldSnapshots(src_subvol *pb.SubVolume) ([]*pb.SubVolume, error)
 }
 
 type Linuxutil interface {

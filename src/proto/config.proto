@@ -8,7 +8,6 @@ message Aws {
   string access_key_id = 1;
   string secret_access_key = 2;
   string session_token = 3;
-
   string region = 4;
 
   message DynamoDb {
@@ -23,17 +22,87 @@ message Aws {
   S3 s3 = 6;
 }
 
-message Config {
-  // The absolute path to all subvolumes to backup.
-  repeated string subvol_paths = 1;
-  // The absolute path of the directory where all snapshots from `subvol_paths` are.
-  string root_snap_path = 2;
+// Additional tools not directly related to backup/restores.
+message Tool {
+  enum Type {
+    INVALID = 0;
+    BTRFS_SNAP_DIFFS = 1;
+    GARBAGE_COLLECTOR = 2;
+    META_EXPLORE = 3;
+  }
+  Type   type    = 1;
+  string name    = 2;
+  string wf_name = 3;
+}
+
+// links source -> dest -> restore referenced by name.
+message Workflow {
+  string  name    = 1;
+  string  source  = 2;
+  string  store   = 3;
+  string  restore = 4;
+}
+
+message Source {
+  enum SourceType {
+    INVALID  = 0;
+    BTRFS  = 1;
+  }
+  message VolSnapPathPair {
+    // The absolute path to the subvolume to backup.
+    string vol_path = 1;
+    // The absolute path of the directory where snapshots from `vol_path` are stored.
+    string snap_path = 2;
+  }
+  message SnapHistory {
+    // All snapshots from the subvolume that are less than `days_keep_all` old
+    // are guaranteed to be kept.
+    uint32 days_keep_all = 1;
+    // Only one snapshot that is older than `days_keep_all` will be kept
+    // for every `keep_one_period_days` window.
+    uint32 keep_one_period_days = 2;
+  }
+  SourceType type = 1;
+  string name = 2;
+  repeated VolSnapPathPair paths = 3;
+  SnapHistory history = 4;
+}
+
+message Store {
+  enum MetadataType {
+    INVALID_META = 0;
+    AWS_DYNAMODB_META = 1;
+  }
+  enum StoreType {
+    INVALID_STORE = 0;
+    AWS_S3_STORE = 1;
+  }
+  MetadataType meta_type  = 1;
+  StoreType    store_type = 2;
+  string       name = 3;
+}
+
+message Restore {
+  enum RestoreType {
+    INVALID = 0;
+    BTRFS  = 1;
+  }
+  RestoreType  restore_type = 1;
+  string name = 2;
   // The absolute path of the directory where all restored snapshots should be stored.
   string root_restore_path = 3;
+}
+
+message Config {
+  repeated Workflow workflows = 1;
+  repeated Tool tools = 2;
+  repeated Source sources = 3;
+  repeated Store stores = 4;
+  repeated Restore restores = 5;
   // The first element is used to encrypt new content.
   // Key length may be imposed by the encryption algorithm.
   // Keys are stored symmetrically encrypted into the configuration.
-  repeated string encryption_keys = 4;
-  Aws aws = 5;
+  repeated string encryption_keys = 6;
+  Aws aws = 7;
 }
 

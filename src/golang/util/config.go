@@ -12,8 +12,6 @@ var region_flag string
 var table_flag string
 var bucket_flag string
 
-var subvol_flag string
-
 func init() {
   flag.StringVar(&access_flag,  "access",  "", "Access Key ID")
   flag.StringVar(&secret_flag,  "secret",  "", "Secret access key")
@@ -21,19 +19,17 @@ func init() {
   flag.StringVar(&region_flag,  "region",  "", "Default AWS region")
   flag.StringVar(&table_flag,   "table",   "", "Dynamodb table name")
   flag.StringVar(&bucket_flag,  "bucket",  "", "S3 bucket name")
-
-  flag.StringVar(&subvol_flag, "subvol",  "", "the fullpath to the btrfs subvolume")
 }
 
 func Load() (*pb.Config, error) {
-  conf := pb.Config{}
-  overwriteWithFlags(&conf)
-  return &conf, nil
+  conf := &pb.Config{}
+  overwriteWithFlags(conf)
+  err := Validate(conf)
+  return conf, err
 }
 
 func overwriteWithFlags(conf *pb.Config) {
   flag.Parse()
-  if subvol_flag  != "" { conf.SubvolPaths = []string{subvol_flag} }
   if access_flag  != "" { conf.Aws.AccessKeyId = access_flag }
   if secret_flag  != "" { conf.Aws.SecretAccessKey = secret_flag }
   if session_flag != "" { conf.Aws.SessionToken = session_flag }
@@ -43,9 +39,21 @@ func overwriteWithFlags(conf *pb.Config) {
 }
 
 func LoadTestConf() *pb.Config {
+  source := &pb.Source{
+    Type: pb.Source_BTRFS,
+    Paths: []*pb.Source_VolSnapPathPair{
+      &pb.Source_VolSnapPathPair{
+        VolPath: "/tmp/subvol1",
+        SnapPath: "/tmp/snaps",
+      },
+    },
+    History: &pb.Source_SnapHistory{
+      DaysKeepAll: 30,
+      KeepOnePeriodDays: 30,
+    },
+  }
   conf := pb.Config {
-    RootSnapPath: "/tmp",
-    SubvolPaths: []string { "/tmp/subvol1", },
+    Sources: []*pb.Source{ source, },
     Aws: &pb.Aws {
       AccessKeyId: "coucou",
       SecretAccessKey: "coucou",
@@ -56,5 +64,12 @@ func LoadTestConf() *pb.Config {
   }
   overwriteWithFlags(&conf)
   return &conf
+}
+
+func Validate(conf *pb.Config) error {
+  // Each subvolume should be mentioned in only 1 source
+  // Sources, Stores, Restores, Workflows, Tools have a unique name
+  // Reference by name not dangling
+  return nil
 }
 

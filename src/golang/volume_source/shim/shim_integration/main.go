@@ -16,16 +16,18 @@ import (
 var root_flag string
 var snap1_flag string
 var snap2_flag string
+var subvol_flag string
 
 func init() {
   flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the btrfs filesystem")
   flag.StringVar(&snap1_flag, "snap1",  "", "the fullpath to the oldest snapshot")
   flag.StringVar(&snap2_flag, "snap2",  "", "the fullpath to the latest snapshot")
+  flag.StringVar(&subvol_flag, "subvol",  "", "the fullpath to the btrfs subvolume")
 }
 
 func GetConf() *pb.Config {
   conf := util.LoadTestConf()
-  if root_flag == "" || snap1_flag == "" || snap2_flag == "" {
+  if subvol_flag == "" || root_flag == "" || snap1_flag == "" || snap2_flag == "" {
     util.Fatalf("Bad flag values")
   }
   return conf
@@ -62,7 +64,7 @@ func GetRestoreDir(conf *pb.Config) string {
 }
 
 func TestBtrfsUtil_SubvolumeInfo(conf *pb.Config, btrfsutil types.Btrfsutil) {
-  subvol, err := btrfsutil.SubvolumeInfo(conf.SubvolPaths[0]);
+  subvol, err := btrfsutil.SubvolumeInfo(subvol_flag);
   if err != nil { util.Fatalf("integration failed = %v", err) }
   util.Infof("subvol = %s\n", subvol)
 }
@@ -78,8 +80,8 @@ func TestBtrfsUtil_ListSubVolumesUnder(conf *pb.Config, btrfsutil types.Btrfsuti
 
 func TestBtrfsUtil_CreateSnapshot(conf *pb.Config, btrfsutil types.Btrfsutil) {
   snap_path := GetNewSnapName(conf, "TestBtrfsUtil_CreateSnapshotAndWait")
-  err := btrfsutil.CreateSnapshot(conf.SubvolPaths[0], snap_path);
-  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", conf.SubvolPaths[0], snap_path, err) }
+  err := btrfsutil.CreateSnapshot(subvol_flag, snap_path);
+  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", subvol_flag, snap_path, err) }
 
   subvol, err := btrfsutil.SubvolumeInfo(snap_path);
   if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
@@ -93,8 +95,8 @@ func TestBtrfsUtil_DeleteSubvolume(conf *pb.Config, linuxutil types.Linuxutil, b
     return
   }
   snap_path := GetNewSnapName(conf, "TestBtrfsUtil_DeleteSubvolume")
-  err := btrfsutil.CreateSnapshot(conf.SubvolPaths[0], snap_path);
-  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", conf.SubvolPaths[0], snap_path, err) }
+  err := btrfsutil.CreateSnapshot(subvol_flag, snap_path);
+  if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", subvol_flag, snap_path, err) }
 
   err = btrfsutil.DeleteSubvolume(snap_path);
   if err != nil { util.Fatalf("btrfsutil.DeleteSubvolume(%s) failed = %v", snap_path, err) }
