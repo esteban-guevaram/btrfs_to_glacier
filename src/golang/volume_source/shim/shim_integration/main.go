@@ -23,12 +23,13 @@ func init() {
   flag.StringVar(&snap1_flag, "snap1",  "", "the fullpath to the oldest snapshot")
   flag.StringVar(&snap2_flag, "snap2",  "", "the fullpath to the latest snapshot")
   flag.StringVar(&subvol_flag, "subvol",  "", "the fullpath to the btrfs subvolume")
+  flag.Parse()
 }
 
 func GetConf() *pb.Config {
-  conf := util.LoadTestConf()
+  conf := &pb.Config{}
   if subvol_flag == "" || root_flag == "" || snap1_flag == "" || snap2_flag == "" {
-    util.Fatalf("Bad flag values")
+    util.Fatalf("Bad flag values: subvol='%s'", subvol_flag)
   }
   return conf
 }
@@ -189,6 +190,10 @@ func main() {
   TestLinuxUtils_AllFuncs(linuxutil)
   TestSendDumpAll(btrfsutil)
   TestBtrfsSendStreamAll(linuxutil, btrfsutil)
+
+  if !linuxutil.IsCapSysAdmin() {
+    util.Warnf("Some tests will only be run with CAP_SYS_ADMIN")
+  }
   util.Infof("ALL DONE")
 }
 

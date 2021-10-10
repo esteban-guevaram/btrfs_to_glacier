@@ -63,8 +63,6 @@ type VolumeSource interface {
 
 type VolumeDestination interface {
   VolumeManager
-  // Deletes a snapshot. Returns an error if attempting to delete a write snapshot or subvolume.
-  DeleteSnapshot(snap *pb.SubVolume) error
   // Reads subvolume data from the pipe and creates a subvolume using `btrfs receive`.
   // Received subvolume will be mounted at `root_path` and should have received uuid `rec_uuid`.
   // Takes ownership of `read_pipe` and will close it once done.
@@ -73,6 +71,8 @@ type VolumeDestination interface {
 
 type VolumeAdmin interface {
   VolumeManager
+  // Deletes a snapshot. Returns an error if attempting to delete a write snapshot or subvolume.
+  DeleteSnapshot(snap *pb.SubVolume) error
   // Goes through all snapshots fathered by `src_subvol` and deletes the oldest ones according to the parameters in the config.
   // Returns the list of snapshots deleted.
   // If there are no old snapshots this is a noop.

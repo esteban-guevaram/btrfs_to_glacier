@@ -52,7 +52,7 @@ cloud_integ: all $(AWS_TEMP_CREDS_SH)
 		--access="$$ACCESS" --secret="$$SECRET" --session="$$SESSION" \
 		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)" --bucket="$(AWS_BUCKET)"
 
-test: all go_unittest | $(SUBVOL_PATH)
+btrfs_integ: all | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./volume_source/shim/shim_integration \
@@ -60,9 +60,11 @@ test: all go_unittest | $(SUBVOL_PATH)
 		--rootvol="$(MOUNT_TESTVOL_SRC)" \
 		--snap1="$(SNAP1_PATH)" --snap2="$(SNAP2_PATH)"
 
-$(SUBVOL_PATH) fs_init:
+test: go_unittest cloud_integ btrfs_integ
+
+$(SUBVOL_PATH) fs_init &:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
-	bash etc/setup_test_drive.sh -r -d "$(DRIVE_UUID)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
+	bash etc/setup_test_drive.sh -r -f -p -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
 
 go_code: c_code $(GOENV) $(go_files) $(GO_PROTO_GEN_SRCS)
 	pushd "$(MYGOSRC)"
@@ -86,15 +88,14 @@ go_deflake: go_code
 go_debug: go_code
 	pushd "$(MYGOSRC)"
 	echo '
-	break btrfs_to_glacier/encryption.(*aesGzipCodec).EncryptStream
-	break btrfs_to_glacier/encryption.(*aesGzipCodec).DecryptStream
+	break btrfs_to_glacier/volume_store/garbage_collector.(*garbageCollector).deleteMetaItems_ForwardsArgsInReturn
 	# break encryption/aes_gzip_codec.go:250
 	continue
 	' > "$(MYDLVINIT)"
 	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
-	  dlv test "btrfs_to_glacier/encryption" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
-		  -- --test.run='TestEncryptStream$$' --test.v
+	  dlv test "btrfs_to_glacier/volume_store/garbage_collector" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
+		  -- --test.run='TestCleanUnreachableMetadata_CleanSnaps$$' --test.v
 
 # Fails with a linker error if missing `c_code`
 go_upgrade_mods: $(GOENV) c_code
