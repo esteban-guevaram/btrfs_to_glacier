@@ -398,7 +398,7 @@ func DummyMetaAndStorage(
       snap_uuid := uuid_mod.NewString()
       cur_snap = &pb.SubVolume{
          Uuid: snap_uuid,
-         MountedPath: fmt.Sprintf("/snap/%s", snap_uuid),
+         TreePath: fmt.Sprintf("snap/%s", snap_uuid),
          CreatedTs: uint64(idx),
          ParentUuid: cur_head_uuid,
          Data: &pb.SnapshotChunks {
@@ -428,6 +428,7 @@ func DummyMetaAndStorage(
         Volume: &pb.SubVolume{
            Uuid: par_uuid,
            MountedPath: fmt.Sprintf("/vol/%s", par_uuid),
+           TreePath: par_uuid,
            CreatedTs: uint64(idx),
         },
         SnapUuids: make([]string, 0, snap_cnt),

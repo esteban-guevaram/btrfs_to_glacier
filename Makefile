@@ -57,6 +57,7 @@ btrfs_integ: all | $(SUBVOL_PATH)
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./volume_source/shim/shim_integration \
 	  --subvol="$(SUBVOL_PATH)" \
+		--subvol-alt="$(SUBVOL_ALT_PATH)" \
 		--rootvol="$(MOUNT_TESTVOL_SRC)" \
 		--snap1="$(SNAP1_PATH)" --snap2="$(SNAP2_PATH)"
 

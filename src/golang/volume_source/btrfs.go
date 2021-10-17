@@ -2,19 +2,22 @@ package volume_source
 
 import (
   "context"
+  "errors"
   "fmt"
   "io"
   fpmod "path/filepath"
   "sort"
+  "strings"
   "time"
   "btrfs_to_glacier/volume_source/shim"
   "btrfs_to_glacier/types"
   pb "btrfs_to_glacier/messages"
 )
 
+var ErrFsNotMounted = errors.New("btrfs_fs_root_not_mounted")
+
 type btrfsVolumeManager struct {
   btrfsutil types.Btrfsutil
-  linuxutil types.Linuxutil
   sysinfo   *pb.SystemInfo
   conf      *pb.Config
 }
@@ -36,13 +39,9 @@ func NewVolumeManager(conf *pb.Config) (types.VolumeManager, error) {
   var linuxutil types.Linuxutil
   var err error
   linuxutil, err = shim.NewLinuxutil(conf)
-  if err != nil || !linuxutil.IsCapSysAdmin() {
-    return nil, fmt.Errorf("To manage btrfs volumes you need CAP_SYS_ADMIN")
-  }
-  btrfsutil, err = shim.NewBtrfsutil(conf)
+  btrfsutil, err = shim.NewBtrfsutil(conf, linuxutil)
   mgr := btrfsVolumeManager{
     btrfsutil,
-    linuxutil,
     get_system_info(linuxutil),
     conf,
   }
@@ -63,13 +62,50 @@ func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
 }
 
 func (self *btrfsVolumeManager) FindSnapRootForVol(sv *pb.SubVolume) (string, error) {
-  return "", nil
+  for _,src := range self.conf.Sources {
+    if src.Type != pb.Source_BTRFS { continue }
+    for _,p := range src.Paths {
+      if p.VolPath == sv.MountedPath { return p.SnapPath, nil }
+    }
+  }
+  return "", fmt.Errorf("no snap path for '%s'", sv.MountedPath)
 }
 
-func (self *btrfsVolumeManager) FindVolume(fs_root string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
+func (self *btrfsVolumeManager) FindMountedPath(sv *pb.SubVolume) (string, error) {
+  if len(sv.MountedPath) > 0 { return sv.MountedPath, nil }
+  //return "", fmt.Errorf("implement me")
+  return "/implement/me", nil
+}
+
+func (self *btrfsVolumeManager) FindTreePath(sv *pb.SubVolume) (string, error) {
+  if len(sv.TreePath) > 0 { return sv.TreePath, nil }
+  //return "", fmt.Errorf("implement me")
+  return "/implement/me", nil
+}
+
+// may not exist
+func (self *btrfsVolumeManager) FindFsRootMount(sv *pb.SubVolume) (string, error) {
+  return "", ErrFsNotMounted
+}
+
+// may not exist
+func (self *btrfsVolumeManager) FindFsRootMountByPath(path string) (string, error) {
+  return "", ErrFsNotMounted
+}
+
+func (self *btrfsVolumeManager) FindVolume(fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
   var vols []*pb.SubVolume
   var err error
-  vols, err = self.btrfsutil.ListSubVolumesUnder(fs_root)
+  var look_path string
+  is_root_fs := true
+
+  look_path, err = self.FindFsRootMountByPath(fs_path)
+  if err != nil {
+    if err != ErrFsNotMounted { return nil, err }
+    is_root_fs = false
+    look_path = fs_path
+  }
+  vols, err = self.btrfsutil.ListSubVolumesInFs(look_path, is_root_fs)
   if err != nil { return nil, err }
   for _,vol := range vols {
     if matcher(vol) { return vol, nil }
@@ -88,9 +124,16 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
   var err error
   var last_gen uint64
   var snap_root string
-  snap_root, err = self.FindSnapRootForVol(subvol)
-  if err != nil { return nil, err }
-  vols, err = self.btrfsutil.ListSubVolumesUnder(snap_root)
+  is_root_fs := true
+
+  snap_root, err = self.FindFsRootMount(subvol)
+  if err != nil {
+    if err != ErrFsNotMounted { return nil, err }
+    is_root_fs = false
+    snap_root, err = self.FindSnapRootForVol(subvol)
+    if err != nil { return nil, err }
+  }
+  vols, err = self.btrfsutil.ListSubVolumesInFs(snap_root, is_root_fs)
   if err != nil { return nil, err }
 
   seq := make([]*pb.SubVolume, 0, 32)
@@ -108,13 +151,19 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
 }
 
 func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (<-chan types.SnapshotChangesOrError, error) {
+  var read_end io.ReadCloser
+  var from_path, to_path string
+  var err error
   if from.ParentUuid != to.ParentUuid {
     return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
   }
   if from.GenAtCreation < to.GenAtCreation {
     return nil, fmt.Errorf("From is not older than To : '%d' / '%d'", from.GenAtCreation, to.GenAtCreation)
   }
-  read_end, err := self.btrfsutil.StartSendStream(ctx, from.MountedPath, to.MountedPath, true)
+  if from_path,err = self.FindMountedPath(from); err != nil { return nil, err }
+  if to_path,err = self.FindMountedPath(to); err != nil { return nil, err }
+
+  read_end, err = self.btrfsutil.StartSendStream(ctx, from_path, to_path, true)
   if err != nil { return nil, err }
 
   changes_chan := make(chan types.SnapshotChangesOrError, 1)
@@ -135,29 +184,48 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from
 }
 
 func (self *btrfsVolumeManager) GetSnapshotStream(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (io.ReadCloser, error) {
+  var read_end io.ReadCloser
+  var from_path, to_path string
+  var err error
   if from != nil && from.ParentUuid != to.ParentUuid {
     return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
   }
   if from != nil && from.GenAtCreation < to.GenAtCreation {
     return nil, fmt.Errorf("From is not older than To : '%d' / '%d'", from.GenAtCreation, to.GenAtCreation)
   }
-  from_path := ""
-  if from != nil { from_path = from.MountedPath }
-  read_end, err := self.btrfsutil.StartSendStream(ctx, from_path, to.MountedPath, false)
+  from_path = ""
+  if from != nil {
+    if from_path,err = self.FindMountedPath(from); err != nil { return nil, err }
+  }
+  if to_path,err = self.FindMountedPath(to); err != nil { return nil, err }
+
+  read_end, err = self.btrfsutil.StartSendStream(ctx, from_path, to_path, false)
   return read_end, err
 }
 
 func (self *btrfsVolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, error) {
   var err error
-  var snap_root string
+  var snap *pb.SubVolume
+  var par_path, tree_path, snap_root string
   snap_root, err = self.FindSnapRootForVol(subvol)
   if err != nil { return nil, err }
-  ts_str    := time.Now().Format("20060201")
-  snap_name := fmt.Sprintf("%s.%s.%d", fpmod.Base(subvol.MountedPath), ts_str, time.Now().Unix())
-  snap_path := fpmod.Join(snap_root, snap_name)
-  err = self.btrfsutil.CreateSnapshot(subvol.MountedPath, snap_path)
+  tree_path, err = self.FindTreePath(subvol)
   if err != nil { return nil, err }
-  return self.GetVolume(snap_path)
+  par_path, err = self.FindMountedPath(subvol)
+  if err != nil { return nil, err }
+
+  ts_str    := time.Now().Format("20060201")
+  tree_path  = strings.TrimPrefix(tree_path, string(fpmod.Separator))
+  tree_path  = strings.Join(strings.Split(tree_path, string(fpmod.Separator)), "_")
+  snap_name := fmt.Sprintf("%s.%s.%d", tree_path, ts_str, time.Now().Unix())
+  snap_path := fpmod.Join(snap_root, snap_name)
+
+  err = self.btrfsutil.CreateSnapshot(par_path, snap_path)
+  if err != nil { return nil, err }
+  snap, err = self.GetVolume(snap_path)
+  if err != nil { return nil, err }
+  snap.MountedPath = snap_path
+  return snap, nil
 }
 
 func IsReadOnlySnap(subvol *pb.SubVolume) bool {
@@ -165,12 +233,18 @@ func IsReadOnlySnap(subvol *pb.SubVolume) bool {
 }
 
 func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
-  re_read_sv, err := self.GetVolume(subvol.MountedPath)
+  var err error
+  var del_path string
+  var re_read_sv *pb.SubVolume
+  del_path, err = self.FindMountedPath(subvol)
+  if err != nil { return err }
+
+  re_read_sv, err = self.GetVolume(del_path)
   if err != nil { return err }
   if !IsReadOnlySnap(re_read_sv) {
-    return fmt.Errorf("%v is not a snapshot", subvol)
+    return fmt.Errorf("%v is not readonly", subvol)
   }
-  err = self.btrfsutil.DeleteSubvolume(subvol.MountedPath)
+  err = self.btrfsutil.DeleteSubvolume(del_path)
   if err != nil { return err }
   return nil
 }
@@ -201,5 +275,10 @@ func (self *btrfsVolumeManager) ReceiveSendStream(
     ch <- types.SubVolumeOrError{Val: sv}
   }()
   return ch, nil
+}
+
+func (self *btrfsVolumeManager) TrimOldSnapshots(
+    src_subvol *pb.SubVolume, dry_run bool) ([]*pb.SubVolume, error) {
+  return nil, nil
 }
 

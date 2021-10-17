@@ -61,7 +61,6 @@ func ValidateSubVolume(check CheckType, sv *pb.SubVolume) error {
   switch check {
     case CheckSvInSeq:
       if sv.CreatedTs == 0 { return util.PbErrorf("Volume no creation timestamp: %v", sv) }
-      if sv.MountedPath == "" { return util.PbErrorf("Volume no mount path: %v", sv) }
       return ValidateSystemInfo(sv.OriginSys)
     case CheckSnapNoContent:
       if sv.ParentUuid == "" { return util.PbErrorf("Snapshot no parent uuid: %v", sv) }

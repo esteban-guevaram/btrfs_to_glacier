@@ -39,9 +39,9 @@ type VolumeManager interface {
   // `path` must be the root of the volume.
   // If `path` does not point to a snapshot the corresponding fields will be empty.
   GetVolume(path string) (*pb.SubVolume, error)
-  // Returns the first subvolume under `fs_root` that matches.
+  // Returns the first subvolume in filesystem owning `fs_path` that matches.
   // May return nil if nothing was found.
-  FindVolume(fs_root string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error)
+  FindVolume(fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error)
   // Returns all snapshots whose parent is `subvol`.
   // Returned snaps are sorted by creation generation (oldest first).
   // `received_uuid` will only be set if the snapshot was effectibely received.
@@ -64,7 +64,8 @@ type VolumeSource interface {
 type VolumeDestination interface {
   VolumeManager
   // Reads subvolume data from the pipe and creates a subvolume using `btrfs receive`.
-  // Received subvolume will be mounted at `root_path` and should have received uuid `rec_uuid`.
+  // Received subvolume will be mounted at `root_path/<basename_src_subvol>`.
+  // As a safety check this method asserts that received uuid equals `rec_uuid`.
   // Takes ownership of `read_pipe` and will close it once done.
   ReceiveSendStream(ctx context.Context, root_path string, rec_uuid string, read_pipe io.ReadCloser) (<-chan SubVolumeOrError, error)
 }
@@ -76,7 +77,7 @@ type VolumeAdmin interface {
   // Goes through all snapshots fathered by `src_subvol` and deletes the oldest ones according to the parameters in the config.
   // Returns the list of snapshots deleted.
   // If there are no old snapshots this is a noop.
-  TrimOldSnapshots(src_subvol *pb.SubVolume) ([]*pb.SubVolume, error)
+  TrimOldSnapshots(src_subvol *pb.SubVolume, dry_run bool) ([]*pb.SubVolume, error)
 }
 
 type Linuxutil interface {
@@ -96,10 +97,11 @@ type Btrfsutil interface {
   // If `path` does not point to a snapshot the corresponding fields will be empty.
   // @path must be the root of the subvolume.
   SubvolumeInfo(path string) (*pb.SubVolume, error)
-  // Returns a list with all subvolumes under `path`.
+  // Returns a list with all subvolumes in the filesystem that owns `path`.
+  // If `is_root_fs` then `path` must be the filesystem root and this method can be called without CAP_SYS_ADMIN.
+  // Otherwise listing on non-root paths can only be done by root.
   // If the subvolume is not a snapshot then the corresponding fields will be empty.
-  // @path must be the root of the subvolume or root_volume.
-  ListSubVolumesUnder(path string) ([]*pb.SubVolume, error)
+  ListSubVolumesInFs(path string, is_root_fs bool) ([]*pb.SubVolume, error)
   // Reads a stream generated from `btrfs send --no-data` and returns a record of the operations.
   // Takes ownership of `read_pipe` and will close it once done.
   ReadAndProcessSendStream(dump io.ReadCloser) (*SendDumpOperations, error)
@@ -108,7 +110,8 @@ type Btrfsutil interface {
   // `from` can be null to get the full contents of the subvolume.
   // When `ctx` is done/cancelled the write end of the pipe should be closed and the forked process killed.
   StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error)
-  // Wrapper around `btrfs receive`
+  // Wrapper around `btrfs receive`. `to_dir` must exist and be a directory.
+  // The mounted path of the received subvol will be `to_dir/<basename_src_subvol>`.
   // Takes ownership of `read_pipe` and will close it once done.
   ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error
   // Calls `btrfs_util_create_snapshot()` to create a snapshot of `subvol` in `snap` path.

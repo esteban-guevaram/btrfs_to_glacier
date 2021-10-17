@@ -21,7 +21,8 @@ func DummyChunks(chunk_uuid string) *pb.SnapshotChunks {
 func DummySubVolume(vol_uuid string) *pb.SubVolume {
  return &pb.SubVolume{
     Uuid: vol_uuid,
-    MountedPath: "/monkey/biz",
+    TreePath: vol_uuid,
+    MountedPath: fmt.Sprintf("/banana_stashes/%s", vol_uuid),
     CreatedTs: 666,
     OriginSys: &pb.SystemInfo{
       KernMajor: 1,
@@ -34,6 +35,8 @@ func DummySubVolume(vol_uuid string) *pb.SubVolume {
 func DummySnapshot(snap_uuid string, vol_uuid string) *pb.SubVolume {
   vol := DummySubVolume(snap_uuid)
   vol.ParentUuid = vol_uuid
+  vol.TreePath = fmt.Sprintf("snaps/%s", snap_uuid)
+  vol.MountedPath = ""
   vol.ReadOnly = true
   vol.CreatedTs += 111
   vol.GenAtCreation = 777

@@ -48,6 +48,7 @@ parse_opts() {
   PART_LBL_DST="${PART_PREFIX}_dst"
   SUBVOL_LIST=( "$@" )
   MOUNT_SRC="$TEMP/${PART_PREFIX}_src"
+  MOUNT_VOL="$TEMP/${PART_PREFIX}_vol"
   MOUNT_DST="$TEMP/${PART_PREFIX}_dst"
   RESTORE_POINT="$MOUNT_DST/restore"
   SNAP_POINT="$MOUNT_SRC/snapshots"
@@ -108,7 +109,8 @@ avoid_shot_in_the_foot_loop() {
 }
 
 umount_fs() {
-  for mntpt in "$MOUNT_SRC" "$MOUNT_DST"; do
+  for mntpt in "$MOUNT_VOL"/* "$MOUNT_SRC" "$MOUNT_DST"; do
+    [[ -e "$mntpt" ]] || continue
     mountpoint -q "$mntpt" && run_cmd sudo umount "$mntpt"
   done
 
@@ -132,7 +134,7 @@ mount_fs() {
       run_cmd sudo chown -R "`whoami`": "$mntpt"
 
       [[ -d "$RESTORE_POINT" ]] || run_cmd mkdir -p "$RESTORE_POINT"
-      [[ -d "$SNAP_POINT" ]] || run_cmd mkdir -p "$SNAP_POINT"
+      [[ -d "$MOUNT_VOL" ]] || run_cmd mkdir -p "$MOUNT_VOL"
     fi
   done
 }
@@ -229,13 +231,25 @@ prepare_all_for_loop_fiasco() {
 
 create_dummy_subvol_and_snap() {
   pushd "$MOUNT_SRC"
+  # snapshot will be nested in another subvolume
+  run_cmd btrfs subvolume create "`basename "$SNAP_POINT"`"
+
   for subvol_name in "${SUBVOL_LIST[@]}"; do
     try_or_die ! -z "$subvol_name" -a ! -e "$subvol_name"
+    if [[ "`basename "$subvol_name"`" != "$subvol_name" ]]; then
+      echo "[ERROR] only leaf subvols allowed, got '$subvol_name'"
+      exit 10
+    fi
 
     run_cmd btrfs subvolume create "$subvol_name"
+    write_random_file "$MOUNT_SRC/$subvol_name/adir"
     #run_cmd sudo chown -R `whoami`: "$subvol_name"
     modify_subvol_and_snap "$subvol_name" "${subvol_name}.snap.1"
     modify_subvol_and_snap "$subvol_name" "${subvol_name}.snap.2"
+
+    local mntpt="${MOUNT_VOL}/$subvol_name"
+    [[ -d "$mntpt" ]] || run_cmd mkdir "$mntpt"
+    run_cmd sudo mount -o subvol="$subvol_name" LABEL="$PART_LBL_SRC" "$mntpt"
   done
   popd
 }
@@ -260,6 +274,7 @@ write_random_file() {
   local size=${2:-64}
   local filepath=`mktemp -u "${1}/file.XXXXXX"`
 
+  [[ -d "$1" ]] || mkdir "$1"
   echo "Writing random data to $filepath"
   dd bs=1024 count=$size if=/dev/urandom | strings > "$filepath"
 

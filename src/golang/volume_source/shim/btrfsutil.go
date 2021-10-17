@@ -21,10 +21,12 @@ import (
 
 const NULL_UUID = "00000000000000000000000000000000"
 
-type btrfsUtilImpl struct {}
+type btrfsUtilImpl struct {
+  linuxutil types.Linuxutil
+}
 
-func NewBtrfsutil(conf *pb.Config) (types.Btrfsutil, error) {
-  impl := new(btrfsUtilImpl)
+func NewBtrfsutil(conf *pb.Config, linuxutil types.Linuxutil) (types.Btrfsutil, error) {
+  impl := &btrfsUtilImpl{ linuxutil:linuxutil, }
   return impl, nil
 }
 
@@ -44,51 +46,51 @@ func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.SubVolume, error) {
     return nil, fmt.Errorf("btrfs_util_subvolume_info: %s = %d",
                            C.GoString(C.btrfs_util_strerror(stx)), stx)
   }
-  if subvol.parent_id == 0 {
+  if subvol.id == C.BTRFS_FS_TREE_OBJECTID {
     return nil, fmt.Errorf("returning root subvolume is not supported")
   }
-  return self.toProtoSnapOrSubvol(&subvol, path), nil
+  return self.toProtoSnapOrSubvol(&subvol, "", path)
 }
 
-func (*btrfsUtilImpl) toProtoSubVolume(subvol *C.struct_btrfs_util_subvolume_info, path string) *pb.SubVolume {
+func (*btrfsUtilImpl) toProtoSubVolume(
+    subvol *C.struct_btrfs_util_subvolume_info, tree_path string, mnt_path string) *pb.SubVolume {
   sv := &pb.SubVolume {
     Uuid: bytesToUuid(subvol.uuid),
-    MountedPath: strings.TrimSuffix(path, "/"),
+    TreePath: strings.TrimSuffix(tree_path, "/"),
+    MountedPath: strings.TrimSuffix(mnt_path, "/"),
     GenAtCreation: uint64(subvol.otransid),
     CreatedTs: uint64(subvol.otime.tv_sec),
   }
-  received_uuid := bytesToUuid(subvol.received_uuid)
-  if received_uuid != NULL_UUID { sv.ReceivedUuid = received_uuid }
+  sv.ReceivedUuid = bytesToUuid(subvol.received_uuid)
   return sv
 }
 
-// Unlike btrfs we consider ONLY read-only snaps
-func (self *btrfsUtilImpl) toProtoSnapOrSubvol(subvol *C.struct_btrfs_util_subvolume_info, path string) *pb.SubVolume {
-  snap := self.toProtoSubVolume(subvol, path)
-  parent_uuid := bytesToUuid(subvol.parent_uuid)
-  // Becareful it is a trap subvol.flags does not do sh*t to determine read_only snaps
-  // C.BTRFS_SUBVOL_RDONLY is not the right mask ?!
-  //util.Infof("path=%s parent_uuid=%s, flags=%x", path, parent_uuid, subvol.flags)
-  if parent_uuid != NULL_UUID {
-    var is_read_only C.bool = false
-    c_path := C.CString(path)
-    defer C.free(unsafe.Pointer(c_path))
-    stx := C.btrfs_util_get_subvolume_read_only(c_path, &is_read_only)
-    if stx != C.BTRFS_UTIL_OK || !is_read_only { return snap }
-    snap.ParentUuid = parent_uuid
+func (self *btrfsUtilImpl) toProtoSnapOrSubvol(
+    subvol *C.struct_btrfs_util_subvolume_info, tree_path string, mnt_path string) (*pb.SubVolume, error) {
+  //util.Debugf("tree_path=%s mnt_path=%s, parent_id=%v", tree_path, mnt_path, subvol.parent_id)
+  snap := self.toProtoSubVolume(subvol, tree_path, mnt_path)
+  if subvol.parent_id != C.BTRFS_FS_TREE_OBJECTID {
+    snap.ParentUuid = bytesToUuid(subvol.parent_uuid)
   }
-  return snap
+  snap.ReadOnly = (subvol.flags & C.BTRFS_ROOT_SUBVOL_RDONLY) > 0
+  return snap, nil
 }
 
+// If we get NULL_UUID then just return an empty string.
 func bytesToUuid(uuid [16]C.uchar) string {
   var b strings.Builder
+  is_null := true
   for _, chr := range uuid {
+    is_null = is_null && (chr == '\000')
     fmt.Fprintf(&b, "%.2x", chr)
   }
+  if is_null { return "" }
   return b.String()
 }
 
-func (self *btrfsUtilImpl) CreateSubVolumeIterator(path string) (*C.struct_btrfs_util_subvolume_iterator, error) {
+func (self *btrfsUtilImpl) CreateSubVolumeIterator(
+    path string, is_root_fs bool) (*C.struct_btrfs_util_subvolume_iterator, error) {
+  //util.Infof("btrfs_util_create_subvolume_iterator('%s')", path)
   var subvol_it *C.struct_btrfs_util_subvolume_iterator
   c_path := C.CString(path)
   defer C.free(unsafe.Pointer(c_path))
@@ -97,9 +99,17 @@ func (self *btrfsUtilImpl) CreateSubVolumeIterator(path string) (*C.struct_btrfs
     return nil, fmt.Errorf("needs an absolute path, got: %s", path)
   }
 
-  util.Infof("btrfs_util_create_subvolume_iterator('%s')", path)
+  // top=C.BTRFS_FS_TREE_OBJECTID list all vols but needs CAP_SYS_ADMIN
   // top=0 lists all vols if the path is the root of the btrfs filesystem
-  stx := C.btrfs_util_create_subvolume_iterator(c_path, 0, 0, &subvol_it)
+  // top=0 does not do sh*t if `path` is not the root of the fs
+  var top C.ulong = 0
+  if !is_root_fs {
+    top = C.BTRFS_FS_TREE_OBJECTID
+    if !self.linuxutil.IsCapSysAdmin() {
+      return nil, fmt.Errorf("CreateSubVolumeIterator requires CAP_SYS_ADMIN for non root paths")
+    }
+  }
+  stx := C.btrfs_util_create_subvolume_iterator(c_path, top, 0, &subvol_it)
   if stx != C.BTRFS_UTIL_OK {
     return nil, fmt.Errorf("btrfs_util_create_subvolume_iterator: %s = %d",
                            C.GoString(C.btrfs_util_strerror(stx)), stx)
@@ -107,13 +117,14 @@ func (self *btrfsUtilImpl) CreateSubVolumeIterator(path string) (*C.struct_btrfs
   return subvol_it, nil
 }
 
-func (self *btrfsUtilImpl) SubVolumeIteratorNextInfo(subvol_it *C.struct_btrfs_util_subvolume_iterator, root_path string) (*pb.SubVolume, error) {
+func (self *btrfsUtilImpl) SubVolumeIteratorNextInfo(
+    subvol_it *C.struct_btrfs_util_subvolume_iterator) (*pb.SubVolume, error) {
   var c_rel_path *C.char = nil
   var subvol C.struct_btrfs_util_subvolume_info
   defer C.free(unsafe.Pointer(c_rel_path))
 
-  //util.Infof("btrfs_util_subvolume_iterator_next_info('%p')", subvol_it)
   stx := C.btrfs_util_subvolume_iterator_next_info(subvol_it, &c_rel_path, &subvol)
+  //util.Debugf("btrfs_util_subvolume_iterator_next_info('%p') = %v", subvol_it, stx)
   if stx == C.BTRFS_UTIL_ERROR_STOP_ITERATION {
     return nil, nil
   }
@@ -121,28 +132,34 @@ func (self *btrfsUtilImpl) SubVolumeIteratorNextInfo(subvol_it *C.struct_btrfs_u
     return nil, fmt.Errorf("btrfs_util_subvolume_iterator_next_info: %s = %d",
                            C.GoString(C.btrfs_util_strerror(stx)), stx)
   }
-  subvol_path := root_path
-  if c_rel_path != nil {
-    subvol_path = fpmod.Join(root_path, C.GoString(c_rel_path))
+  if c_rel_path == nil {
+    return nil, fmt.Errorf("btrfs_util_subvolume_iterator_next_info: no tree path")
   }
-  return self.toProtoSnapOrSubvol(&subvol, subvol_path), nil
+  // Note: `c_rel_path` will should be relative to the root of the btrfs filesystem.
+  // We could assert this by calling `btrfs_util_subvolume_path`
+  tree_path := C.GoString(c_rel_path)
+  return self.toProtoSnapOrSubvol(&subvol, tree_path, "")
 }
 
-func (self *btrfsUtilImpl) ListSubVolumesUnder(path string) ([]*pb.SubVolume, error) {
+// By using `is_root_fs` we guarantee the tree paths returned by `Btrfsutil.ListSubVolumesInFs`
+// are relative to the filesystem root.
+// * `is_root_fs == false` implies listing relative to `BTRFS_FS_TREE_OBJECTID`
+// * `is_root_fs == true` implies listing relative to the id of the root volume.
+func (self *btrfsUtilImpl) ListSubVolumesInFs(path string, is_root_fs bool) ([]*pb.SubVolume, error) {
   vols := make([]*pb.SubVolume, 0, 32)
   var err error
   var subvol *pb.SubVolume
   var subvol_it *C.struct_btrfs_util_subvolume_iterator
 
-  subvol_it, err = self.CreateSubVolumeIterator(path)
+  subvol_it, err = self.CreateSubVolumeIterator(path, is_root_fs)
   if err != nil { return nil, err }
   defer C.btrfs_util_destroy_subvolume_iterator(subvol_it)
-  for subvol, err = self.SubVolumeIteratorNextInfo(subvol_it, path);
+  for subvol, err = self.SubVolumeIteratorNextInfo(subvol_it);
       err == nil && subvol != nil;
-      subvol, err = self.SubVolumeIteratorNextInfo(subvol_it, path) {
+      subvol, err = self.SubVolumeIteratorNextInfo(subvol_it) {
       vols = append(vols, subvol)
   }
-  return vols, nil
+  return vols, err
 }
 
 func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump io.ReadCloser) (*types.SendDumpOperations, error) {
@@ -162,6 +179,9 @@ func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump io.ReadCloser) (*types.
 }
 
 func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error) {
+  if !self.linuxutil.IsCapSysAdmin() {
+    return nil, fmt.Errorf("StartSendStream requires CAP_SYS_ADMIN")
+  }
   if len(from) > 0 && !fpmod.IsAbs(from) {
     return nil, fmt.Errorf("'from' needs an absolute path, got: %s", from)
   }
@@ -218,6 +238,9 @@ func (self *btrfsUtilImpl) WaitForTransactionId(root_fs string, tid uint64) erro
 }
 
 func (self *btrfsUtilImpl) DeleteSubvolume(subvol string) error {
+  if !self.linuxutil.IsCapSysAdmin() {
+    return fmt.Errorf("DeleteSubvolume requires CAP_SYS_ADMIN (only for snapshots though)")
+  }
   if !fpmod.IsAbs(subvol) {
     return fmt.Errorf("'subvol' needs an absolute path, got: %s", subvol)
   }
@@ -231,6 +254,9 @@ func (self *btrfsUtilImpl) DeleteSubvolume(subvol string) error {
 }
 
 func (self *btrfsUtilImpl) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error {
+  if !self.linuxutil.IsCapSysAdmin() {
+    return fmt.Errorf("ReceiveSendStream requires CAP_SYS_ADMIN")
+  }
   defer read_pipe.Close()
   if !fpmod.IsAbs(to_dir) {
     return fmt.Errorf("'to_dir' needs an absolute path, got: %s", to_dir)

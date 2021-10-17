@@ -28,6 +28,7 @@ func TestMessagesGotGenerated(t *testing.T) {
   vol := SubVolume {
     Uuid: "salut",
     MountedPath: "/choco/pops",
+    TreePath: "/pops",
     CreatedTs: 666,
     OriginSys: &SystemInfo{
       KernMajor: 5,

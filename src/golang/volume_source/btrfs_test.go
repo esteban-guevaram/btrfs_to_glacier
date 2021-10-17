@@ -15,8 +15,7 @@ import (
 
 func CloneSubvol(vol *pb.SubVolume) *pb.SubVolume { return proto.Clone(vol).(*pb.SubVolume) }
 
-func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.Linuxutil) {
-  conf := util.LoadTestConf()
+func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil) {
   newfile_ops := types.SendDumpOperations{
     Written: map[string]bool{
       "coucou": true,
@@ -40,43 +39,34 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.Linuxutil
     BtrfsUsrMinor: 4,
     ToolGitCommit: "hash",
   }
-  mock_subvol := &pb.SubVolume {
-    Uuid: "uuid",
-    MountedPath: "/tmp/subvol",
-    GenAtCreation: 66,
-    CreatedTs: uint64(time.Now().UnixNano()),
+  mock_subvol := util.DummySubVolume("uuid")
+  mock_subvol.GenAtCreation = 66
+  mock_snap1 := util.DummySnapshot("uuid2", "uuid")
+  mock_snap1.ReceivedUuid = "uuid4"
+  mock_snap1.GenAtCreation = 99
+  mock_snap2 := util.DummySnapshot("uuid3", "uuid")
+  mock_snap2.GenAtCreation = 77
+  mock_snap3 := util.DummySnapshot("uuid4", "uuid0")
+  mock_snap3.GenAtCreation = 55
+  mock_snap4 := util.DummySubVolume("uuid0")
+  mock_snap4.GenAtCreation = 33
+
+  source := &pb.Source{
+    Type: pb.Source_BTRFS,
+    Paths: []*pb.Source_VolSnapPathPair{
+      &pb.Source_VolSnapPathPair{
+        VolPath: mock_subvol.MountedPath,
+        SnapPath: "/snaps",
+      },
+    },
+    History: &pb.Source_SnapHistory{
+      DaysKeepAll: 30,
+      KeepOnePeriodDays: 30,
+    },
   }
-  mock_snap1 := &pb.SubVolume {
-    Uuid: "uuid2",
-    MountedPath: "/tmp/snap1",
-    GenAtCreation: 99,
-    CreatedTs: uint64(time.Now().UnixNano() + 10000),
-    ParentUuid: "uuid",
-    ReceivedUuid: "uuid4",
-    ReadOnly: true,
-  }
-  mock_snap2 := &pb.SubVolume {
-    Uuid: "uuid3",
-    MountedPath: "/tmp/snap2",
-    GenAtCreation: 77,
-    CreatedTs: uint64(time.Now().UnixNano() + 5000),
-    ParentUuid: "uuid",
-    ReadOnly: true,
-  }
-  mock_snap3 := &pb.SubVolume {
-    Uuid: "uuid4",
-    MountedPath: "/tmp/snap3",
-    GenAtCreation: 55,
-    CreatedTs: uint64(time.Now().UnixNano()),
-    ParentUuid: "uuid0",
-    ReadOnly: true,
-  }
-  mock_snap4 := &pb.SubVolume {
-    Uuid: "uuid0",
-    MountedPath: "/tmp/subvol0",
-    GenAtCreation: 33,
-    CreatedTs: uint64(time.Now().UnixNano() - 10000),
-  }
+
+  conf := util.LoadTestConf()
+  conf.Sources = []*pb.Source{ source }
   btrfsutil := &mocks.Btrfsutil {
     Subvol: CloneSubvol(mock_subvol),
     Snaps: []*pb.SubVolume{
@@ -88,43 +78,50 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.Linuxutil
     DumpOps: &newfile_ops,
     SendStream: mocks.NewPreloadedPipe([]byte("somedata")),
   }
-  linuxutil := &mocks.Linuxutil {}
   volmgr    := &btrfsVolumeManager {
     btrfsutil,
-    linuxutil,
     sys_info,
     conf,
   }
-  return volmgr, btrfsutil, linuxutil
+  return volmgr, btrfsutil
+}
+
+func defaultVolPath(conf *pb.Config) string {
+  return conf.Sources[0].Paths[0].VolPath
 }
 
 func TestGetVolume(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   expect_subvol := CloneSubvol(btrfsutil.Subvol)
-  expect_subvol.OriginSys = volmgr.sysinfo
-  subvol, err := volmgr.GetVolume("")
+  expect_subvol.OriginSys = proto.Clone(volmgr.sysinfo).(*pb.SystemInfo)
+  subvol, err := volmgr.GetVolume(defaultVolPath(volmgr.conf))
   if err != nil { t.Fatalf("%s", err) }
   if !proto.Equal(expect_subvol, subvol) {
     t.Errorf("\n%s\n !=\n %s", expect_subvol, subvol)
   }
+  // Just test we are not reusing internal references
+  volmgr.sysinfo.ToolGitCommit = "another_hash"
+  util.EqualsOrFailTest(t, "Using internal refs", expect_subvol, subvol)
 }
 
 func TestFindVolume(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   expect_subvol := CloneSubvol(btrfsutil.Snaps[0])
-  subvol, err := volmgr.FindVolume("", types.ByReceivedUuid(expect_subvol.ReceivedUuid))
+  subvol, err := volmgr.FindVolume(defaultVolPath(volmgr.conf),
+                                   types.ByReceivedUuid(expect_subvol.ReceivedUuid))
   if err != nil { t.Fatalf("%s", err) }
   if !proto.Equal(expect_subvol, subvol) {
     t.Errorf("\n%s\n !=\n %s", expect_subvol, subvol)
   }
 
-  subvol, err = volmgr.FindVolume("", types.ByReceivedUuid("should not exist as a uuid"))
+  subvol, err = volmgr.FindVolume(defaultVolPath(volmgr.conf),
+                                  types.ByReceivedUuid("should not exist as a uuid"))
   if err != nil { t.Fatalf("%s", err) }
   if subvol != nil { t.Errorf("Expected to find no subvolume, got %s", subvol) }
 }
 
 func TestGetSnapshotSeqForVolume(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   expect_snaps := []*pb.SubVolume { CloneSubvol(btrfsutil.Snaps[1]), CloneSubvol(btrfsutil.Snaps[0]) }
   snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvol)
   if err != nil { t.Fatalf("%s", err) }
@@ -139,7 +136,7 @@ func TestGetSnapshotSeqForVolume(t *testing.T) {
 }
 
 func TestGetChangesBetweenSnaps(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   expect_changes := &pb.SnapshotChanges{
     FromUuid: btrfsutil.DumpOps.FromUuid,
     ToUuid: btrfsutil.DumpOps.ToUuid,
@@ -163,7 +160,7 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
 }
 
 func TestGetSnapshotStream(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   expect_stream := []byte("somedata")
   btrfsutil.SendStream = mocks.NewPreloadedPipe(expect_stream)
 
@@ -189,7 +186,7 @@ func TestGetSnapshotStream(t *testing.T) {
 }
 
 func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   btrfsutil.Err = fmt.Errorf("problemo")
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
@@ -199,7 +196,7 @@ func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
 }
 
 func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   btrfsutil.DumpErr = fmt.Errorf("problemo")
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
@@ -213,31 +210,42 @@ func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
 }
 
 func TestCreateSnapshot(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
-  expect_snap := CloneSubvol(btrfsutil.Subvol)
+  volmgr, btrfsutil := buildTestManager()
+  expect_cnt := len(btrfsutil.Snaps) + 1
+  sv := CloneSubvol(btrfsutil.Subvol)
+  expect_snap := util.DummySnapshot("snap_uuid", sv.Uuid)
+  btrfsutil.Subvol = util.DummySnapshot("snap_uuid", sv.Uuid)
   expect_snap.OriginSys = volmgr.sysinfo
-  snapshot, err := volmgr.CreateSnapshot(btrfsutil.Subvol)
+
+  snapshot, err := volmgr.CreateSnapshot(sv)
   if err != nil { t.Fatalf("%s", err) }
+  util.EqualsOrFailTest(t, "CreateSnapshot not called", len(btrfsutil.Snaps), expect_cnt)
+
+  if len(snapshot.MountedPath) < 1 { t.Errorf("created snapshot should return mounted path.") }
+  snapshot.MountedPath = ""
   util.EqualsOrFailTest(t, "Bad snapshot", snapshot, expect_snap)
 }
 
 func TestDeleteSnapshot(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   err := volmgr.DeleteSnapshot(btrfsutil.Subvol)
   if err == nil { t.Errorf("Expected error when deleting non-readonly subvolumes") }
+  //util.Debugf("err: %v", err)
+  btrfsutil.Snaps[0].MountedPath = fmt.Sprintf("/snaps/%s", btrfsutil.Snaps[0].TreePath)
   btrfsutil.Subvol = CloneSubvol(btrfsutil.Snaps[0])
   err = volmgr.DeleteSnapshot(btrfsutil.Snaps[0])
   if err != nil { t.Errorf("%s", err) }
 }
 
 func TestReceiveSendStream(t *testing.T) {
-  volmgr, btrfsutil, _ := buildTestManager()
+  volmgr, btrfsutil := buildTestManager()
   read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 
   mock_received := &pb.SubVolume {
     Uuid: "uuid_TestReceiveSendStream",
+    TreePath: "/tmp/mock_received",
     MountedPath: "/tmp/mock_received",
     GenAtCreation: 99,
     CreatedTs: uint64(time.Now().UnixNano() + 10000),
@@ -257,7 +265,7 @@ func TestReceiveSendStream(t *testing.T) {
 }
 
 func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
-  volmgr, _, _ := buildTestManager()
+  volmgr, _ := buildTestManager()
   read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()

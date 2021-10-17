@@ -2,9 +2,15 @@ package mocks
 
 import (
   "context"
+  "fmt"
   "io"
+  fpmod "path/filepath"
+
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
+  "btrfs_to_glacier/util"
+
+  "github.com/google/uuid"
 )
 
 type Linuxutil struct {
@@ -30,28 +36,53 @@ type Btrfsutil struct {
   SendStream types.Pipe
 }
 func (self *Btrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
+  if path == "" { return nil, fmt.Errorf("SubvolumeInfo bad args") }
   return self.Subvol, self.Err
 }
-func (self *Btrfsutil) ListSubVolumesUnder(path string) ([]*pb.SubVolume, error) {
+func (self *Btrfsutil) ListSubVolumesInFs(path string, is_root_fs bool) ([]*pb.SubVolume, error) {
+  if path == "" { return nil, fmt.Errorf("ListSubVolumesInFs bad args") }
   return self.Snaps, self.Err
 }
 func (self *Btrfsutil) ReadAndProcessSendStream(dump io.ReadCloser) (*types.SendDumpOperations, error) {
   return self.DumpOps, self.DumpErr
 }
 func (self *Btrfsutil) StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error) {
+  if from == "" || to == "" { return nil, fmt.Errorf("StartSendStream bad args") }
   return self.SendStream.ReadEnd(), self.Err
 }
 func (self *Btrfsutil) CreateSnapshot(subvol string, snap string) error {
+  if subvol == "" || snap == "" { return fmt.Errorf("CreateSnapshot bad args") }
+  sv := &pb.SubVolume {
+    Uuid: uuid.NewString(),
+    TreePath: snap,
+    GenAtCreation: 666,
+    CreatedTs: 666,
+    ParentUuid: subvol,
+  }
+  self.Snaps = append(self.Snaps, sv)
   return self.Err
 }
 func (self *Btrfsutil) DeleteSubvolume(subvol string) error {
-  return self.Err
+  if subvol == "" { return fmt.Errorf("DeleteSubvolume bad args") }
+  for idx,sv := range self.Snaps {
+    util.Debugf("tree(%s) / del_path(%s)", sv.TreePath, subvol)
+    // Cannot do a perfect job at matching since at this level we lost the uuid.
+    if fpmod.Base(sv.TreePath) == fpmod.Base(subvol) {
+      self.Snaps = append(self.Snaps[:idx], self.Snaps[idx+1:]...)
+      return self.Err
+    }
+  }
+  return fmt.Errorf("delete unexisting vol '%s'", subvol)
 }
 func (self *Btrfsutil) WaitForTransactionId(root_fs string, tid uint64) error {
+  if root_fs == "" { return fmt.Errorf("WaitForTransactionId bad args") }
   return self.Err
 }
 func (self *Btrfsutil) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error {
+  defer read_pipe.Close()
+  if to_dir == "" { return fmt.Errorf("ReceiveSendStream bad args") }
+  _, err := io.Copy(io.Discard, read_pipe)
+  if err != nil { return err }
   return self.Err
 }
-
 
