@@ -90,6 +90,14 @@ type Linuxutil interface {
   BtrfsProgsVersion() (uint32, uint32)
   // The git commit hash from which the current binary was built.
   ProjectVersion() string
+  // Drops root privileges or dies if `seteuid` clib call fails.
+  // Only works if go binary invoked via `sudo`.
+  // Returns a function that can be called to restore back privileges.
+  DropRoot() (func(), error)
+  // Obtains root privileges back or dies if `seteuid` clib call fails.
+  // Only works if go binary invoked via `sudo`.
+  // Returns a function that can be called to restore user permissions.
+  GetRoot() (func(), error)
 }
 
 type Btrfsutil interface {

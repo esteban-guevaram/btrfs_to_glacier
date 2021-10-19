@@ -2,6 +2,7 @@
 #include <sys/capability.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
+#include <unistd.h>
 
 #include <linux_utils.h>
 #include <common.h>
@@ -25,5 +26,10 @@ void linux_kernel_version(struct MajorMinor* result) {
   CALL_POSIX_CHECK(int res_uname = uname(&vers_str), res_uname == 0);
   CALL_POSIX_CHECK(int res_scanf = sscanf(vers_str.release, format, &result->major, &result->minor),
                    res_scanf == 2);
+}
+
+void set_euid_or_die(int new_euid) {
+  CALL_POSIX_CHECK(int res_set = seteuid(new_euid),
+                   res_set == 0);
 }
 

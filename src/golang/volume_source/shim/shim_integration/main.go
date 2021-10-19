@@ -79,7 +79,7 @@ func (self *TestBtrfsUtil) GetRestoreDir() string {
 func (self *TestBtrfsUtil) TestSubvolumeInfo(conf *pb.Config, btrfsutil types.Btrfsutil, path string) {
   subvol, err := btrfsutil.SubvolumeInfo(path)
   if err != nil { util.Fatalf("integration failed = %v", err) }
-  bad_vol := len(subvol.MountedPath_2) < 1 ||
+  bad_vol := len(subvol.MountedPath) < 1 ||
              len(subvol.Uuid) < 1 || subvol.CreatedTs < 1
   if bad_vol { util.Fatalf("bad subvol = %s\n", util.AsJson(subvol)) }
   util.Infof("subvol = %s\n", util.AsJson(subvol))
@@ -203,23 +203,15 @@ func TestBtrfsUtil_AllFuncs(conf *pb.Config, linuxutil types.Linuxutil, btrfsuti
   suite.TestReceiveSendStream(conf, linuxutil, btrfsutil)
 }
 
-func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
-  util.Infof("IsCapSysAdmin = %v", linuxutil.IsCapSysAdmin())
-  kmaj, kmin := linuxutil.LinuxKernelVersion()
-  util.Infof("LinuxKernelVersion = %d.%d", kmaj, kmin)
-  bmaj, bmin := linuxutil.BtrfsProgsVersion()
-  util.Infof("BtrfsProgsVersion = %d.%d", bmaj, bmin)
-  util.Infof("ProjectVersion = %s", linuxutil.ProjectVersion())
-}
-
 // Cannot use a test since Testing does not support cgo
 func main() {
   util.Infof("shim_integration run")
   conf := GetConf()
   linuxutil := GetLinuxUtil()
   btrfsutil := GetBtrfsUtil(conf, linuxutil)
-  TestBtrfsUtil_AllFuncs(conf, linuxutil, btrfsutil)
+
   TestLinuxUtils_AllFuncs(linuxutil)
+  TestBtrfsUtil_AllFuncs(conf, linuxutil, btrfsutil)
   TestSendDumpAll(btrfsutil)
   TestBtrfsSendStreamAll(linuxutil, btrfsutil)
 
