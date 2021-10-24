@@ -12,9 +12,8 @@ import (
   "io"
   "reflect"
   "syscall"
-  "unicode"
-  "unicode/utf8"
   "unsafe"
+
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
@@ -72,14 +71,8 @@ func requestPassphrase() ([]byte, error) {
   if err != nil { return nil, err }
   if len(byte_pass) < 12 { return nil, fmt.Errorf("Password is too short") }
 
-  pass := string(byte_pass)
-  if !utf8.ValidString(pass) { return nil, fmt.Errorf("Password is not valid unicode") }
-  for _,codept := range pass {
-    if codept > unicode.MaxASCII || unicode.IsControl(codept) {
-      return nil, fmt.Errorf("Password is has invalid characters (only ascii non control are allowed)")
-    }
-  }
-  return byte_pass, nil
+  err = util.IsOnlyAsciiString(string(byte_pass), false)
+  return byte_pass, err
 }
 
 func derivatePassphrase(pw_prompt func() ([]byte, error)) (types.SecretKey, error) {

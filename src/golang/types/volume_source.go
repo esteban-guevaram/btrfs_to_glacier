@@ -28,6 +28,32 @@ type SendDumpOperations struct {
   FromUuid string
 }
 
+// Represents a line in /proc/self/mountinfo
+type MountEntry struct {
+  Id int // NOT stable across reads of mountinfo
+  // Device major and minor may not match any real device.
+  Minor, Major int
+  TreePath string
+  MountedPath string
+  FsType string
+  DevPath string
+  Options map[string]string // correspond to the per-superblock options
+  BtrfsVolId int
+  // Bind mounts to the same filesystem/subvolume
+  Binds []*MountEntry
+}
+type Device struct {
+  Name string
+  Minor, Major int
+}
+type Filesystem struct {
+  Uuid string
+  Label string
+  MountedPath string
+  Devices []*Device
+  Mounts []*MountEntry
+}
+
 func ByUuid(uuid string) func(*pb.SubVolume) bool {
   return func(sv *pb.SubVolume) bool { return sv.Uuid == uuid }
 }
@@ -98,6 +124,9 @@ type Linuxutil interface {
   // Only works if go binary invoked via `sudo`.
   // Returns a function that can be called to restore user permissions.
   GetRoot() (func(), error)
+  // Returns all btrfs filesystems found on the host.
+  // For each filesystem list all the mounts it owns.
+  ListBtrfsFilesystems() ([]*Filesystem, error)
 }
 
 type Btrfsutil interface {

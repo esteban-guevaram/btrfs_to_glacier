@@ -20,6 +20,7 @@ import (
 )
 
 const NULL_UUID = "00000000000000000000000000000000"
+const BTRFS_FS_TREE_OBJECTID = C.BTRFS_FS_TREE_OBJECTID
 
 type btrfsUtilImpl struct {
   linuxutil types.Linuxutil
