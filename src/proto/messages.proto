@@ -7,10 +7,11 @@ option go_package = "./messages";
 message SubVolume {
   // Both the uuid in the metadata storage AND the actual uuid of the snapshot.
   string uuid = 1;
+  uint64 vol_id = 2;
   // This field may be left empty.
   // Corresponds to the path relative to the root of the filesystem.
   // It should be the same as what `/proc/mountinfo` or `path_ret` in `btrfs_util_subvolume_iterator_next`.
-  string tree_path = 2;
+  string tree_path = 3;
   // This field may be left empty.
   // Besides is not always possible to calculate the absolute path where a subvolume is mounted from btrfs output.
   // * A subvolume may be mounted at different paths (ex: as a directory inside the rootvol or idependently)
@@ -18,15 +19,15 @@ message SubVolume {
   // * Linking a mounted subvolume to its filesystem is not trivial (needs /sys/fs/btrfs and /proc/*/mountinfo)
   // * The link between a filesystem and its devices can be tricky if using a raid flavor of btrfs
   // * Bind mounts to inner parts of a subvolume are undistinguishable from mounts of the subvolume :/
-  string  mounted_path = 3;
-  uint64  gen_at_creation = 4;
-  fixed64 created_ts = 5;
+  string  mounted_path = 4;
+  uint64  gen_at_creation = 5;
+  fixed64 created_ts = 6;
   // Only snapshots will have this field not empty
-  string  parent_uuid = 6; 
-  string  received_uuid = 7; 
-  bool    read_only = 8;
-  SnapshotChunks  data = 9;
-  SystemInfo      origin_sys = 10;
+  string  parent_uuid = 7; 
+  string  received_uuid = 8; 
+  bool    read_only = 9;
+  SnapshotChunks  data = 10;
+  SystemInfo      origin_sys = 11;
 }
 
 message SnapshotChunks {

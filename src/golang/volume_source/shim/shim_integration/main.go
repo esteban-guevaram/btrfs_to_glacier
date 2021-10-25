@@ -76,12 +76,27 @@ func (self *TestBtrfsUtil) GetRestoreDir() string {
   return restore_dir
 }
 
+func validateSubVolOrDie(subvol *pb.SubVolume, require_mnt_path bool) {
+  bad_tree_path := !require_mnt_path &&
+                   ((subvol.VolId == shim.BTRFS_FS_TREE_OBJECTID && len(subvol.TreePath) == 0) ||
+                   len(subvol.TreePath) < 1)
+  bad_vol := (require_mnt_path && len(subvol.MountedPath) < 1) ||
+             subvol.VolId < shim.BTRFS_FS_TREE_OBJECTID ||
+             len(subvol.Uuid) < 1 || subvol.CreatedTs < 1 ||
+             subvol.CreatedTs < 1 || subvol.GenAtCreation < 1
+  if bad_vol || bad_tree_path { util.Fatalf("bad subvol = %s\n", util.AsJson(subvol)) }
+}
+
+func validateSnapOrDie(subvol *pb.SubVolume, require_mnt_path bool) {
+  validateSubVolOrDie(subvol, require_mnt_path)
+  bad_snap := len(subvol.ParentUuid) < 1 || !subvol.ReadOnly
+  if bad_snap { util.Fatalf("bad snap = %s\n", util.AsJson(subvol)) }
+}
+
 func (self *TestBtrfsUtil) TestSubvolumeInfo(conf *pb.Config, btrfsutil types.Btrfsutil, path string) {
   subvol, err := btrfsutil.SubvolumeInfo(path)
   if err != nil { util.Fatalf("integration failed = %v", err) }
-  bad_vol := len(subvol.MountedPath) < 1 ||
-             len(subvol.Uuid) < 1 || subvol.CreatedTs < 1
-  if bad_vol { util.Fatalf("bad subvol = %s\n", util.AsJson(subvol)) }
+  validateSubVolOrDie(subvol, true)
   util.Infof("subvol = %s\n", util.AsJson(subvol))
 }
 func (self *TestBtrfsUtil) TestSubvolumeInfoFail(conf *pb.Config, btrfsutil types.Btrfsutil, path string) {
@@ -100,7 +115,10 @@ func (self *TestBtrfsUtil) TestListSubVolumesAt(
   vols, err = btrfsutil.ListSubVolumesInFs(path, is_root_fs)
   if err != nil { util.Fatalf("integration failed = %v", err) }
   if len(vols) < 1 { util.Fatalf("returned 0 vols: '%s'", path) }
-  for _,subvol := range(vols) { util.Infof("%s\n", util.AsJson(subvol)) }
+  for _,subvol := range(vols) {
+    validateSubVolOrDie(subvol, false)
+    util.Debugf("%s\n", util.AsJson(subvol))
+  }
   util.Infof("len(vols) = %d\n", len(vols))
 }
 
@@ -111,6 +129,7 @@ func (self *TestBtrfsUtil) TestCreateSnapshot(conf *pb.Config, btrfsutil types.B
 
   subvol, err := btrfsutil.SubvolumeInfo(snap_path);
   if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
+  validateSnapOrDie(subvol, true)
   util.Infof("subvol = %s\n", subvol)
 }
 

@@ -2,6 +2,7 @@ package util
 
 import (
   "fmt"
+  "hash/adler32"
 
   pb "btrfs_to_glacier/messages"
 )
@@ -21,6 +22,7 @@ func DummyChunks(chunk_uuid string) *pb.SnapshotChunks {
 func DummySubVolume(vol_uuid string) *pb.SubVolume {
  return &pb.SubVolume{
     Uuid: vol_uuid,
+    VolId: (uint64)(adler32.Checksum([]byte(vol_uuid))),
     TreePath: vol_uuid,
     MountedPath: fmt.Sprintf("/banana_stashes/%s", vol_uuid),
     CreatedTs: 666,
