@@ -19,11 +19,22 @@ import (
   "regexp"
   "strconv"
   "strings"
+  "sync"
 
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
   pb "btrfs_to_glacier/messages"
 )
+
+var (
+  cap_sys_admin_mutex sync.Mutex
+  cap_sys_admin_nesting uint32
+  is_cap_sys_admin bool
+)
+
+func init() {
+  is_cap_sys_admin = C.is_cap_sys_admin() != 0
+}
 
 const ROOT_UID = 0
 const SYS_FS = "/sys/fs/btrfs"
@@ -43,21 +54,32 @@ type FsReaderIf interface {
 type FsReaderImpl struct {}
 type Linuxutil struct {
   FsReader FsReaderIf
+  HasLinuxVersion bool
+  LinuxMaj, LinuxMin uint32
+  HasSudoUid bool
+  SudoUid int
 }
 
 func NewLinuxutil(conf *pb.Config) (types.Linuxutil, error) {
-  return &Linuxutil{new(FsReaderImpl)}, nil
+  return &Linuxutil{ FsReader:new(FsReaderImpl), }, nil
 }
 
 func (*Linuxutil) IsCapSysAdmin() bool {
+  cap_sys_admin_mutex.Lock()
+  defer cap_sys_admin_mutex.Unlock()
   //return ROOT_UID == os.Geteuid()
-  return C.is_cap_sys_admin() != 0
+  return is_cap_sys_admin
 }
 
-func (*Linuxutil) LinuxKernelVersion() (uint32, uint32) {
-  var result C.struct_MajorMinor
-  C.linux_kernel_version(&result)
-  return uint32(result.major), uint32(result.minor)
+func (self *Linuxutil) LinuxKernelVersion() (uint32, uint32) {
+  if !self.HasLinuxVersion {
+    var result C.struct_MajorMinor
+    C.linux_kernel_version(&result)
+    self.LinuxMaj = uint32(result.major)
+    self.LinuxMin = uint32(result.minor)
+    self.HasLinuxVersion = true
+  }
+  return self.LinuxMaj, self.LinuxMin
 }
 
 func (*Linuxutil) BtrfsProgsVersion() (uint32, uint32) {
@@ -73,31 +95,63 @@ func (*Linuxutil) ProjectVersion() string {
   return C.BTRFS_TO_GLACIER_VERSION
 }
 
-func get_sudo_uid_from_env() (int, error) {
-  sudo_uid, err := strconv.Atoi(os.Getenv("SUDO_UID"))
-  if err != nil { return 0, err }
-  if sudo_uid < 1 { return 0, fmt.Errorf("invalid sudo uid") }
-  //util.Debugf("sudo_ruid=%v", sudo_uid)
-  return sudo_uid, nil
+func (self *Linuxutil) getSudouidFromEnv() (int, error) {
+  if !self.HasSudoUid {
+    var err error
+    self.SudoUid, err = strconv.Atoi(os.Getenv("SUDO_UID"))
+    if err != nil { return 0, err }
+    if self.SudoUid < 1 { return 0, fmt.Errorf("invalid sudo uid") }
+    //util.Debugf("sudo_ruid=%v", sudo_uid)
+    self.HasSudoUid = true
+  }
+  return self.SudoUid, nil
 }
 
 func (self *Linuxutil) DropRoot() (func(), error) {
-  if ROOT_UID != os.Geteuid() { return func() {}, nil }
-  sudo_uid, err := get_sudo_uid_from_env()
+  sudo_uid, err := self.getSudouidFromEnv()
   if err != nil { return nil, err }
 
+  cap_sys_admin_mutex.Lock()
+  defer cap_sys_admin_mutex.Unlock()
+  if !is_cap_sys_admin { return func() {}, nil }
+
   C.set_euid_or_die((C.int)(sudo_uid))
-  restore_f := func() { C.set_euid_or_die(ROOT_UID) }
+  cap_sys_admin_nesting += 1
+  expect_nest := cap_sys_admin_nesting
+  is_cap_sys_admin = false
+
+  restore_f := func() {
+    cap_sys_admin_mutex.Lock()
+    defer cap_sys_admin_mutex.Unlock()
+    if cap_sys_admin_nesting != expect_nest { util.Fatalf("DropRoot bad nesting") }
+    C.set_euid_or_die(ROOT_UID)
+    cap_sys_admin_nesting -= 1
+    is_cap_sys_admin = true
+  }
   return restore_f, nil
 }
 
 func (self *Linuxutil) GetRoot() (func(), error) {
-  if ROOT_UID == os.Geteuid() { return func() {}, nil }
-  sudo_uid, err := get_sudo_uid_from_env()
+  sudo_uid, err := self.getSudouidFromEnv()
   if err != nil { return nil, err }
 
+  cap_sys_admin_mutex.Lock()
+  defer cap_sys_admin_mutex.Unlock()
+  if is_cap_sys_admin { return func() {}, nil }
+
   C.set_euid_or_die(ROOT_UID)
-  restore_f := func() { C.set_euid_or_die((C.int)(sudo_uid)) }
+  cap_sys_admin_nesting += 1
+  expect_nest := cap_sys_admin_nesting
+  is_cap_sys_admin = true
+
+  restore_f := func() {
+    cap_sys_admin_mutex.Lock()
+    defer cap_sys_admin_mutex.Unlock()
+    if cap_sys_admin_nesting != expect_nest { util.Fatalf("GetRoot bad nesting") }
+    C.set_euid_or_die((C.int)(sudo_uid))
+    cap_sys_admin_nesting -= 1
+    is_cap_sys_admin = false
+  }
   return restore_f, nil
 }
 
