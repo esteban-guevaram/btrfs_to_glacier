@@ -52,7 +52,7 @@ func NewVolumeManager(conf *pb.Config) (types.VolumeManager, error) {
 func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   var subvol *pb.SubVolume
   var err error
-  subvol, err = self.btrfsutil.SubvolumeInfo(path)
+  subvol, err = self.btrfsutil.SubVolumeInfo(path)
   if err != nil { return nil, err }
   if len(subvol.ParentUuid) > 0 && !subvol.ReadOnly {
     return nil, fmt.Errorf("'%s' is a writable snapshot, those are not supported", path)
@@ -245,7 +245,7 @@ func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
   if !IsReadOnlySnap(re_read_sv) {
     return fmt.Errorf("%v is not readonly", subvol)
   }
-  err = self.btrfsutil.DeleteSubvolume(del_path)
+  err = self.btrfsutil.DeleteSubVolume(del_path)
   if err != nil { return err }
   return nil
 }

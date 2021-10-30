@@ -133,14 +133,14 @@ type Btrfsutil interface {
   // Get the `struct btrfs_util_subvolume_info` for a btrfs subvolume.
   // If `path` does not point to a snapshot the corresponding fields will be empty.
   // @path must be the root of the subvolume.
-  SubvolumeInfo(path string) (*pb.SubVolume, error)
+  SubVolumeInfo(path string) (*pb.SubVolume, error)
   // Returns an error unless `path` is the root of a btrfs subvolume.
   // It works even on the root subvolume.
   IsSubVolumeMountPath(path string) error
   // Returns the TreePath of a volume in its btrfs filesystem.
   // Requires the argument to have a valid MountedPath (it can work we a path inside the volume).
   // Requires CAP_SYS_ADMIN.
-  GetSubvolumeTreePath(*pb.SubVolume) (string, error)
+  GetSubVolumeTreePath(*pb.SubVolume) (string, error)
   // Returns a list with all subvolumes in the filesystem that owns `path`.
   // If `is_root_fs` then `path` must be the filesystem root and this method can be called without CAP_SYS_ADMIN.
   // Otherwise listing on non-root paths can only be done by root.
@@ -163,7 +163,7 @@ type Btrfsutil interface {
   // Note async subvolume is no longer possible.
   CreateSnapshot(subvol string, snap string) error
   // Calls `btrfs_util_delete_subvolume` with empty `flags` argument.
-  DeleteSubvolume(subvol string) error
+  DeleteSubVolume(subvol string) error
   // Calls `btrfs_util_start_sync()` to wait for a transaction to sync.
   WaitForTransactionId(root_fs string, tid uint64) error
 }

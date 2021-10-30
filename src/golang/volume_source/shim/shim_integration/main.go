@@ -105,28 +105,28 @@ func (self *TestBtrfsUtil) TestIsSubVolumeMountPath(path string, expect_ok bool)
   }
 }
 
-func (self *TestBtrfsUtil) TestSubvolumeInfo(path string) {
-  subvol, err := self.btrfsutil.SubvolumeInfo(path)
+func (self *TestBtrfsUtil) TestSubVolumeInfo(path string) {
+  subvol, err := self.btrfsutil.SubVolumeInfo(path)
   if err != nil { util.Fatalf("SubvolumeInfo failed = %v", err) }
   validateSubVolOrDie(subvol, true, self.linuxutil.IsCapSysAdmin())
   util.Infof("subvol = %s\n", util.AsJson(subvol))
 }
-func (self *TestBtrfsUtil) TestSubvolumeInfoFail(path string) {
-  _, err := self.btrfsutil.SubvolumeInfo(path)
+func (self *TestBtrfsUtil) TestSubVolumeInfoFail(path string) {
+  _, err := self.btrfsutil.SubVolumeInfo(path)
   if err == nil { util.Fatalf("btrfsutil.SubvolumeInfo should have failed for '%s'", path) }
 }
 
-func (self *TestBtrfsUtil) TestGetSubvolumeTreePath(root string, path string) {
+func (self *TestBtrfsUtil) TestGetSubVolumeTreePath(root string, path string) {
   if !self.linuxutil.IsCapSysAdmin() {
     util.Warnf("TestGetSubvolumeTreePath needs CAP_SYS_ADMIN")
     return
   }
-  subvol, err := self.btrfsutil.SubvolumeInfo(root)
+  subvol, err := self.btrfsutil.SubVolumeInfo(root)
   if err != nil { util.Fatalf("SubvolumeInfo failed = %v", err) }
   subvol.MountedPath = path
 
-  tree_path, err := self.btrfsutil.GetSubvolumeTreePath(subvol)
-  if err != nil { util.Fatalf("GetSubvolumeTreePath failed = %v", err) }
+  tree_path, err := self.btrfsutil.GetSubVolumeTreePath(subvol)
+  if err != nil { util.Fatalf("GetSubVolumeTreePath failed = %v", err) }
   util.Debugf("tree_path: '%s'", tree_path)
   if len(tree_path) < 1 { util.Fatalf("bad tree path") }
   if strings.HasPrefix(tree_path, "/") { util.Fatalf("bad tree path") }
@@ -154,14 +154,14 @@ func (self *TestBtrfsUtil) TestCreateSnapshot() {
   err := self.btrfsutil.CreateSnapshot(subvol_flag, snap_path);
   if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", subvol_flag, snap_path, err) }
 
-  subvol, err := self.btrfsutil.SubvolumeInfo(snap_path);
+  subvol, err := self.btrfsutil.SubVolumeInfo(snap_path);
   if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
   validateSnapOrDie(subvol, true, self.linuxutil.IsCapSysAdmin())
   util.Infof("subvol = %s\n", subvol)
 }
 
 // Requires CAP_SYS_ADMIN
-func (self *TestBtrfsUtil) TestDeleteSubvolume() {
+func (self *TestBtrfsUtil) TestDeleteSubVolume() {
   if !self.linuxutil.IsCapSysAdmin() {
     util.Warnf("TestBtrfsUtil_DeleteSubvolume needs CAP_SYS_ADMIN")
     return
@@ -170,11 +170,11 @@ func (self *TestBtrfsUtil) TestDeleteSubvolume() {
   err := self.btrfsutil.CreateSnapshot(subvol_flag, snap_path);
   if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", subvol_flag, snap_path, err) }
 
-  err = self.btrfsutil.DeleteSubvolume(snap_path);
-  if err != nil { util.Fatalf("btrfsutil.DeleteSubvolume(%s) failed = %v", snap_path, err) }
+  err = self.btrfsutil.DeleteSubVolume(snap_path);
+  if err != nil { util.Fatalf("btrfsutil.DeleteSubVolume(%s) failed = %v", snap_path, err) }
 
   var subvol *pb.SubVolume
-  subvol, err = self.btrfsutil.SubvolumeInfo(snap_path);
+  subvol, err = self.btrfsutil.SubVolumeInfo(snap_path);
   if err == nil { util.Fatalf("btrfsutil.DeleteSubvolume was not deleted: %v", subvol) }
 }
 
@@ -240,17 +240,17 @@ func TestBtrfsUtil_AllFuncs(conf *pb.Config, linuxutil types.Linuxutil, btrfsuti
   suite.TestIsSubVolumeMountPath(subvol_flag, true)
   suite.TestIsSubVolumeMountPath(root_flag, true)
   suite.TestIsSubVolumeMountPath(subvol_dir, false)
-  suite.TestSubvolumeInfo(subvol_flag)
-  suite.TestSubvolumeInfo(subvol_alt_flag)
-  suite.TestSubvolumeInfoFail(subvol_dir)
-  suite.TestGetSubvolumeTreePath(subvol_flag, subvol_flag)
-  suite.TestGetSubvolumeTreePath(subvol_flag, subvol_dir)
+  suite.TestSubVolumeInfo(subvol_flag)
+  suite.TestSubVolumeInfo(subvol_alt_flag)
+  suite.TestSubVolumeInfoFail(subvol_dir)
+  suite.TestGetSubVolumeTreePath(subvol_flag, subvol_flag)
+  suite.TestGetSubVolumeTreePath(subvol_flag, subvol_dir)
   suite.TestListSubVolumesAt(root_flag, true)
   suite.TestListSubVolumesAt(subvol_flag, false)
   suite.TestListSubVolumesAt(subvol_alt_flag, false)
   suite.TestListSubVolumesAt(snap1_flag, false)
   suite.TestCreateSnapshot()
-  suite.TestDeleteSubvolume()
+  suite.TestDeleteSubVolume()
   suite.TestReceiveSendStream()
 }
 

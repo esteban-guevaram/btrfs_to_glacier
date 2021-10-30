@@ -31,7 +31,7 @@ func NewBtrfsutil(conf *pb.Config, linuxutil types.Linuxutil) (types.Btrfsutil, 
   return impl, nil
 }
 
-func (self *btrfsUtilImpl) GetSubvolumeTreePath(subvol *pb.SubVolume) (string, error) {
+func (self *btrfsUtilImpl) GetSubVolumeTreePath(subvol *pb.SubVolume) (string, error) {
   if !self.linuxutil.IsCapSysAdmin() {
     return "", fmt.Errorf("GetSubvolumeTreePath requires CAP_SYS_ADMIN")
   }
@@ -61,7 +61,7 @@ func (self *btrfsUtilImpl) IsSubVolumeMountPath(path string) error {
   return nil
 }
 
-func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.SubVolume, error) {
+func (self *btrfsUtilImpl) SubVolumeInfo(path string) (*pb.SubVolume, error) {
   var subvol C.struct_btrfs_util_subvolume_info
   c_path := C.CString(path)
   defer C.free(unsafe.Pointer(c_path))
@@ -82,7 +82,7 @@ func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   }
   sv_pb,err := self.toProtoSnapOrSubvol(&subvol, "", path)
   if err == nil && self.linuxutil.IsCapSysAdmin() {
-    sv_pb.TreePath, err = self.GetSubvolumeTreePath(sv_pb)
+    sv_pb.TreePath, err = self.GetSubVolumeTreePath(sv_pb)
   }
   return sv_pb, err
 }
@@ -273,7 +273,7 @@ func (self *btrfsUtilImpl) WaitForTransactionId(root_fs string, tid uint64) erro
   return nil
 }
 
-func (self *btrfsUtilImpl) DeleteSubvolume(subvol string) error {
+func (self *btrfsUtilImpl) DeleteSubVolume(subvol string) error {
   if !self.linuxutil.IsCapSysAdmin() {
     return fmt.Errorf("DeleteSubvolume requires CAP_SYS_ADMIN (only for snapshots though)")
   }

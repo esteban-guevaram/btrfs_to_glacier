@@ -35,7 +35,7 @@ type Btrfsutil struct {
   DumpOps    *types.SendDumpOperations
   SendStream types.Pipe
 }
-func (self *Btrfsutil) GetSubvolumeTreePath(subvol *pb.SubVolume) (string, error) {
+func (self *Btrfsutil) GetSubVolumeTreePath(subvol *pb.SubVolume) (string, error) {
   if subvol.MountedPath == "" { return "", fmt.Errorf("GetSubvolumeTreePath bad args") }
   return fpmod.Base(subvol.MountedPath), self.Err
 }
@@ -44,7 +44,7 @@ func (self *Btrfsutil) IsSubVolumeMountPath(path string) error {
   if path == self.Subvol.MountedPath { return self.Err }
   return fmt.Errorf("SubvolumeInfo nothing found for '%s'", path)
 }
-func (self *Btrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
+func (self *Btrfsutil) SubVolumeInfo(path string) (*pb.SubVolume, error) {
   if path == "" { return nil, fmt.Errorf("SubvolumeInfo bad args") }
   return self.Subvol, self.Err
 }
@@ -71,7 +71,7 @@ func (self *Btrfsutil) CreateSnapshot(subvol string, snap string) error {
   self.Snaps = append(self.Snaps, sv)
   return self.Err
 }
-func (self *Btrfsutil) DeleteSubvolume(subvol string) error {
+func (self *Btrfsutil) DeleteSubVolume(subvol string) error {
   if subvol == "" { return fmt.Errorf("DeleteSubvolume bad args") }
   for idx,sv := range self.Snaps {
     util.Debugf("tree(%s) / del_path(%s)", sv.TreePath, subvol)
