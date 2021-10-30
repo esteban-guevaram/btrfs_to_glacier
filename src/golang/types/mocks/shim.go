@@ -39,6 +39,11 @@ func (self *Btrfsutil) GetSubVolumeTreePath(subvol *pb.SubVolume) (string, error
   if subvol.MountedPath == "" { return "", fmt.Errorf("GetSubvolumeTreePath bad args") }
   return fpmod.Base(subvol.MountedPath), self.Err
 }
+func (self *Btrfsutil) SubVolumeIdForPath(path string) (uint64, error) {
+  if path == "" { return 0, fmt.Errorf("SubVolumeIdForPath bad args") }
+  if path == self.Subvol.MountedPath { return self.Subvol.VolId, self.Err }
+  return 0, fmt.Errorf("SubVolumeIdForPath nothing matched")
+}
 func (self *Btrfsutil) IsSubVolumeMountPath(path string) error {
   if path == "" { return fmt.Errorf("SubvolumeInfo bad args") }
   if path == self.Subvol.MountedPath { return self.Err }
@@ -61,13 +66,7 @@ func (self *Btrfsutil) StartSendStream(ctx context.Context, from string, to stri
 }
 func (self *Btrfsutil) CreateSnapshot(subvol string, snap string) error {
   if subvol == "" || snap == "" { return fmt.Errorf("CreateSnapshot bad args") }
-  sv := &pb.SubVolume {
-    Uuid: uuid.NewString(),
-    TreePath: snap,
-    GenAtCreation: 666,
-    CreatedTs: 666,
-    ParentUuid: subvol,
-  }
+  sv := util.DummySnapshot(uuid.NewString(), subvol)
   self.Snaps = append(self.Snaps, sv)
   return self.Err
 }

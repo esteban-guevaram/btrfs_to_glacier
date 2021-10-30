@@ -20,6 +20,7 @@ var snap2_flag string
 var subvol_flag string
 var subvol_alt_flag string
 var subvol_dir string
+var not_btrfs_path string
 
 func init() {
   flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the btrfs filesystem")
@@ -29,6 +30,7 @@ func init() {
   flag.StringVar(&subvol_alt_flag, "subvol-alt",  "", "another mount point only for the subvolume")
   flag.Parse()
   subvol_dir = fpmod.Join(subvol_flag, "adir")
+  not_btrfs_path = "/proc"
 }
 
 type TestBtrfsUtil struct {
@@ -93,6 +95,19 @@ func validateSnapOrDie(subvol *pb.SubVolume, check_mnt bool, check_tree bool) {
   validateSubVolOrDie(subvol, check_mnt, check_tree)
   bad_snap := len(subvol.ParentUuid) < 1 || !subvol.ReadOnly
   if bad_snap { util.Fatalf("bad snap = %s\n", util.AsJson(subvol)) }
+}
+
+func (self *TestBtrfsUtil) TestSubVolumeIdForPath(path string, expect_ok bool) {
+  id, err := self.btrfsutil.SubVolumeIdForPath(path)
+  if expect_ok && err != nil {
+    util.Fatalf("SubVolumeIdForPath(%s) failed = %v", path, err)
+  }
+  if !expect_ok && err == nil {
+    util.Fatalf("SubVolumeIdForPath(%s) should have failed", path)
+  }
+  if expect_ok && id < shim.BTRFS_FS_TREE_OBJECTID {
+    util.Fatalf("SubVolumeIdForPath(%s) invalid id", path)
+  }
 }
 
 func (self *TestBtrfsUtil) TestIsSubVolumeMountPath(path string, expect_ok bool) {
@@ -237,6 +252,10 @@ func TestBtrfsUtil_AllFuncs(conf *pb.Config, linuxutil types.Linuxutil, btrfsuti
   suite := &TestBtrfsUtil{
     conf: conf, btrfsutil: btrfsutil, linuxutil: linuxutil,
   }
+  suite.TestSubVolumeIdForPath(subvol_flag, true)
+  suite.TestSubVolumeIdForPath(root_flag, true)
+  suite.TestSubVolumeIdForPath(subvol_dir, true)
+  suite.TestSubVolumeIdForPath(not_btrfs_path, false)
   suite.TestIsSubVolumeMountPath(subvol_flag, true)
   suite.TestIsSubVolumeMountPath(root_flag, true)
   suite.TestIsSubVolumeMountPath(subvol_dir, false)

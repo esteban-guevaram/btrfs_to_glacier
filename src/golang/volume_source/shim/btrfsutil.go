@@ -49,6 +49,19 @@ func (self *btrfsUtilImpl) GetSubVolumeTreePath(subvol *pb.SubVolume) (string, e
   return tree_path, nil
 }
 
+func (self *btrfsUtilImpl) SubVolumeIdForPath(path string) (uint64, error) {
+  c_path := C.CString(path)
+  defer C.free(unsafe.Pointer(c_path))
+  var vol_id C.uint64_t = 0
+
+  stx := C.btrfs_util_subvolume_id(c_path, &vol_id)
+  if stx != C.BTRFS_UTIL_OK {
+    return 0, fmt.Errorf("btrfs_util_subvolume_id: %s = %d",
+                           C.GoString(C.btrfs_util_strerror(stx)), stx)
+  }
+  return (uint64)(vol_id), nil
+}
+
 func (self *btrfsUtilImpl) IsSubVolumeMountPath(path string) error {
   c_path := C.CString(path)
   defer C.free(unsafe.Pointer(c_path))
