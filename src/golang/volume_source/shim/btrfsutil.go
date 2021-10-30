@@ -31,6 +31,36 @@ func NewBtrfsutil(conf *pb.Config, linuxutil types.Linuxutil) (types.Btrfsutil, 
   return impl, nil
 }
 
+func (self *btrfsUtilImpl) GetSubvolumeTreePath(subvol *pb.SubVolume) (string, error) {
+  if !self.linuxutil.IsCapSysAdmin() {
+    return "", fmt.Errorf("GetSubvolumeTreePath requires CAP_SYS_ADMIN")
+  }
+  var c_tree_path *C.char = nil
+  c_path := C.CString(subvol.MountedPath)
+  defer C.free(unsafe.Pointer(c_path))
+  defer C.free(unsafe.Pointer(c_tree_path))
+
+  stx := C.btrfs_util_subvolume_path(c_path, (C.uint64_t)(subvol.VolId), &c_tree_path)
+  if stx != C.BTRFS_UTIL_OK {
+    return "", fmt.Errorf("btrfs_util_subvolume_path: %s = %d",
+                           C.GoString(C.btrfs_util_strerror(stx)), stx)
+  }
+  tree_path := C.GoString(c_tree_path)
+  return tree_path, nil
+}
+
+func (self *btrfsUtilImpl) IsSubVolumeMountPath(path string) error {
+  c_path := C.CString(path)
+  defer C.free(unsafe.Pointer(c_path))
+
+  stx := C.btrfs_util_is_subvolume(c_path)
+  if stx != C.BTRFS_UTIL_OK {
+    return fmt.Errorf("btrfs_util_subvolume_path: %s = %d",
+                      C.GoString(C.btrfs_util_strerror(stx)), stx)
+  }
+  return nil
+}
+
 func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   var subvol C.struct_btrfs_util_subvolume_info
   c_path := C.CString(path)
@@ -50,7 +80,11 @@ func (self *btrfsUtilImpl) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   if subvol.id == C.BTRFS_FS_TREE_OBJECTID {
     return nil, fmt.Errorf("returning root subvolume is not supported")
   }
-  return self.toProtoSnapOrSubvol(&subvol, "", path)
+  sv_pb,err := self.toProtoSnapOrSubvol(&subvol, "", path)
+  if err == nil && self.linuxutil.IsCapSysAdmin() {
+    sv_pb.TreePath, err = self.GetSubvolumeTreePath(sv_pb)
+  }
+  return sv_pb, err
 }
 
 func (*btrfsUtilImpl) toProtoSubVolume(

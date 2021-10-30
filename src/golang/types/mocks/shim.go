@@ -35,6 +35,15 @@ type Btrfsutil struct {
   DumpOps    *types.SendDumpOperations
   SendStream types.Pipe
 }
+func (self *Btrfsutil) GetSubvolumeTreePath(subvol *pb.SubVolume) (string, error) {
+  if subvol.MountedPath == "" { return "", fmt.Errorf("GetSubvolumeTreePath bad args") }
+  return fpmod.Base(subvol.MountedPath), self.Err
+}
+func (self *Btrfsutil) IsSubVolumeMountPath(path string) error {
+  if path == "" { return fmt.Errorf("SubvolumeInfo bad args") }
+  if path == self.Subvol.MountedPath { return self.Err }
+  return fmt.Errorf("SubvolumeInfo nothing found for '%s'", path)
+}
 func (self *Btrfsutil) SubvolumeInfo(path string) (*pb.SubVolume, error) {
   if path == "" { return nil, fmt.Errorf("SubvolumeInfo bad args") }
   return self.Subvol, self.Err

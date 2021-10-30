@@ -19,6 +19,7 @@ var snap1_flag string
 var snap2_flag string
 var subvol_flag string
 var subvol_alt_flag string
+var subvol_dir string
 
 func init() {
   flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the btrfs filesystem")
@@ -27,6 +28,7 @@ func init() {
   flag.StringVar(&subvol_flag, "subvol",  "", "the fullpath to the btrfs subvolume")
   flag.StringVar(&subvol_alt_flag, "subvol-alt",  "", "another mount point only for the subvolume")
   flag.Parse()
+  subvol_dir = fpmod.Join(subvol_flag, "adir")
 }
 
 type TestBtrfsUtil struct {
@@ -76,78 +78,103 @@ func (self *TestBtrfsUtil) GetRestoreDir() string {
   return restore_dir
 }
 
-func validateSubVolOrDie(subvol *pb.SubVolume, require_mnt_path bool) {
-  bad_tree_path := !require_mnt_path &&
+func validateSubVolOrDie(subvol *pb.SubVolume, check_mnt bool, check_tree bool) {
+  bad_tree_path := check_tree &&
                    ((subvol.VolId == shim.BTRFS_FS_TREE_OBJECTID && len(subvol.TreePath) == 0) ||
                    len(subvol.TreePath) < 1)
-  bad_vol := (require_mnt_path && len(subvol.MountedPath) < 1) ||
+  bad_vol := (check_mnt && len(subvol.MountedPath) < 1) ||
              subvol.VolId < shim.BTRFS_FS_TREE_OBJECTID ||
              len(subvol.Uuid) < 1 || subvol.CreatedTs < 1 ||
              subvol.CreatedTs < 1 || subvol.GenAtCreation < 1
   if bad_vol || bad_tree_path { util.Fatalf("bad subvol = %s\n", util.AsJson(subvol)) }
 }
 
-func validateSnapOrDie(subvol *pb.SubVolume, require_mnt_path bool) {
-  validateSubVolOrDie(subvol, require_mnt_path)
+func validateSnapOrDie(subvol *pb.SubVolume, check_mnt bool, check_tree bool) {
+  validateSubVolOrDie(subvol, check_mnt, check_tree)
   bad_snap := len(subvol.ParentUuid) < 1 || !subvol.ReadOnly
   if bad_snap { util.Fatalf("bad snap = %s\n", util.AsJson(subvol)) }
 }
 
-func (self *TestBtrfsUtil) TestSubvolumeInfo(conf *pb.Config, btrfsutil types.Btrfsutil, path string) {
-  subvol, err := btrfsutil.SubvolumeInfo(path)
-  if err != nil { util.Fatalf("integration failed = %v", err) }
-  validateSubVolOrDie(subvol, true)
+func (self *TestBtrfsUtil) TestIsSubVolumeMountPath(path string, expect_ok bool) {
+  err := self.btrfsutil.IsSubVolumeMountPath(path)
+  if expect_ok && err != nil {
+    util.Fatalf("IsSubVolumeMountPath(%s) failed = %v", path, err)
+  }
+  if !expect_ok && err == nil {
+    util.Fatalf("IsSubVolumeMountPath(%s) should have failed", path)
+  }
+}
+
+func (self *TestBtrfsUtil) TestSubvolumeInfo(path string) {
+  subvol, err := self.btrfsutil.SubvolumeInfo(path)
+  if err != nil { util.Fatalf("SubvolumeInfo failed = %v", err) }
+  validateSubVolOrDie(subvol, true, self.linuxutil.IsCapSysAdmin())
   util.Infof("subvol = %s\n", util.AsJson(subvol))
 }
-func (self *TestBtrfsUtil) TestSubvolumeInfoFail(conf *pb.Config, btrfsutil types.Btrfsutil, path string) {
-  _, err := btrfsutil.SubvolumeInfo(path)
+func (self *TestBtrfsUtil) TestSubvolumeInfoFail(path string) {
+  _, err := self.btrfsutil.SubvolumeInfo(path)
   if err == nil { util.Fatalf("btrfsutil.SubvolumeInfo should have failed for '%s'", path) }
 }
 
-func (self *TestBtrfsUtil) TestListSubVolumesAt(
-    conf *pb.Config, btrfsutil types.Btrfsutil, path string, is_root_fs bool) {
+func (self *TestBtrfsUtil) TestGetSubvolumeTreePath(root string, path string) {
+  if !self.linuxutil.IsCapSysAdmin() {
+    util.Warnf("TestGetSubvolumeTreePath needs CAP_SYS_ADMIN")
+    return
+  }
+  subvol, err := self.btrfsutil.SubvolumeInfo(root)
+  if err != nil { util.Fatalf("SubvolumeInfo failed = %v", err) }
+  subvol.MountedPath = path
+
+  tree_path, err := self.btrfsutil.GetSubvolumeTreePath(subvol)
+  if err != nil { util.Fatalf("GetSubvolumeTreePath failed = %v", err) }
+  util.Debugf("tree_path: '%s'", tree_path)
+  if len(tree_path) < 1 { util.Fatalf("bad tree path") }
+  if strings.HasPrefix(tree_path, "/") { util.Fatalf("bad tree path") }
+}
+
+func (self *TestBtrfsUtil) TestListSubVolumesAt(path string, is_root_fs bool) {
   if !self.linuxutil.IsCapSysAdmin() && !is_root_fs {
     util.Warnf("TestBtrfsUtil_ListSubVolumesAt needs CAP_SYS_ADMIN for non root paths")
     return
   }
   var err error
   var vols []*pb.SubVolume
-  vols, err = btrfsutil.ListSubVolumesInFs(path, is_root_fs)
+  vols, err = self.btrfsutil.ListSubVolumesInFs(path, is_root_fs)
   if err != nil { util.Fatalf("integration failed = %v", err) }
   if len(vols) < 1 { util.Fatalf("returned 0 vols: '%s'", path) }
   for _,subvol := range(vols) {
-    validateSubVolOrDie(subvol, false)
+    validateSubVolOrDie(subvol, false, true)
     util.Debugf("%s\n", util.AsJson(subvol))
   }
   util.Infof("len(vols) = %d\n", len(vols))
 }
 
-func (self *TestBtrfsUtil) TestCreateSnapshot(conf *pb.Config, btrfsutil types.Btrfsutil) {
+func (self *TestBtrfsUtil) TestCreateSnapshot() {
   snap_path := self.GetNewSnapName("TestBtrfsUtil_CreateSnapshotAndWait")
-  err := btrfsutil.CreateSnapshot(subvol_flag, snap_path);
+  err := self.btrfsutil.CreateSnapshot(subvol_flag, snap_path);
   if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", subvol_flag, snap_path, err) }
 
-  subvol, err := btrfsutil.SubvolumeInfo(snap_path);
+  subvol, err := self.btrfsutil.SubvolumeInfo(snap_path);
   if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
-  validateSnapOrDie(subvol, true)
+  validateSnapOrDie(subvol, true, self.linuxutil.IsCapSysAdmin())
   util.Infof("subvol = %s\n", subvol)
 }
 
 // Requires CAP_SYS_ADMIN
-func (self *TestBtrfsUtil) TestDeleteSubvolume(conf *pb.Config, linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
-  if !linuxutil.IsCapSysAdmin() {
+func (self *TestBtrfsUtil) TestDeleteSubvolume() {
+  if !self.linuxutil.IsCapSysAdmin() {
     util.Warnf("TestBtrfsUtil_DeleteSubvolume needs CAP_SYS_ADMIN")
     return
   }
   snap_path := self.GetNewSnapName("TestBtrfsUtil_DeleteSubvolume")
-  err := btrfsutil.CreateSnapshot(subvol_flag, snap_path);
+  err := self.btrfsutil.CreateSnapshot(subvol_flag, snap_path);
   if err != nil { util.Fatalf("btrfsutil.CreateSnapshot(%s, %s) failed = %v", subvol_flag, snap_path, err) }
 
-  err = btrfsutil.DeleteSubvolume(snap_path);
+  err = self.btrfsutil.DeleteSubvolume(snap_path);
   if err != nil { util.Fatalf("btrfsutil.DeleteSubvolume(%s) failed = %v", snap_path, err) }
 
   var subvol *pb.SubVolume
-  subvol, err = btrfsutil.SubvolumeInfo(snap_path);
+  subvol, err = self.btrfsutil.SubvolumeInfo(snap_path);
   if err == nil { util.Fatalf("btrfsutil.DeleteSubvolume was not deleted: %v", subvol) }
 }
 
@@ -178,8 +205,8 @@ const received_name = "asubvol.snap.1"
 const received_uuid = "166518c08534784089b333f44a344ccb"
 
 // Requires CAP_SYS_ADMIN
-func (self *TestBtrfsUtil) TestReceiveSendStream(conf *pb.Config, linuxutil types.Linuxutil, btrfsutil types.Btrfsutil) {
-  if !linuxutil.IsCapSysAdmin() {
+func (self *TestBtrfsUtil) TestReceiveSendStream() {
+  if !self.linuxutil.IsCapSysAdmin() {
     util.Warnf("TestBtrfsUtil_ReceiveSendStream needs CAP_SYS_ADMIN")
     return
   }
@@ -189,11 +216,11 @@ func (self *TestBtrfsUtil) TestReceiveSendStream(conf *pb.Config, linuxutil type
   ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
   defer cancel()
 
-  err := btrfsutil.ReceiveSendStream(ctx, restore_dir, preload_pipe.ReadEnd())
+  err := self.btrfsutil.ReceiveSendStream(ctx, restore_dir, preload_pipe.ReadEnd())
   if err != nil { util.Fatalf("btrfsutil.ReceiveSendStream failed = %v", err) }
 
   var vols []*pb.SubVolume
-  vols, err = btrfsutil.ListSubVolumesInFs(root_flag, true)
+  vols, err = self.btrfsutil.ListSubVolumesInFs(root_flag, true)
   if err != nil { util.Fatalf("integration failed = %v", err) }
   for _,sv := range(vols) {
     util.Debugf("subvol = %s", util.AsJson(sv))
@@ -210,16 +237,21 @@ func TestBtrfsUtil_AllFuncs(conf *pb.Config, linuxutil types.Linuxutil, btrfsuti
   suite := &TestBtrfsUtil{
     conf: conf, btrfsutil: btrfsutil, linuxutil: linuxutil,
   }
-  suite.TestSubvolumeInfo(conf, btrfsutil, subvol_flag)
-  suite.TestSubvolumeInfo(conf, btrfsutil, subvol_alt_flag)
-  suite.TestSubvolumeInfoFail(conf, btrfsutil, fpmod.Join(subvol_flag, "adir"))
-  suite.TestListSubVolumesAt(conf, btrfsutil, root_flag, true)
-  suite.TestListSubVolumesAt(conf, btrfsutil, subvol_flag, false)
-  suite.TestListSubVolumesAt(conf, btrfsutil, subvol_alt_flag, false)
-  suite.TestListSubVolumesAt(conf, btrfsutil, snap1_flag, false)
-  suite.TestCreateSnapshot(conf, btrfsutil)
-  suite.TestDeleteSubvolume(conf, linuxutil, btrfsutil)
-  suite.TestReceiveSendStream(conf, linuxutil, btrfsutil)
+  suite.TestIsSubVolumeMountPath(subvol_flag, true)
+  suite.TestIsSubVolumeMountPath(root_flag, true)
+  suite.TestIsSubVolumeMountPath(subvol_dir, false)
+  suite.TestSubvolumeInfo(subvol_flag)
+  suite.TestSubvolumeInfo(subvol_alt_flag)
+  suite.TestSubvolumeInfoFail(subvol_dir)
+  suite.TestGetSubvolumeTreePath(subvol_flag, subvol_flag)
+  suite.TestGetSubvolumeTreePath(subvol_flag, subvol_dir)
+  suite.TestListSubVolumesAt(root_flag, true)
+  suite.TestListSubVolumesAt(subvol_flag, false)
+  suite.TestListSubVolumesAt(subvol_alt_flag, false)
+  suite.TestListSubVolumesAt(snap1_flag, false)
+  suite.TestCreateSnapshot()
+  suite.TestDeleteSubvolume()
+  suite.TestReceiveSendStream()
 }
 
 // Cannot use a test since Testing does not support cgo
