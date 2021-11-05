@@ -256,6 +256,7 @@ func TestBtrfsUtil_AllFuncs(conf *pb.Config, linuxutil types.Linuxutil, btrfsuti
   suite.TestSubVolumeIdForPath(root_flag, true)
   suite.TestSubVolumeIdForPath(subvol_dir, true)
   suite.TestSubVolumeIdForPath(not_btrfs_path, false)
+  suite.TestSubVolumeIdForPath(fpmod.Join(subvol_flag, "/not/exist"), false)
   suite.TestIsSubVolumeMountPath(subvol_flag, true)
   suite.TestIsSubVolumeMountPath(root_flag, true)
   suite.TestIsSubVolumeMountPath(subvol_dir, false)

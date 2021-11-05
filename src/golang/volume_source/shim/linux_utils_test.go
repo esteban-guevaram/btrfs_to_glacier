@@ -102,7 +102,6 @@ func TestListBtrfsFilesystems(t *testing.T) {
   {
     "Uuid": "fs1_uuid",
     "Label": "/sys/fs/btrfs/fs1_uuid_label",
-    "MountedPath": "",
     "Devices": [
       {
         "Name": "sda1",
@@ -246,7 +245,6 @@ func TestListBtrfsFilesystems(t *testing.T) {
   {
     "Uuid": "fs2_uuid",
     "Label": "/sys/fs/btrfs/fs2_uuid_label",
-    "MountedPath": "",
     "Devices": [
       {
         "Name": "loop111p1",
@@ -306,7 +304,6 @@ func TestListBtrfsFilesystems(t *testing.T) {
   {
     "Uuid": "fs3_uuid",
     "Label": "/sys/fs/btrfs/fs3_uuid_label",
-    "MountedPath": "",
     "Devices": [
       {
         "Name": "loop111p2",
@@ -335,6 +332,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
   }
 ]`
   if strings.Compare(util.AsJson(fs_list), expect_fs_list) != 0 {
+    //util.Debugf("Got: %s", util.AsJson(fs_list))
     t.Errorf("Bad result: %v", fs_list)
   }
 }

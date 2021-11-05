@@ -68,7 +68,7 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil) {
   conf := util.LoadTestConf()
   conf.Sources = []*pb.Source{ source }
   btrfsutil := &mocks.Btrfsutil {
-    Subvol: CloneSubvol(mock_subvol),
+    Subvols: []*pb.SubVolume{ CloneSubvol(mock_subvol), },
     Snaps: []*pb.SubVolume{
       CloneSubvol(mock_snap1),
       CloneSubvol(mock_snap2),
@@ -92,7 +92,7 @@ func defaultVolPath(conf *pb.Config) string {
 
 func TestGetVolume(t *testing.T) {
   volmgr, btrfsutil := buildTestManager()
-  expect_subvol := CloneSubvol(btrfsutil.Subvol)
+  expect_subvol := CloneSubvol(btrfsutil.Subvols[0])
   expect_subvol.OriginSys = proto.Clone(volmgr.sysinfo).(*pb.SystemInfo)
   subvol, err := volmgr.GetVolume(defaultVolPath(volmgr.conf))
   if err != nil { t.Fatalf("%s", err) }
@@ -123,7 +123,7 @@ func TestFindVolume(t *testing.T) {
 func TestGetSnapshotSeqForVolume(t *testing.T) {
   volmgr, btrfsutil := buildTestManager()
   expect_snaps := []*pb.SubVolume { CloneSubvol(btrfsutil.Snaps[1]), CloneSubvol(btrfsutil.Snaps[0]) }
-  snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvol)
+  snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvols[0])
   if err != nil { t.Fatalf("%s", err) }
   if len(snapseq) != len(expect_snaps) {
     t.Fatalf("expected len %d got %d", len(expect_snaps), len(snapseq))
@@ -212,27 +212,30 @@ func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
 func TestCreateSnapshot(t *testing.T) {
   volmgr, btrfsutil := buildTestManager()
   expect_cnt := len(btrfsutil.Snaps) + 1
-  sv := CloneSubvol(btrfsutil.Subvol)
-  expect_snap := util.DummySnapshot("snap_uuid", sv.Uuid)
-  btrfsutil.Subvol = util.DummySnapshot("snap_uuid", sv.Uuid)
-  expect_snap.OriginSys = volmgr.sysinfo
+  sv := CloneSubvol(btrfsutil.Subvols[0])
 
   snapshot, err := volmgr.CreateSnapshot(sv)
   if err != nil { t.Fatalf("%s", err) }
   util.EqualsOrFailTest(t, "CreateSnapshot not called", len(btrfsutil.Snaps), expect_cnt)
 
   if len(snapshot.MountedPath) < 1 { t.Errorf("created snapshot should return mounted path.") }
-  snapshot.MountedPath = ""
-  util.EqualsOrFailTest(t, "Bad snapshot", snapshot, expect_snap)
+  for _,snap := range btrfsutil.Snaps {
+    var expect pb.SubVolume = *snap
+    if snapshot.Uuid == expect.Uuid {
+      expect.OriginSys = volmgr.sysinfo
+      util.EqualsOrFailTest(t, "Bad snapshot", snapshot, &expect)
+      return
+    }
+  }
+  t.Errorf("Snapshot was not created")
 }
 
 func TestDeleteSnapshot(t *testing.T) {
   volmgr, btrfsutil := buildTestManager()
-  err := volmgr.DeleteSnapshot(btrfsutil.Subvol)
+  err := volmgr.DeleteSnapshot(btrfsutil.Subvols[0])
   if err == nil { t.Errorf("Expected error when deleting non-readonly subvolumes") }
   //util.Debugf("err: %v", err)
   btrfsutil.Snaps[0].MountedPath = fmt.Sprintf("/snaps/%s", btrfsutil.Snaps[0].TreePath)
-  btrfsutil.Subvol = CloneSubvol(btrfsutil.Snaps[0])
   err = volmgr.DeleteSnapshot(btrfsutil.Snaps[0])
   if err != nil { t.Errorf("%s", err) }
 }

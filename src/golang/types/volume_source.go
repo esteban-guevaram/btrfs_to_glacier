@@ -2,9 +2,12 @@ package types
 
 import (
   "context"
+  "errors"
   "io"
   pb "btrfs_to_glacier/messages"
 )
+
+var ErrNotMounted = errors.New("subvolume_not_mounted")
 
 type SnapshotChangesOrError struct {
   Val *pb.SnapshotChanges
@@ -38,7 +41,7 @@ type MountEntry struct {
   FsType string
   DevPath string
   Options map[string]string // correspond to the per-superblock options
-  BtrfsVolId int
+  BtrfsVolId uint64
   // Bind mounts to the same filesystem/subvolume
   Binds []*MountEntry
 }
@@ -49,7 +52,6 @@ type Device struct {
 type Filesystem struct {
   Uuid string
   Label string
-  MountedPath string
   Devices []*Device
   Mounts []*MountEntry
 }
@@ -106,6 +108,38 @@ type VolumeAdmin interface {
   TrimOldSnapshots(src_subvol *pb.SubVolume, dry_run bool) ([]*pb.SubVolume, error)
 }
 
+// Btrfs API is just bad.
+// * Some operations only take as input paths.
+// * VolumeId are unique only within a filesystem.
+// * We cannot use UUIDs to uniquely identify snapshots.
+//   * Instead we need a pair (fs_path, vol_id)
+//
+// The following look ups are guaranteed to never return incorrect results.
+// (They may however fail to find a correct result even if one exists)
+// * MountedPath -> Filesystem
+// * Filesystem, TreePath, VolId -> MountedPath (if mounted)
+type BtrfsPathJuggler interface {
+  // Returns the Filesystem, MountEntry and SubVolume Id that own `path`.
+  // "Tighter" means the MountEntry returned has the longer prefix of `path` found.
+  // Fails is `path` is not owned by a btrfs filesystem.
+  // `path` must be an absolute path and must exist.
+  // Bind mounts are ignored when searching.
+  FindFsAndTighterMountOwningPath(path string) (*Filesystem, *MountEntry, uint64, error)
+  // Returns the mount point that containts `sv` or ErrNotMounted if the volume is not mounted.
+  // "Tighter" means the MountEntry returned has the longer prefix of `path` found.
+  // Requires the `sv` has a TreePath.
+  // Bind mounts are ignored when searching.
+  FindTighterMountForSubVolume(fs *Filesystem, sv *pb.SubVolume) (*MountEntry, error)
+  // For each source returns its corresponding filesystem if the following are OK:
+  // * Checks that all volumes for a given source belong to the same filesystem.
+  // * Checks all subvolume paths actually point to the root of a subvolume.
+  // * Checks each subvolume listed is different.
+  // * Checks the snapshot path is within the correct filesystem.
+  // Apply only to sources of type BTRFS, other sources will have a nil Filesystem in
+  // their corresponding return value.
+  CheckSourcesAndReturnCorrespondingFs([]*pb.Source) ([]*Filesystem, error)
+}
+
 type Linuxutil interface {
   // Returns true if this process is running with CAP_SYS_ADMIN privileges.
   // Many btrfs operations require this.
@@ -141,7 +175,7 @@ type Btrfsutil interface {
   // It works even on the root subvolume.
   IsSubVolumeMountPath(path string) error
   // Returns the TreePath of a volume in its btrfs filesystem.
-  // Requires the argument to have a valid MountedPath (it can work we a path inside the volume).
+  // Requires the argument to have a valid MountedPath (it can work with a path inside the volume).
   // Requires CAP_SYS_ADMIN.
   GetSubVolumeTreePath(*pb.SubVolume) (string, error)
   // Returns a list with all subvolumes in the filesystem that owns `path`.

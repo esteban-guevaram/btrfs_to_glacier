@@ -105,7 +105,7 @@ func (*btrfsUtilImpl) toProtoSubVolume(
   sv := &pb.SubVolume {
     Uuid: bytesToUuid(subvol.uuid),
     VolId: uint64(subvol.id),
-    TreePath: strings.TrimSuffix(tree_path, "/"),
+    TreePath: strings.Trim(tree_path, "/"),
     MountedPath: strings.TrimSuffix(mnt_path, "/"),
     GenAtCreation: uint64(subvol.otransid),
     CreatedTs: uint64(subvol.otime.tv_sec),

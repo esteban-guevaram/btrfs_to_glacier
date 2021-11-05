@@ -2,10 +2,58 @@ package util
 
 import (
   "fmt"
+  "math/rand"
   "hash/adler32"
 
   pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/types"
+
+  "github.com/google/uuid"
 )
+
+func DummyBtrfsSrc(sv_list []string, snap_list []string) *pb.Source {
+  src := &pb.Source{
+    Type: pb.Source_BTRFS,
+    Name: uuid.NewString(),
+  }
+  def_snap_path := snap_list[0]
+  for idx,sv := range sv_list {
+    pair := &pb.Source_VolSnapPathPair{
+      VolPath: sv,
+      SnapPath: def_snap_path,
+    }
+    if len(snap_list) > idx { pair.SnapPath = snap_list[idx] }
+    src.Paths = append(src.Paths, pair)
+  }
+  return src
+}
+
+func DummyMountEntry(btrfs_id uint64, mnt_path string, tree_path string) *types.MountEntry {
+  mnt := &types.MountEntry{
+    Id: int(adler32.Checksum([]byte(mnt_path)) + adler32.Checksum([]byte(tree_path))),
+    TreePath: tree_path,
+    MountedPath: mnt_path,
+    DevPath: "",
+    Options: nil,
+    BtrfsVolId: btrfs_id,
+  }
+  mnt.Minor = mnt.Id
+  mnt.Major = mnt.Id
+  var bind types.MountEntry = *mnt
+  bind.Id = rand.Int()
+  bind.MountedPath = fmt.Sprintf("/binds%s", mnt.MountedPath)
+  mnt.Binds = []*types.MountEntry{ &bind, }
+  return mnt
+}
+
+func DummyFilesystem(mnts []*types.MountEntry) *types.Filesystem {
+  return &types.Filesystem{
+    Uuid: uuid.NewString(),
+    Label: uuid.NewString(),
+    Devices: nil,
+    Mounts: mnts,
+  }
+}
 
 func DummyChunks(chunk_uuid string) *pb.SnapshotChunks {
   chunk := &pb.SnapshotChunks_Chunk {
@@ -17,6 +65,14 @@ func DummyChunks(chunk_uuid string) *pb.SnapshotChunks {
     KeyFingerprint: "fp",
     Chunks: []*pb.SnapshotChunks_Chunk{chunk},
   }
+}
+
+func DummySubVolumeFromMount(mnt *types.MountEntry) *pb.SubVolume {
+  sv := DummySubVolume(uuid.NewString())
+  sv.MountedPath = mnt.MountedPath
+  sv.TreePath = mnt.TreePath
+  sv.VolId = mnt.BtrfsVolId
+  return sv
 }
 
 func DummySubVolume(vol_uuid string) *pb.SubVolume {

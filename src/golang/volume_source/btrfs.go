@@ -2,7 +2,6 @@ package volume_source
 
 import (
   "context"
-  "errors"
   "fmt"
   "io"
   fpmod "path/filepath"
@@ -14,8 +13,6 @@ import (
   "btrfs_to_glacier/types"
   pb "btrfs_to_glacier/messages"
 )
-
-var ErrFsNotMounted = errors.New("btrfs_fs_root_not_mounted")
 
 type btrfsVolumeManager struct {
   btrfsutil types.Btrfsutil
@@ -62,7 +59,7 @@ func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   return subvol, nil
 }
 
-func (self *btrfsVolumeManager) FindSnapRootForVol(sv *pb.SubVolume) (string, error) {
+func (self *btrfsVolumeManager) FindSnapPathForSubVolume(sv *pb.SubVolume) (string, error) {
   for _,src := range self.conf.Sources {
     if src.Type != pb.Source_BTRFS { continue }
     for _,p := range src.Paths {
@@ -131,7 +128,7 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
   if err != nil {
     if err != ErrFsNotMounted { return nil, err }
     is_root_fs = false
-    snap_root, err = self.FindSnapRootForVol(subvol)
+    snap_root, err = self.FindSnapPathForSubVolume(subvol)
     if err != nil { return nil, err }
   }
   vols, err = self.btrfsutil.ListSubVolumesInFs(snap_root, is_root_fs)
@@ -208,7 +205,7 @@ func (self *btrfsVolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVol
   var err error
   var snap *pb.SubVolume
   var par_path, tree_path, snap_root string
-  snap_root, err = self.FindSnapRootForVol(subvol)
+  snap_root, err = self.FindSnapPathForSubVolume(subvol)
   if err != nil { return nil, err }
   tree_path, err = self.FindTreePath(subvol)
   if err != nil { return nil, err }

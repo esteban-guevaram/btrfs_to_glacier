@@ -334,6 +334,7 @@ func (self *Linuxutil) parseMountinfo() ([]*types.MountEntry, error) {
 
     mnt_list = append(mnt_list, mnt)
   }
+  util.Infof("Found %d mount entries", len(mnt_list))
   return mnt_list, nil
 }
 
@@ -350,7 +351,7 @@ func (self *Linuxutil) validateAndKeepOnlyBtrfsEntries(
     var err error
     if mnt.FsType != "btrfs" { continue }
 
-    mnt.BtrfsVolId, err = strconv.Atoi(mnt.Options["subvolid"])
+    mnt.BtrfsVolId, err = strconv.ParseUint(mnt.Options["subvolid"], 10, 64)
     if err != nil { return nil, err }
 
     opt_tree_path := treePathFromOpts(mnt)
@@ -369,6 +370,7 @@ func (self *Linuxutil) validateAndKeepOnlyBtrfsEntries(
 
     new_list = append(new_list, mnt)
   }
+  util.Infof("Found %d/%d relevant mount entries", len(new_list), len(mnt_list))
   return new_list, nil
 }
 
@@ -399,6 +401,7 @@ func (self *Linuxutil) collapseBindMounts(
     }
     master.Binds = append(master.Binds, mnt)
   }
+  util.Infof("Found %d/%d after collapsing bind mounts", len(new_list), len(mnt_list))
   return new_list, nil
 }
 
@@ -435,6 +438,7 @@ func (self *Linuxutil) ListBtrfsFilesystems() ([]*types.Filesystem, error) {
   if err != nil { return nil, err }
   err = self.matchMountEntriesToFilesystem(mnt_list, fs_list)
   if err != nil { return nil, err }
+  util.Infof("Found %d btrfs filesystems", len(fs_list))
   return fs_list, nil
 }
 
