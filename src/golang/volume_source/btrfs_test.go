@@ -78,8 +78,12 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil) {
     DumpOps: &newfile_ops,
     SendStream: mocks.NewPreloadedPipe([]byte("somedata")),
   }
+
+  juggler := &mocks.BtrfsPathJuggler{}
+
   volmgr    := &btrfsVolumeManager {
     btrfsutil,
+    juggler,
     sys_info,
     conf,
   }

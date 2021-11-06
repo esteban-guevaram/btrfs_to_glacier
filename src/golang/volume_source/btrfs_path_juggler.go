@@ -34,16 +34,9 @@ func IsDir(path string) bool {
 
 // This implementation considers the filesystems and mounts are constant through
 // the program execution.
-func NewBtrfsPathJuggler(conf *pb.Config) (types.BtrfsPathJuggler, error) {
-  var btrfsutil types.Btrfsutil
-  var linuxutil types.Linuxutil
-  var filesys   []*types.Filesystem
-  var err error
-  linuxutil, err = shim.NewLinuxutil(conf)
-  btrfsutil, err = shim.NewBtrfsutil(conf, linuxutil)
-  if err == nil {
-    filesys, err = linuxutil.ListBtrfsFilesystems()
-  }
+func NewBtrfsPathJuggler(
+    conf *pb.Config, btrfsutil types.Btrfsutil, linuxutil types.Linuxutil) (types.BtrfsPathJuggler, error) {
+  filesys, err := linuxutil.ListBtrfsFilesystems()
   juggler := &BtrfsPathJuggler{
     Btrfsutil: btrfsutil,
     Linuxutil: linuxutil,

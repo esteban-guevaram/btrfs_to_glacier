@@ -9,13 +9,13 @@ import (
   "strings"
   "time"
 
-  "btrfs_to_glacier/volume_source/shim"
   "btrfs_to_glacier/types"
   pb "btrfs_to_glacier/messages"
 )
 
 type btrfsVolumeManager struct {
   btrfsutil types.Btrfsutil
+  juggler   types.BtrfsPathJuggler
   sysinfo   *pb.SystemInfo
   conf      *pb.Config
 }
@@ -32,14 +32,13 @@ func get_system_info(linuxutil types.Linuxutil) *pb.SystemInfo {
   }
 }
 
-func NewVolumeManager(conf *pb.Config) (types.VolumeManager, error) {
-  var btrfsutil types.Btrfsutil
-  var linuxutil types.Linuxutil
-  var err error
-  linuxutil, err = shim.NewLinuxutil(conf)
-  btrfsutil, err = shim.NewBtrfsutil(conf, linuxutil)
+func NewVolumeManager(
+    conf *pb.Config, btrfsutil types.Btrfsutil, linuxutil types.Linuxutil,
+    juggler types.BtrfsPathJuggler) (types.VolumeManager, error) {
+  _, err := juggler.CheckSourcesAndReturnCorrespondingFs(conf.Sources)
   mgr := btrfsVolumeManager{
     btrfsutil,
+    juggler,
     get_system_info(linuxutil),
     conf,
   }
