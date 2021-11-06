@@ -208,6 +208,16 @@ func TestFindTighterMountForSubVolume_NestedFs(t *testing.T) {
 }
 
 func TestFindTighterMountForSubVolume_DupeTreePathAndVolId(t *testing.T) {
+  fs_list := buildSimpleFsList()
+  juggler,btrfsutil,_ := buildTestJuggler(fs_list)
+  dupe_mnt := fs_list[0].Mounts[1]
+  sv := createSvForQuery(btrfsutil, "",
+                         dupe_mnt.TreePath, dupe_mnt.BtrfsVolId)
+
+  mnt,err := juggler.FindTighterMountForSubVolume(fs_list[0], sv)
+  if !errors.Is(err, types.ErrNotMounted) { t.Errorf("FindTighterMountForSubVolume should have failed: %v", err) }
+  util.Debugf("MountEntry: %s\nsv: %s\ndupe: %s",
+              util.AsJson(mnt), util.AsJson(sv), util.AsJson(btrfsutil.Subvols[1]))
 }
 
 // CheckSourcesAndReturnCorrespondingFs

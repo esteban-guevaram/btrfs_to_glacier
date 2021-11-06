@@ -91,6 +91,13 @@ func (s *byLen) Len() int { return len(s.Mounts) }
 func (s *byLen) Swap(i, j int) { s.Mounts[i], s.Mounts[j] = s.Mounts[j], s.Mounts[i] }
 func (s *byLen) Less(i, j int) bool { return len(s.Mounts[i].TreePath) > len(s.Mounts[j].TreePath) }
 
+// In the very rare case there is another SubVolume with the same id and tree path on a nested mount.
+func (self *BtrfsPathJuggler) doUuidsDiffer(path string, sv *pb.SubVolume) bool {
+  sv_in_path,err := self.Btrfsutil.SubVolumeInfo(path)
+  //util.Debugf("path: %s\nsv: %s", util.AsJson(sv_in_path), util.AsJson(sv))
+  return err != nil || sv_in_path.Uuid != sv.Uuid
+}
+
 func (self *BtrfsPathJuggler) FindTighterMountForSubVolume(
     fs *types.Filesystem, sv *pb.SubVolume) (*types.MountEntry, error) {
   if len(sv.TreePath) < 1 && sv.VolId != shim.BTRFS_FS_TREE_OBJECTID {
@@ -99,7 +106,10 @@ func (self *BtrfsPathJuggler) FindTighterMountForSubVolume(
   var candidates []*types.MountEntry
   for _,mnt := range fs.Mounts {
     // Easy case: there is an exclusive mount entry for the subvolume.
-    if mnt.BtrfsVolId == sv.VolId && mnt.TreePath == sv.TreePath { return mnt, nil }
+    if mnt.BtrfsVolId == sv.VolId && mnt.TreePath == sv.TreePath {
+      if self.doUuidsDiffer(mnt.MountedPath, sv) { continue }
+      return mnt, nil
+    }
     if strings.HasPrefix(sv.TreePath, mnt.TreePath) { candidates = append(candidates, mnt) }
   }
   // Hard case: determine the closer mount entry that may contain the subvolume based on its TreePath.
@@ -107,10 +117,7 @@ func (self *BtrfsPathJuggler) FindTighterMountForSubVolume(
   for _,mnt := range candidates {
     path := fpmod.Join(mnt.MountedPath, sv.TreePath[len(mnt.TreePath):])
     if !self.IsDir(path) { continue }
-    fs_for_path,_,vol_id,err := self.FindFsAndTighterMountOwningPath(path)
-    if vol_id != sv.VolId { continue }
-    if err != nil { return nil, err }
-    if fs.Uuid != fs_for_path.Uuid { return nil, fmt.Errorf("Nested btrfs mounts not supported") }
+    if self.doUuidsDiffer(path, sv) { continue }
     return mnt, nil
   }
   return nil, types.ErrNotMounted
