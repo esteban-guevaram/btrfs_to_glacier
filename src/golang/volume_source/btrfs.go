@@ -15,10 +15,11 @@ import (
 )
 
 type btrfsVolumeManager struct {
-  btrfsutil types.Btrfsutil
-  juggler   types.BtrfsPathJuggler
-  sysinfo   *pb.SystemInfo
-  conf      *pb.Config
+  btrfsutil   types.Btrfsutil
+  juggler     types.BtrfsPathJuggler
+  sysinfo     *pb.SystemInfo
+  conf        *pb.Config
+  src_fs_list []*types.Filesystem
 }
 
 func get_system_info(linuxutil types.Linuxutil) *pb.SystemInfo {
@@ -36,12 +37,13 @@ func get_system_info(linuxutil types.Linuxutil) *pb.SystemInfo {
 func NewVolumeManager(
     conf *pb.Config, btrfsutil types.Btrfsutil, linuxutil types.Linuxutil,
     juggler types.BtrfsPathJuggler) (types.VolumeManager, error) {
-  _, err := juggler.CheckSourcesAndReturnCorrespondingFs(conf.Sources)
+  fs_list, err := juggler.CheckSourcesAndReturnCorrespondingFs(conf.Sources)
   mgr := btrfsVolumeManager{
     btrfsutil,
     juggler,
     get_system_info(linuxutil),
     conf,
+    fs_list,
   }
   return &mgr, err
 }
@@ -71,8 +73,8 @@ func (self *btrfsVolumeManager) FindSnapPathForSubVolume(sv *pb.SubVolume) (stri
 
 func (self *btrfsVolumeManager) FindMountedPath(sv *pb.SubVolume) (string, error) {
   if len(sv.MountedPath) > 0 { return sv.MountedPath, nil }
-  //return "", fmt.Errorf("implement me")
-  return "/implement/me", nil
+  _, _, from_path, err := self.juggler.FindTighterMountForSubVolume(self.src_fs_list, sv)
+  return from_path, err
 }
 
 func (self *btrfsVolumeManager) FindVolume(fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
@@ -125,11 +127,11 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(
   if from.ParentUuid != to.ParentUuid {
     return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
   }
-  if from.GenAtCreation < to.GenAtCreation {
+  if from.GenAtCreation >= to.GenAtCreation {
     return nil, fmt.Errorf("From is not older than To : '%d' / '%d'", from.GenAtCreation, to.GenAtCreation)
   }
   if from_path,err = self.FindMountedPath(from); err != nil { return nil, err }
-  if to_path,err = self.FindMountedPath(to); err != nil { return nil, err }
+  if to_path,err   = self.FindMountedPath(to);   err != nil { return nil, err }
 
   read_end, err = self.btrfsutil.StartSendStream(ctx, from_path, to_path, true)
   if err != nil { return nil, err }
@@ -155,14 +157,14 @@ func (self *btrfsVolumeManager) GetSnapshotStream(ctx context.Context, from *pb.
   var read_end io.ReadCloser
   var from_path, to_path string
   var err error
-  if from != nil && from.ParentUuid != to.ParentUuid {
-    return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
-  }
-  if from != nil && from.GenAtCreation < to.GenAtCreation {
-    return nil, fmt.Errorf("From is not older than To : '%d' / '%d'", from.GenAtCreation, to.GenAtCreation)
-  }
   from_path = ""
   if from != nil {
+    if from.ParentUuid != to.ParentUuid {
+      return nil, fmt.Errorf("Different parent uuid : '%s' != '%s'", from.ParentUuid, to.ParentUuid)
+    }
+    if from.GenAtCreation >= to.GenAtCreation {
+      return nil, fmt.Errorf("From is not older than To : '%d' / '%d'", from.GenAtCreation, to.GenAtCreation)
+    }
     if from_path,err = self.FindMountedPath(from); err != nil { return nil, err }
   }
   if to_path,err = self.FindMountedPath(to); err != nil { return nil, err }

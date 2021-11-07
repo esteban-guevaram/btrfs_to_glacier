@@ -54,6 +54,8 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.BtrfsPath
   mock_snap3.GenAtCreation = 55
   mock_snap4 := util.DummySubVolume("uuid0")
   mock_snap4.GenAtCreation = 33
+  mock_snap5 := util.DummySnapshot("uuid5", "uuid")
+  mock_snap5.GenAtCreation = 88
 
   source := &pb.Source{
     Type: pb.Source_BTRFS,
@@ -78,6 +80,7 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.BtrfsPath
       CloneSubvol(mock_snap2),
       CloneSubvol(mock_snap3),
       CloneSubvol(mock_snap4),
+      CloneSubvol(mock_snap5),
     },
     DumpOps: &newfile_ops,
     SendStream: mocks.NewPreloadedPipe([]byte("somedata")),
@@ -92,13 +95,14 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.BtrfsPath
   juggler := &mocks.BtrfsPathJuggler{}
   juggler.LoadFilesystem(fs)
   juggler.LoadSubVolume(fs, mnts[0], mock_subvol)
-  juggler.LoadSubVolume(fs, mnts[1], mock_snap2, mock_snap3)
+  juggler.LoadSubVolume(fs, mnts[1], mock_snap2, mock_snap3, mock_snap4, mock_snap5)
 
   volmgr := &btrfsVolumeManager {
     btrfsutil,
     juggler,
     sys_info,
     conf,
+    []*types.Filesystem{ fs, },
   }
   return volmgr, btrfsutil, juggler
 }
@@ -139,7 +143,11 @@ func TestFindVolume(t *testing.T) {
 
 func TestGetSnapshotSeqForVolume(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
-  expect_snaps := []*pb.SubVolume { CloneSubvol(btrfsutil.Snaps[1]), CloneSubvol(btrfsutil.Snaps[0]) }
+  expect_snaps := []*pb.SubVolume {
+    CloneSubvol(btrfsutil.Snaps[1]),
+    CloneSubvol(btrfsutil.Snaps[4]),
+    CloneSubvol(btrfsutil.Snaps[0]),
+  }
   snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvols[0])
   if err != nil { t.Fatalf("%s", err) }
   if len(snapseq) != len(expect_snaps) {
@@ -166,7 +174,7 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
   }
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
+  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
   if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
   select {
     case changes := <-ch:
@@ -183,8 +191,8 @@ func TestGetSnapshotStream(t *testing.T) {
 
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  read_pipe, err := volmgr.GetSnapshotStream(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
-  if err != nil { t.Errorf("GetSnapshotStream: %v", err) }
+  read_pipe, err := volmgr.GetSnapshotStream(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
+  if err != nil { t.Fatalf("GetSnapshotStream: %v", err) }
 
   done := make(chan []byte)
   go func() {
@@ -217,7 +225,7 @@ func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
   btrfsutil.DumpErr = fmt.Errorf("problemo")
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
+  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
   if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
   select {
     case changes := <-ch:

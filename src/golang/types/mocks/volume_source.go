@@ -30,7 +30,7 @@ func (self *BtrfsPathJuggler) FindTighterMountForSubVolume(
     fs_list []*types.Filesystem, sv *pb.SubVolume) (*types.Filesystem, *types.MountEntry, string, error) {
   mnt, found := self.UuidToMnt[sv.Uuid]
   if !found { return nil, nil, "", fmt.Errorf("FindTighterMountForSubVolume mnt not found") }
-  fs, found := self.PathToFs[sv.MountedPath]
+  fs, found := self.UuidToFs[sv.Uuid]
   if !found { return nil, nil, "", fmt.Errorf("FindTighterMountForSubVolume fs not found") }
   path := mnt.MountedPath
   if mnt.BtrfsVolId != sv.VolId { path = fpmod.Join(mnt.MountedPath, sv.TreePath) }
