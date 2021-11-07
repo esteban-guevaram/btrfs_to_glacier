@@ -14,8 +14,6 @@ import (
   "btrfs_to_glacier/util"
 )
 
-var ErrFsNotMounted = errors.New("btrfs_fs_root_not_mounted")
-
 type IsDirFunc func(string) bool
 
 type BtrfsPathJuggler struct {
@@ -91,17 +89,14 @@ func (self *BtrfsPathJuggler) doUuidsDiffer(path string, sv *pb.SubVolume) bool 
   return err != nil || sv_in_path.Uuid != sv.Uuid
 }
 
-func (self *BtrfsPathJuggler) FindTighterMountForSubVolume(
-    fs *types.Filesystem, sv *pb.SubVolume) (*types.MountEntry, error) {
-  if len(sv.TreePath) < 1 && sv.VolId != shim.BTRFS_FS_TREE_OBJECTID {
-    return nil, fmt.Errorf("Expect valid TreePath for sv")
-  }
+func (self *BtrfsPathJuggler) FindTighterMountForSubVolumeSingle(
+    fs *types.Filesystem, sv *pb.SubVolume) (*types.MountEntry, string, error) {
   var candidates []*types.MountEntry
   for _,mnt := range fs.Mounts {
     // Easy case: there is an exclusive mount entry for the subvolume.
     if mnt.BtrfsVolId == sv.VolId && mnt.TreePath == sv.TreePath {
       if self.doUuidsDiffer(mnt.MountedPath, sv) { continue }
-      return mnt, nil
+      return mnt, mnt.MountedPath, nil
     }
     if strings.HasPrefix(sv.TreePath, mnt.TreePath) { candidates = append(candidates, mnt) }
   }
@@ -111,9 +106,25 @@ func (self *BtrfsPathJuggler) FindTighterMountForSubVolume(
     path := fpmod.Join(mnt.MountedPath, sv.TreePath[len(mnt.TreePath):])
     if !self.IsDir(path) { continue }
     if self.doUuidsDiffer(path, sv) { continue }
-    return mnt, nil
+    return mnt, path, nil
   }
-  return nil, types.ErrNotMounted
+  return nil, "", types.ErrNotMounted
+}
+
+func (self *BtrfsPathJuggler) FindTighterMountForSubVolume(
+    fs_list []*types.Filesystem, sv *pb.SubVolume) (*types.Filesystem, *types.MountEntry, string, error) {
+  if len(sv.TreePath) < 1 && sv.VolId != shim.BTRFS_FS_TREE_OBJECTID {
+    return nil, nil, "", fmt.Errorf("Expect valid TreePath for sv")
+  }
+  for _,fs := range fs_list {
+    mnt, path, err := self.FindTighterMountForSubVolumeSingle(fs, sv)
+    if err != nil {
+      if errors.Is(err, types.ErrNotMounted) { continue }
+      return nil, nil, "", err
+    }
+    return fs, mnt, path, err
+  }
+  return nil, nil, "", types.ErrNotMounted
 }
 
 func (self *BtrfsPathJuggler) sourceContainedInSingleFs(src *pb.Source) (*types.Filesystem, error) {

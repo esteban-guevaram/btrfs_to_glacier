@@ -131,13 +131,15 @@ func TestFindFsAndTighterMountOwningPath_NotBtrfs(t *testing.T) {
 func TestFindTighterMountForSubVolume_SvMountExists(t *testing.T) {
   fs_list := buildSimpleFsList()
   juggler,btrfsutil,_ := buildTestJuggler(fs_list)
-  fs := fs_list[0]
-  expect_mnt := fs.Mounts[1]
+  expect_fs := fs_list[0]
+  expect_mnt := expect_fs.Mounts[1]
   var sv pb.SubVolume = *btrfsutil.Subvols[1]
   sv.MountedPath = ""
-  mnt,err := juggler.FindTighterMountForSubVolume(fs, &sv)
+  got_fs,mnt,got_path,err := juggler.FindTighterMountForSubVolume(fs_list, &sv)
   if err != nil { t.Fatalf("FindTighterMountForSubVolume err: %v", err) }
   util.EqualsOrFailTest(t, "Bad mnt found", expect_mnt, mnt)
+  util.EqualsOrFailTest(t, "Bad fs found", expect_fs, got_fs)
+  util.EqualsOrFailTest(t, "Bad path found", expect_mnt.MountedPath, got_path)
 }
 
 func TestFindTighterMountForSubVolume_WrongFs(t *testing.T) {
@@ -145,7 +147,7 @@ func TestFindTighterMountForSubVolume_WrongFs(t *testing.T) {
   juggler,btrfsutil,_ := buildTestJuggler(fs_list)
   var sv pb.SubVolume = *btrfsutil.Subvols[1]
   sv.MountedPath = ""
-  mnt,err := juggler.FindTighterMountForSubVolume(fs_list[1], &sv)
+  _,mnt,_,err := juggler.FindTighterMountForSubVolume(fs_list[1:], &sv)
   if err == nil { t.Errorf("FindTighterMountForSubVolume should have failed: %s", util.AsJson(&sv)) }
   util.Debugf("MountEntry: %s", util.AsJson(mnt))
 }
@@ -156,35 +158,35 @@ func TestFindTighterMountForSubVolume_PathNotExist(t *testing.T) {
   sv := createSvForQuery(btrfsutil, "", "does/not/exist", 0)
   juggler.IsDir = func (p string) bool { return !strings.HasSuffix(p, sv.TreePath) }
 
-  for _,fs := range fs_list {
-    mnt,err := juggler.FindTighterMountForSubVolume(fs, sv)
-    if errors.Is(err, types.ErrNotMounted) { continue }
+  _,mnt,_,err := juggler.FindTighterMountForSubVolume(fs_list, sv)
+  if !errors.Is(err, types.ErrNotMounted) {
     t.Errorf("FindTighterMountForSubVolume should return not mounted: %v", err)
-    util.Debugf("MountEntry: %s\nsv: %s", util.AsJson(mnt), util.AsJson(sv))
   }
+  util.Debugf("MountEntry: %s\nsv: %s", util.AsJson(mnt), util.AsJson(sv))
 }
 
 func TestFindTighterMountForSubVolume_InnerPath(t *testing.T) {
   fs_list := buildSimpleFsList()
   juggler,btrfsutil,_ := buildTestJuggler(fs_list)
-  fs := fs_list[1]
-  expect_mnt := fs.Mounts[0]
-  sv := createSvForQuery(btrfsutil,
-                         fpmod.Join(btrfsutil.Subvols[2].MountedPath, "asnap"),
+  expect_fs := fs_list[1]
+  expect_mnt := expect_fs.Mounts[0]
+  expect_path := fpmod.Join(btrfsutil.Subvols[2].MountedPath, "asnap")
+  sv := createSvForQuery(btrfsutil, expect_path,
                          fpmod.Join(btrfsutil.Subvols[2].TreePath, "asnap"), 0)
 
-  mnt,err := juggler.FindTighterMountForSubVolume(fs, sv)
+  got_fs,mnt,got_path,err := juggler.FindTighterMountForSubVolume(fs_list, sv)
   if err != nil { t.Fatalf("FindTighterMountForSubVolume err: %v", err) }
   util.EqualsOrFailTest(t, "Bad mnt found", expect_mnt, mnt)
+  util.EqualsOrFailTest(t, "Bad fs found", expect_fs, got_fs)
+  util.EqualsOrFailTest(t, "Bad path found", expect_path, got_path)
 }
 
 func TestFindTighterMountForSubVolume_TreeRootNotMounted(t *testing.T) {
   fs_list := buildSimpleFsList()
   juggler,btrfsutil,_ := buildTestJuggler(fs_list)
-  fs := fs_list[1]
   sv := createSvForQuery(btrfsutil, "", "", shim.BTRFS_FS_TREE_OBJECTID)
 
-  mnt,err := juggler.FindTighterMountForSubVolume(fs, sv)
+  _,mnt,_,err := juggler.FindTighterMountForSubVolume(fs_list, sv)
   if err == nil { t.Errorf("FindTighterMountForSubVolume should have failed: %s", util.AsJson(sv)) }
   if !errors.Is(err, types.ErrNotMounted) { t.Errorf("expected ErrNotMounted") }
   util.Debugf("MountEntry: %s\nsv: %s", util.AsJson(mnt), util.AsJson(sv))
@@ -202,7 +204,7 @@ func TestFindTighterMountForSubVolume_NestedFs(t *testing.T) {
   sv := createSvForQuery(btrfsutil, fs3.Mounts[0].MountedPath,
                          fs3.Mounts[0].TreePath, fs3.Mounts[0].BtrfsVolId)
 
-  mnt,err := juggler.FindTighterMountForSubVolume(fs_list[1], sv)
+  _,mnt,_,err := juggler.FindTighterMountForSubVolume(fs_list, sv)
   if err == nil { t.Errorf("FindTighterMountForSubVolume should have failed: %s", util.AsJson(sv)) }
   util.Debugf("MountEntry: %s\nsv: %s", util.AsJson(mnt), util.AsJson(sv))
 }
@@ -214,7 +216,7 @@ func TestFindTighterMountForSubVolume_DupeTreePathAndVolId(t *testing.T) {
   sv := createSvForQuery(btrfsutil, "",
                          dupe_mnt.TreePath, dupe_mnt.BtrfsVolId)
 
-  mnt,err := juggler.FindTighterMountForSubVolume(fs_list[0], sv)
+  _,mnt,_,err := juggler.FindTighterMountForSubVolume(fs_list, sv)
   if !errors.Is(err, types.ErrNotMounted) { t.Errorf("FindTighterMountForSubVolume should have failed: %v", err) }
   util.Debugf("MountEntry: %s\nsv: %s\ndupe: %s",
               util.AsJson(mnt), util.AsJson(sv), util.AsJson(btrfsutil.Subvols[1]))

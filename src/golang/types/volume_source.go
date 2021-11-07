@@ -125,11 +125,12 @@ type BtrfsPathJuggler interface {
   // `path` must be an absolute path and must exist.
   // Bind mounts are ignored when searching.
   FindFsAndTighterMountOwningPath(path string) (*Filesystem, *MountEntry, uint64, error)
-  // Returns the mount point that containts `sv` or ErrNotMounted if the volume is not mounted.
+  // Returns the filesystem, mount entry and path to the root of `sv`.
   // "Tighter" means the MountEntry returned has the longer prefix of `path` found.
   // Requires the `sv` has a TreePath.
   // Bind mounts are ignored when searching.
-  FindTighterMountForSubVolume(fs *Filesystem, sv *pb.SubVolume) (*MountEntry, error)
+  // Only the filesystems in `fs_list` will be scanned looking for `sv`.
+  FindTighterMountForSubVolume(fs_list []*Filesystem, sv *pb.SubVolume) (*Filesystem, *MountEntry, string, error)
   // For each source returns its corresponding filesystem if the following are OK:
   // * Checks that all volumes for a given source belong to the same filesystem.
   // * Checks all subvolume paths actually point to the root of a subvolume.

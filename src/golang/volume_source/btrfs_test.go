@@ -91,8 +91,8 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.BtrfsPath
   fs := util.DummyFilesystem(mnts)
   juggler := &mocks.BtrfsPathJuggler{}
   juggler.LoadFilesystem(fs)
-  juggler.LoadSubVolume(mnts[0], mock_subvol)
-  juggler.LoadSubVolume(mnts[1], mock_snap2, mock_snap3)
+  juggler.LoadSubVolume(fs, mnts[0], mock_subvol)
+  juggler.LoadSubVolume(fs, mnts[1], mock_snap2, mock_snap3)
 
   volmgr := &btrfsVolumeManager {
     btrfsutil,
