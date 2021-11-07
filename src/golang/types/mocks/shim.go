@@ -89,7 +89,7 @@ func (self *Btrfsutil) SubVolumeInfo(path string) (*pb.SubVolume, error) {
 }
 func (self *Btrfsutil) ListSubVolumesInFs(path string, is_root_fs bool) ([]*pb.SubVolume, error) {
   if !fpmod.IsAbs(path) { return nil, fmt.Errorf("ListSubVolumesInFs bad args") }
-  return self.Snaps, self.Err
+  return append(self.Subvols, self.Snaps...), self.Err
 }
 func (self *Btrfsutil) ReadAndProcessSendStream(dump io.ReadCloser) (*types.SendDumpOperations, error) {
   return self.DumpOps, self.DumpErr

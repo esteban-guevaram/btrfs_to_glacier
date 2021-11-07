@@ -3,19 +3,23 @@ package volume_source
 import (
   "context"
   "fmt"
+  fpmod "path/filepath"
   "io/ioutil"
   "testing"
   "time"
+
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
   "google.golang.org/protobuf/proto"
+
+  "github.com/google/uuid"
 )
 
 func CloneSubvol(vol *pb.SubVolume) *pb.SubVolume { return proto.Clone(vol).(*pb.SubVolume) }
 
-func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil) {
+func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.BtrfsPathJuggler) {
   newfile_ops := types.SendDumpOperations{
     Written: map[string]bool{
       "coucou": true,
@@ -56,7 +60,7 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil) {
     Paths: []*pb.Source_VolSnapPathPair{
       &pb.Source_VolSnapPathPair{
         VolPath: mock_subvol.MountedPath,
-        SnapPath: "/snaps",
+        SnapPath: "/tmp/snaps",
       },
     },
     History: &pb.Source_SnapHistory{
@@ -79,15 +83,24 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil) {
     SendStream: mocks.NewPreloadedPipe([]byte("somedata")),
   }
 
+  mnts := []*types.MountEntry{
+    util.DummyMountEntryForSv(mock_subvol),
+    util.DummyMountEntry(256, source.Paths[0].SnapPath,
+                         fpmod.Dir(mock_snap2.TreePath)),
+  }
+  fs := util.DummyFilesystem(mnts)
   juggler := &mocks.BtrfsPathJuggler{}
+  juggler.LoadFilesystem(fs)
+  juggler.LoadSubVolume(mnts[0], mock_subvol)
+  juggler.LoadSubVolume(mnts[1], mock_snap2, mock_snap3)
 
-  volmgr    := &btrfsVolumeManager {
+  volmgr := &btrfsVolumeManager {
     btrfsutil,
     juggler,
     sys_info,
     conf,
   }
-  return volmgr, btrfsutil
+  return volmgr, btrfsutil, juggler
 }
 
 func defaultVolPath(conf *pb.Config) string {
@@ -95,7 +108,7 @@ func defaultVolPath(conf *pb.Config) string {
 }
 
 func TestGetVolume(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   expect_subvol := CloneSubvol(btrfsutil.Subvols[0])
   expect_subvol.OriginSys = proto.Clone(volmgr.sysinfo).(*pb.SystemInfo)
   subvol, err := volmgr.GetVolume(defaultVolPath(volmgr.conf))
@@ -109,7 +122,7 @@ func TestGetVolume(t *testing.T) {
 }
 
 func TestFindVolume(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   expect_subvol := CloneSubvol(btrfsutil.Snaps[0])
   subvol, err := volmgr.FindVolume(defaultVolPath(volmgr.conf),
                                    types.ByReceivedUuid(expect_subvol.ReceivedUuid))
@@ -125,7 +138,7 @@ func TestFindVolume(t *testing.T) {
 }
 
 func TestGetSnapshotSeqForVolume(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   expect_snaps := []*pb.SubVolume { CloneSubvol(btrfsutil.Snaps[1]), CloneSubvol(btrfsutil.Snaps[0]) }
   snapseq, err := volmgr.GetSnapshotSeqForVolume(btrfsutil.Subvols[0])
   if err != nil { t.Fatalf("%s", err) }
@@ -140,7 +153,7 @@ func TestGetSnapshotSeqForVolume(t *testing.T) {
 }
 
 func TestGetChangesBetweenSnaps(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   expect_changes := &pb.SnapshotChanges{
     FromUuid: btrfsutil.DumpOps.FromUuid,
     ToUuid: btrfsutil.DumpOps.ToUuid,
@@ -164,7 +177,7 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
 }
 
 func TestGetSnapshotStream(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   expect_stream := []byte("somedata")
   btrfsutil.SendStream = mocks.NewPreloadedPipe(expect_stream)
 
@@ -190,7 +203,7 @@ func TestGetSnapshotStream(t *testing.T) {
 }
 
 func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   btrfsutil.Err = fmt.Errorf("problemo")
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
@@ -200,7 +213,7 @@ func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
 }
 
 func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   btrfsutil.DumpErr = fmt.Errorf("problemo")
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
@@ -214,7 +227,7 @@ func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
 }
 
 func TestCreateSnapshot(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   expect_cnt := len(btrfsutil.Snaps) + 1
   sv := CloneSubvol(btrfsutil.Subvols[0])
 
@@ -235,7 +248,7 @@ func TestCreateSnapshot(t *testing.T) {
 }
 
 func TestDeleteSnapshot(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   err := volmgr.DeleteSnapshot(btrfsutil.Subvols[0])
   if err == nil { t.Errorf("Expected error when deleting non-readonly subvolumes") }
   //util.Debugf("err: %v", err)
@@ -245,23 +258,18 @@ func TestDeleteSnapshot(t *testing.T) {
 }
 
 func TestReceiveSendStream(t *testing.T) {
-  volmgr, btrfsutil := buildTestManager()
+  volmgr, btrfsutil, juggler := buildTestManager()
   read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
 
-  mock_received := &pb.SubVolume {
-    Uuid: "uuid_TestReceiveSendStream",
-    TreePath: "/tmp/mock_received",
-    MountedPath: "/tmp/mock_received",
-    GenAtCreation: 99,
-    CreatedTs: uint64(time.Now().UnixNano() + 10000),
-    ReceivedUuid: btrfsutil.Snaps[1].Uuid,
-    ReadOnly: true,
-  }
+  recv_path := juggler.UuidToMnt[btrfsutil.Snaps[1].Uuid].MountedPath
+  mock_received := util.DummySnapshot(uuid.NewString(), "")
+  mock_received.ReceivedUuid = btrfsutil.Snaps[1].Uuid
+  mock_received.MountedPath = fpmod.Join(recv_path, "recv_snap")
   btrfsutil.Snaps = append(btrfsutil.Snaps, mock_received)
 
-  ch, err := volmgr.ReceiveSendStream(ctx, "/tmp", mock_received.ReceivedUuid, read_pipe)
+  ch, err := volmgr.ReceiveSendStream(ctx, recv_path, mock_received.ReceivedUuid, read_pipe)
   if err != nil { t.Errorf("ReceiveSendStream: %v", err) }
   select {
     case sv_or_error := <-ch:
@@ -272,7 +280,7 @@ func TestReceiveSendStream(t *testing.T) {
 }
 
 func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
-  volmgr, _ := buildTestManager()
+  volmgr, _, _ := buildTestManager()
   read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()

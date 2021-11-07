@@ -6,11 +6,12 @@ import (
   "io"
   fpmod "path/filepath"
   "sort"
-  "strings"
   "time"
 
-  "btrfs_to_glacier/types"
   pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/types"
+  "btrfs_to_glacier/util"
+  "btrfs_to_glacier/volume_source/shim"
 )
 
 type btrfsVolumeManager struct {
@@ -74,35 +75,11 @@ func (self *btrfsVolumeManager) FindMountedPath(sv *pb.SubVolume) (string, error
   return "/implement/me", nil
 }
 
-func (self *btrfsVolumeManager) FindTreePath(sv *pb.SubVolume) (string, error) {
-  if len(sv.TreePath) > 0 { return sv.TreePath, nil }
-  //return "", fmt.Errorf("implement me")
-  return "/implement/me", nil
-}
-
-// may not exist
-func (self *btrfsVolumeManager) FindFsRootMount(sv *pb.SubVolume) (string, error) {
-  return "", ErrFsNotMounted
-}
-
-// may not exist
-func (self *btrfsVolumeManager) FindFsRootMountByPath(path string) (string, error) {
-  return "", ErrFsNotMounted
-}
-
 func (self *btrfsVolumeManager) FindVolume(fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
-  var vols []*pb.SubVolume
-  var err error
-  var look_path string
-  is_root_fs := true
-
-  look_path, err = self.FindFsRootMountByPath(fs_path)
-  if err != nil {
-    if err != ErrFsNotMounted { return nil, err }
-    is_root_fs = false
-    look_path = fs_path
-  }
-  vols, err = self.btrfsutil.ListSubVolumesInFs(look_path, is_root_fs)
+  _,mnt,_,err := self.juggler.FindFsAndTighterMountOwningPath(fs_path)
+  if err != nil { return nil, err }
+  vols, err := self.btrfsutil.ListSubVolumesInFs(mnt.MountedPath,
+                                                 mnt.BtrfsVolId == shim.BTRFS_FS_TREE_OBJECTID)
   if err != nil { return nil, err }
   for _,vol := range vols {
     if matcher(vol) { return vol, nil }
@@ -120,17 +97,10 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
   var vols []*pb.SubVolume
   var err error
   var last_gen uint64
-  var snap_root string
-  is_root_fs := true
 
-  snap_root, err = self.FindFsRootMount(subvol)
-  if err != nil {
-    if err != ErrFsNotMounted { return nil, err }
-    is_root_fs = false
-    snap_root, err = self.FindSnapPathForSubVolume(subvol)
-    if err != nil { return nil, err }
-  }
-  vols, err = self.btrfsutil.ListSubVolumesInFs(snap_root, is_root_fs)
+  if len(subvol.MountedPath) < 1 { return nil, fmt.Errorf("GetSnapshotSeqForVolume needs MountedPath") }
+  vols, err = self.btrfsutil.ListSubVolumesInFs(subvol.MountedPath,
+                                                subvol.VolId == shim.BTRFS_FS_TREE_OBJECTID)
   if err != nil { return nil, err }
 
   seq := make([]*pb.SubVolume, 0, 32)
@@ -138,7 +108,7 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
   for _,vol := range vols {
     if vol.ParentUuid == subvol.Uuid {
       if last_gen == vol.GenAtCreation {
-        panic("Found 2 snapshots with the same creation gen belong to same parent")
+        util.Fatalf("Found 2 snapshots with the same creation gen belonging to same parent")
       }
       seq = append(seq, vol)
       last_gen = vol.GenAtCreation
@@ -147,7 +117,8 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
   return seq, nil
 }
 
-func (self *btrfsVolumeManager) GetChangesBetweenSnaps(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (<-chan types.SnapshotChangesOrError, error) {
+func (self *btrfsVolumeManager) GetChangesBetweenSnaps(
+    ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (<-chan types.SnapshotChangesOrError, error) {
   var read_end io.ReadCloser
   var from_path, to_path string
   var err error
@@ -201,25 +172,23 @@ func (self *btrfsVolumeManager) GetSnapshotStream(ctx context.Context, from *pb.
 }
 
 func (self *btrfsVolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, error) {
-  var err error
-  var snap *pb.SubVolume
-  var par_path, tree_path, snap_root string
-  snap_root, err = self.FindSnapPathForSubVolume(subvol)
-  if err != nil { return nil, err }
-  tree_path, err = self.FindTreePath(subvol)
-  if err != nil { return nil, err }
-  par_path, err = self.FindMountedPath(subvol)
+  // If tree path == "" then it is not known or this is the root subvol
+  if len(subvol.MountedPath) < 1 || len(subvol.TreePath) < 1 {
+    return nil, fmt.Errorf("CreateSnapshot subvol needs MountedPath and TreePath")
+  }
+  if len(subvol.ParentUuid) > 0 { return nil, fmt.Errorf("CreateSnapshot from a snapshot") }
+
+  snap_root, err := self.FindSnapPathForSubVolume(subvol)
   if err != nil { return nil, err }
 
   ts_str    := time.Now().Format("20060201")
-  tree_path  = strings.TrimPrefix(tree_path, string(fpmod.Separator))
-  tree_path  = strings.Join(strings.Split(tree_path, string(fpmod.Separator)), "_")
-  snap_name := fmt.Sprintf("%s.%s.%d", tree_path, ts_str, time.Now().Unix())
+  snap_name := fmt.Sprintf("%s.%s.%d",
+                           fpmod.Base(subvol.TreePath), ts_str, time.Now().Unix())
   snap_path := fpmod.Join(snap_root, snap_name)
 
-  err = self.btrfsutil.CreateSnapshot(par_path, snap_path)
+  err = self.btrfsutil.CreateSnapshot(subvol.MountedPath, snap_path)
   if err != nil { return nil, err }
-  snap, err = self.GetVolume(snap_path)
+  snap, err := self.GetVolume(snap_path)
   if err != nil { return nil, err }
   snap.MountedPath = snap_path
   return snap, nil

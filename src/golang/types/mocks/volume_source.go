@@ -5,6 +5,7 @@ import (
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
+  "btrfs_to_glacier/util"
 )
 
 type BtrfsPathJuggler struct {
@@ -32,5 +33,23 @@ func (self *BtrfsPathJuggler) FindTighterMountForSubVolume(
 func (self *BtrfsPathJuggler) CheckSourcesAndReturnCorrespondingFs(
     sources []*pb.Source) ([]*types.Filesystem, error) {
   return self.CheckResult, self.Err
+}
+func (self *BtrfsPathJuggler) LoadFilesystem(fs *types.Filesystem) {
+  if fs == nil { util.Fatalf("fs == nil") }
+  if self.PathToFs == nil { self.PathToFs = make(map[string]*types.Filesystem) }
+  if self.PathToMnt == nil { self.PathToMnt = make(map[string]*types.MountEntry) }
+  for _,mnt := range fs.Mounts {
+    self.PathToFs[mnt.MountedPath] = fs
+    self.PathToMnt[mnt.MountedPath] = mnt
+  }
+  self.CheckResult = append(self.CheckResult, fs)
+}
+
+func (self *BtrfsPathJuggler) LoadSubVolume(mnt *types.MountEntry, sv_list ...*pb.SubVolume) {
+  if self.UuidToMnt == nil { self.UuidToMnt = make(map[string]*types.MountEntry) }
+  for _,sv := range sv_list {
+    if sv == nil || mnt == nil { util.Fatalf("sv == nil || mnt == nil") }
+    self.UuidToMnt[sv.Uuid] = mnt
+  }
 }
 

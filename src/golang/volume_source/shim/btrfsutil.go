@@ -90,9 +90,6 @@ func (self *btrfsUtilImpl) SubVolumeInfo(path string) (*pb.SubVolume, error) {
     return nil, fmt.Errorf("btrfs_util_subvolume_info: %s = %d",
                            C.GoString(C.btrfs_util_strerror(stx)), stx)
   }
-  if subvol.id == C.BTRFS_FS_TREE_OBJECTID {
-    return nil, fmt.Errorf("returning root subvolume is not supported")
-  }
   sv_pb,err := self.toProtoSnapOrSubvol(&subvol, "", path)
   if err == nil && self.linuxutil.IsCapSysAdmin() {
     sv_pb.TreePath, err = self.GetSubVolumeTreePath(sv_pb)

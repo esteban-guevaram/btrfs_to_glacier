@@ -28,6 +28,11 @@ func DummyBtrfsSrc(sv_list []string, snap_list []string) *pb.Source {
   return src
 }
 
+func DummyMountEntryForSv(sv *pb.SubVolume) *types.MountEntry {
+  if len(sv.MountedPath) < 1 || len(sv.TreePath) < 1 { Fatalf("bad subvol") }
+  return DummyMountEntry(sv.VolId, sv.MountedPath, sv.TreePath)
+}
+
 func DummyMountEntry(btrfs_id uint64, mnt_path string, tree_path string) *types.MountEntry {
   mnt := &types.MountEntry{
     Id: int(adler32.Checksum([]byte(mnt_path)) + adler32.Checksum([]byte(tree_path))),
