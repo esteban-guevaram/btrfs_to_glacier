@@ -108,7 +108,7 @@ func (self *Btrfsutil) CreateSnapshot(subvol string, snap string) error {
 func (self *Btrfsutil) DeleteSubVolume(subvol string) error {
   if subvol == "" { return fmt.Errorf("DeleteSubvolume bad args") }
   for idx,sv := range self.Snaps {
-    util.Debugf("tree(%s) / del_path(%s)", sv.TreePath, subvol)
+    //util.Debugf("tree(%s) / del_path(%s)", sv.TreePath, subvol)
     // Cannot do a perfect job at matching since at this level we lost the uuid.
     if fpmod.Base(sv.TreePath) == fpmod.Base(subvol) {
       self.Snaps = append(self.Snaps[:idx], self.Snaps[idx+1:]...)

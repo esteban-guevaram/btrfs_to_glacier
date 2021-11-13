@@ -61,14 +61,31 @@ func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   return subvol, nil
 }
 
-func (self *btrfsVolumeManager) FindSnapPathForSubVolume(sv *pb.SubVolume) (string, error) {
+// nil if no source found for `sv`
+func (self *btrfsVolumeManager) FindConfForSubVolume(sv *pb.SubVolume) (*pb.Source, *pb.Source_VolSnapPathPair) {
   for _,src := range self.conf.Sources {
     if src.Type != pb.Source_BTRFS { continue }
     for _,p := range src.Paths {
-      if p.VolPath == sv.MountedPath { return p.SnapPath, nil }
+      if p.VolPath == sv.MountedPath { return src, p }
     }
   }
-  return "", fmt.Errorf("no snap path for '%s'", sv.MountedPath)
+  return nil, nil
+}
+
+func (self *btrfsVolumeManager) FindSnapPathForSubVolume(sv *pb.SubVolume) (string, error) {
+  src, path_pair := self.FindConfForSubVolume(sv)
+  if src == nil {
+    return "", fmt.Errorf("no snap path for '%s'", sv.MountedPath)
+  }
+  return path_pair.SnapPath, nil
+}
+
+func (self *btrfsVolumeManager) FindSnapHistoryConf(sv *pb.SubVolume) (*pb.Source_SnapHistory, error) {
+  src, _ := self.FindConfForSubVolume(sv)
+  if src == nil {
+    return nil, fmt.Errorf("no subvol history for '%s'", sv.MountedPath)
+  }
+  return src.History, nil
 }
 
 func (self *btrfsVolumeManager) FindMountedPath(sv *pb.SubVolume) (string, error) {
@@ -94,6 +111,11 @@ type ByCGen []*pb.SubVolume
 func (a ByCGen) Len() int           { return len(a) }
 func (a ByCGen) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByCGen) Less(i, j int) bool { return a[i].GenAtCreation < a[j].GenAtCreation }
+
+type ByCreatedTsDesc []*pb.SubVolume
+func (a ByCreatedTsDesc) Len() int           { return len(a) }
+func (a ByCreatedTsDesc) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByCreatedTsDesc) Less(i, j int) bool { return a[i].CreatedTs > a[j].CreatedTs }
 
 func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([]*pb.SubVolume, error) {
   var vols []*pb.SubVolume
@@ -245,8 +267,86 @@ func (self *btrfsVolumeManager) ReceiveSendStream(
   return ch, nil
 }
 
+// Returns the old snaps sorted by creation time descending.
+func (self *btrfsVolumeManager) KeepOnlyOldSnapsSorted(
+  snaps []*pb.SubVolume, history *pb.Source_SnapHistory) (time.Time, []*pb.SubVolume, error) {
+  now := time.Now()
+  keep_window := 24 * time.Duration(history.DaysKeepAll) * time.Hour
+  keep_until := now.Add(-keep_window)
+  var old_snaps []*pb.SubVolume
+
+  for _,snap := range snaps {
+    if int64(snap.CreatedTs) >= keep_until.Unix() { continue }
+    old_snaps = append(old_snaps, snap)
+  }
+  sort.Sort(ByCreatedTsDesc(old_snaps))
+  util.Infof("%d snapshots older than %s", len(old_snaps), keep_until.Format("2006/01/02 15:04"))
+  return keep_until, old_snaps, nil
+}
+
+func (self *btrfsVolumeManager) SelectSnapsToDelPerPeriod(
+    snaps []*pb.SubVolume, history *pb.Source_SnapHistory, least_old_date time.Time) ([]*pb.SubVolume, error) {
+  if len(snaps) < 1 { return nil, nil }
+  period_window := 24 * time.Duration(history.KeepOnePeriodDays) * time.Hour
+  period_end := least_old_date
+  period_start := period_end.Add(-period_window)
+  var to_del []*pb.SubVolume
+
+  for _,snap := range snaps {
+    if int64(snap.CreatedTs) < period_start.Unix() {
+      if len(to_del) > 0 {
+        last := len(to_del) - 1
+        to_del = to_del[:last]
+      }
+      interval := period_end.Sub(time.Unix(int64(snap.CreatedTs), 0))
+      if interval == interval.Truncate(period_window) {
+        interval -= period_window
+      } else {
+        interval = interval.Truncate(period_window)
+      }
+      period_end = period_end.Add(-interval)
+      period_start = period_end.Add(-period_window)
+      //util.Debugf("New period %s - %s", period_start.Format("2006/01/02 15:04"), period_end.Format("2006/01/02 15:04"))
+    }
+    to_del = append(to_del, snap)
+    if int64(snap.CreatedTs) >= period_end.Unix() ||
+       int64(snap.CreatedTs) < period_start.Unix() {
+       util.Fatalf("Invariant broken: expect snap to always be inside period window")
+    }
+  }
+  if len(to_del) > 0 {
+    last := len(to_del) - 1
+    if int64(to_del[last].CreatedTs) >= period_end.Unix() ||
+       int64(to_del[last].CreatedTs) < period_start.Unix() {
+      util.Fatalf("Invariant broken: expect last snap to always be inside period window")
+    }
+    to_del = to_del[:last]
+  }
+  //util.Debugf("Last period %s - %s", period_start.Format("2006/01/02 15:04"), period_end.Format("2006/01/02 15:04"))
+  util.Infof("%d snapshots to delete from %d", len(to_del), len(snaps))
+  return to_del, nil
+}
+
 func (self *btrfsVolumeManager) TrimOldSnapshots(
     src_subvol *pb.SubVolume, dry_run bool) ([]*pb.SubVolume, error) {
-  return nil, nil
+  history, err := self.FindSnapHistoryConf(src_subvol)
+  if err != nil { return nil, err }
+  snaps, err := self.GetSnapshotSeqForVolume(src_subvol)
+  if err != nil { return nil, err }
+  least_old_date, old_snaps, err := self.KeepOnlyOldSnapsSorted(snaps, history)
+  if err != nil { return nil, err }
+  to_del_snaps, err := self.SelectSnapsToDelPerPeriod(old_snaps, history, least_old_date)
+  if err != nil { return nil, err }
+  if len(to_del_snaps) >= len(snaps) {
+    return nil, fmt.Errorf("TrimOldSnapshots should not delete ALL snapshots.")
+  }
+
+  var deleted []*pb.SubVolume
+  for _,del_snap := range to_del_snaps {
+    if !dry_run { err = self.DeleteSnapshot(del_snap) }
+    if err != nil { break }
+    deleted = append(deleted, del_snap)
+  }
+  return deleted, err
 }
 

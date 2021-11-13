@@ -21,6 +21,7 @@ message SubVolume {
   // * Bind mounts to inner parts of a subvolume are undistinguishable from mounts of the subvolume :/
   string  mounted_path = 4;
   uint64  gen_at_creation = 5;
+  // Unix timestamp in seconds (although btrfs docs never mention this clearly)
   fixed64 created_ts = 6;
   // Only snapshots will have this field not empty
   string  parent_uuid = 7; 

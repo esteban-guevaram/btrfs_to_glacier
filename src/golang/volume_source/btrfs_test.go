@@ -5,6 +5,8 @@ import (
   "fmt"
   fpmod "path/filepath"
   "io/ioutil"
+  "math/rand"
+  "sort"
   "testing"
   "time"
 
@@ -66,8 +68,8 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.BtrfsPath
       },
     },
     History: &pb.Source_SnapHistory{
-      DaysKeepAll: 30,
-      KeepOnePeriodDays: 30,
+      DaysKeepAll: 10,
+      KeepOnePeriodDays: 10,
     },
   }
 
@@ -299,6 +301,194 @@ func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
     case sv_or_error := <-ch:
       if sv_or_error.Err == nil { t.Errorf("ReceiveSendStream expected error") }
     case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func buildSnapshotSequence(
+    sv *pb.SubVolume, period time.Duration, from time.Time, snap_count int) []*pb.SubVolume {
+  var snaps []*pb.SubVolume
+  last := from
+  for i := 0; i < snap_count; i+=1 {
+    snap := util.DummySnapshot(uuid.NewString(), sv.Uuid) 
+    snap.CreatedTs = uint64(last.Unix())
+    snap.GenAtCreation = snap.CreatedTs
+    snap.MountedPath = fpmod.Join("/tmp", snap.TreePath)
+    last = last.Add(-period)
+    snaps = append(snaps, snap)
+  }
+  rand.Shuffle(len(snaps), func(i, j int) {
+		snaps[i], snaps[j] = snaps[j], snaps[i]
+	})
+  return snaps
+}
+
+func printSnapsWithCreationTs(snaps []*pb.SubVolume) {
+  print_snaps := make([]*pb.SubVolume, len(snaps))
+  copy(print_snaps, snaps)
+  sort.Sort(ByCGen(print_snaps))
+  for idx,snap := range print_snaps {
+    ctime := time.Unix(int64(snap.CreatedTs), 0)
+    util.Debugf("%d. uuid:%s, creation:%s", idx, snap.Uuid, ctime.Format("2006/01/02 15:04"))
+  }
+}
+
+func expectNInWindow(
+    t *testing.T, history *pb.Source_SnapHistory, snaps []*pb.SubVolume, win_idx int, expect int) {
+  var found []*pb.SubVolume
+  start_recent := time.Now().Add(-24 * time.Duration(history.DaysKeepAll) * time.Hour)
+  period := 24 * time.Duration(history.KeepOnePeriodDays) * time.Hour
+  period_start := start_recent.Add(-time.Duration(win_idx) * period)
+  period_end   := period_start.Add(period)
+  for _,snap := range snaps {
+    if int64(snap.CreatedTs) >= period_start.Unix() &&
+       int64(snap.CreatedTs) < period_end.Unix() {
+      found = append(found, snap)
+    }
+  }
+  if len(found) != expect {
+    t.Errorf("Expected %d in %s - %s, got %d", expect,
+             period_start.Format("2006/01/02 15:04"), period_end.Format("2006/01/02 15:04"), len(found))
+    printSnapsWithCreationTs(found)
+  }
+}
+
+func TestTrimOldSnapshots_NoHistoryConf(t *testing.T) {
+  volmgr, _, _ := buildTestManager()
+  _, err := volmgr.TrimOldSnapshots(util.DummySubVolume(uuid.NewString()), false)
+  if err == nil { t.Fatalf("volmgr.TrimOldSnapshots should have failed") }
+}
+
+func TestTrimOldSnapshots_OnlyRecentVols(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  snap_count := volmgr.conf.Sources[0].History.DaysKeepAll - 1
+
+  btrfsutil.Snaps = buildSnapshotSequence(btrfsutil.Subvols[0],
+                                          24*time.Hour, time.Now(), int(snap_count))
+  expect_len := len(btrfsutil.Snaps)
+  del_snaps, err := volmgr.TrimOldSnapshots(btrfsutil.Subvols[0], false)
+
+  if err != nil { t.Fatalf("volmgr.TrimOldSnapshots err:%v", err) }
+  if len(del_snaps) > 0 { t.Errorf("Should not have deleted any volume") }
+  util.EqualsOrFailTest(t, "Snapshots were deleted", len(btrfsutil.Snaps), expect_len)
+}
+
+func TestTrimOldSnapshots_RecentVolsAndOneOld(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  snap_count := volmgr.conf.Sources[0].History.DaysKeepAll + 1
+
+  btrfsutil.Snaps = buildSnapshotSequence(btrfsutil.Subvols[0],
+                                          24*time.Hour, time.Now(), int(snap_count))
+  expect_len := len(btrfsutil.Snaps)
+  del_snaps, err := volmgr.TrimOldSnapshots(btrfsutil.Subvols[0], false)
+
+  if err != nil { t.Fatalf("volmgr.TrimOldSnapshots err:%v", err) }
+  if len(del_snaps) > 0 { t.Errorf("Should not have deleted any volume") }
+  util.EqualsOrFailTest(t, "Snapshots were deleted", len(btrfsutil.Snaps), expect_len)
+}
+
+func TestTrimOldSnapshots_NormalCase(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  h := volmgr.conf.Sources[0].History
+  snap_count := h.DaysKeepAll + 3
+  expect_len := h.DaysKeepAll + 1
+  expect_del := snap_count - expect_len
+  most_recent := time.Now().Add(-7*time.Second)
+
+  btrfsutil.Snaps = buildSnapshotSequence(btrfsutil.Subvols[0],
+                                          24*time.Hour, most_recent, int(snap_count))
+  //printSnapsWithCreationTs(btrfsutil.Snaps)
+  del_snaps, err := volmgr.TrimOldSnapshots(btrfsutil.Subvols[0], false)
+
+  if err != nil { t.Fatalf("volmgr.TrimOldSnapshots err:%v", err) }
+  util.EqualsOrFailTest(t, "Bad del count", len(del_snaps), expect_del)
+  util.EqualsOrFailTest(t, "Not enough snapshots were deleted", len(btrfsutil.Snaps), expect_len)
+  expectNInWindow(t, h, btrfsutil.Snaps, 1, 1)
+  expectNInWindow(t, h, del_snaps, 1, 2)
+}
+
+func TestTrimOldSnapshots_DryRun(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  h := volmgr.conf.Sources[0].History
+  snap_count := h.DaysKeepAll + 3
+  most_recent := time.Now().Add(-7*time.Second)
+
+  btrfsutil.Snaps = buildSnapshotSequence(btrfsutil.Subvols[0],
+                                          24*time.Hour, most_recent, int(snap_count))
+  del_snaps, err := volmgr.TrimOldSnapshots(btrfsutil.Subvols[0], true)
+
+  if err != nil { t.Fatalf("volmgr.TrimOldSnapshots err:%v", err) }
+  util.EqualsOrFailTest(t, "In dry-run snaps got deleted", len(btrfsutil.Snaps), snap_count)
+  printSnapsWithCreationTs(del_snaps)
+}
+
+func TestTrimOldSnapshots_ManyPeriods(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  h := volmgr.conf.Sources[0].History
+  const period_cnt = 3
+  snap_count := h.DaysKeepAll + h.KeepOnePeriodDays * period_cnt
+  expect_len := h.DaysKeepAll + period_cnt
+  expect_del := snap_count - expect_len
+  most_recent := time.Now().Add(-7*time.Second)
+
+  btrfsutil.Snaps = buildSnapshotSequence(btrfsutil.Subvols[0],
+                                          24*time.Hour, most_recent, int(snap_count))
+  del_snaps, err := volmgr.TrimOldSnapshots(btrfsutil.Subvols[0], false)
+
+  if err != nil { t.Fatalf("volmgr.TrimOldSnapshots err:%v", err) }
+  util.EqualsOrFailTest(t, "Bad del count", len(del_snaps), expect_del)
+  util.EqualsOrFailTest(t, "Not enough snapshots were deleted", len(btrfsutil.Snaps), expect_len)
+  for i:=1; i<=period_cnt; i+=1 {
+    expectNInWindow(t, h, btrfsutil.Snaps, i, 1)
+    expectNInWindow(t, h, del_snaps, i, int(h.KeepOnePeriodDays) - 1)
+  }
+}
+
+func TestTrimOldSnapshots_HistoryEqKeepOnePeriod(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  h := volmgr.conf.Sources[0].History
+  const period_cnt = 7
+  snap_count := h.DaysKeepAll + period_cnt
+  expect_len := snap_count
+  expect_del := snap_count - expect_len
+  most_recent := time.Now().Add(-7*time.Second)
+  period := 24 * time.Duration(h.KeepOnePeriodDays) * time.Hour
+
+  btrfsutil.Snaps = buildSnapshotSequence(btrfsutil.Subvols[0],
+                                          period, most_recent, int(snap_count))
+  del_snaps, err := volmgr.TrimOldSnapshots(btrfsutil.Subvols[0], false)
+
+  if err != nil { t.Fatalf("volmgr.TrimOldSnapshots err:%v", err) }
+  util.EqualsOrFailTest(t, "Bad del count", len(del_snaps), expect_del)
+  util.EqualsOrFailTest(t, "Not enough snapshots were deleted", len(btrfsutil.Snaps), expect_len)
+}
+
+func TestTrimOldSnapshots_SparseHistory(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  h := volmgr.conf.Sources[0].History
+  h.DaysKeepAll = 3
+  h.KeepOnePeriodDays = h.DaysKeepAll
+  const snap_count = 8
+  const period_mult = 3
+  expect_len := snap_count/2 + 1
+  expect_del := snap_count - expect_len
+  most_recent := time.Now().Add(-7*time.Second)
+  period := 24 * time.Duration(period_mult*h.KeepOnePeriodDays) * time.Hour
+
+  btrfsutil.Snaps = buildSnapshotSequence(btrfsutil.Subvols[0],
+                                          period, most_recent, int(snap_count/2))
+  btrfsutil.Snaps = append(btrfsutil.Snaps,
+                           buildSnapshotSequence(btrfsutil.Subvols[0],
+                                                 period,
+                                                 most_recent.Add(-7*time.Second),
+                                                 int(snap_count/2))...)
+  del_snaps, err := volmgr.TrimOldSnapshots(btrfsutil.Subvols[0], false)
+
+  if err != nil { t.Fatalf("volmgr.TrimOldSnapshots err:%v", err) }
+  util.EqualsOrFailTest(t, "Bad del count", len(del_snaps), expect_del)
+  util.EqualsOrFailTest(t, "Not enough snapshots were deleted", len(btrfsutil.Snaps), expect_len)
+  for i:=1; i<snap_count/2; i+=1 {
+    expectNInWindow(t, h, btrfsutil.Snaps, i*period_mult, 1)
+    expectNInWindow(t, h, del_snaps, i*period_mult, 1)
   }
 }
 
