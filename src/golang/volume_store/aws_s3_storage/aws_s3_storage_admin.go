@@ -31,78 +31,6 @@ func NewAdminStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (
   return del_storage, nil
 }
 
-// Returns false if the bucket does not exist.
-func (self *s3AdminStorage) checkBucketExistsAndIsOwnedByMyAccount(ctx context.Context) (bool, error) {
-  var err error
-  if len(self.account_id) < 1 {
-    self.account_id, err = util.GetAccountId(ctx, self.aws_conf)
-    if err != nil { return false, err }
-  }
-
-  head_in := &s3.HeadBucketInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
-    ExpectedBucketOwner: &self.account_id,
-  }
-  _, err = self.client.HeadBucket(ctx, head_in)
-
-  if IsS3Error(new(s3_types.NotFound), err) || IsS3Error(new(s3_types.NoSuchBucket), err) {
-    util.Debugf("Bucket '%s' does not exist", self.conf.Aws.S3.BucketName)
-    return false, nil
-  }
-  if err != nil { return false, err }
-  return true, nil
-}
-
-func (self *s3AdminStorage) locationConstraintFromConf() (s3_types.BucketLocationConstraint, error) {
-  var invalid s3_types.BucketLocationConstraint = ""
-  for _,region := range s3_types.BucketLocationConstraintEu.Values() {
-    if string(region) == self.conf.Aws.Region { return region, nil }
-  }
-  return invalid, fmt.Errorf("region '%s' does not match any location constraint",
-                             self.conf.Aws.Region)
-}
-
-// Bucket creation parameters:
-// * no server side encryption
-// * no object lock, not versioning for objects
-// * block all public access
-func (self *s3AdminStorage) createBucket(ctx context.Context) error {
-  var err error
-  var bucket_location s3_types.BucketLocationConstraint
-
-  bucket_location, err = self.locationConstraintFromConf()
-  if err != nil { return err }
-
-  create_in := &s3.CreateBucketInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
-    ACL: s3_types.BucketCannedACLPrivate,
-    CreateBucketConfiguration: &s3_types.CreateBucketConfiguration{
-      LocationConstraint: bucket_location,
-    },
-    ObjectLockEnabledForBucket: false,
-  }
-  _, err = self.client.CreateBucket(ctx, create_in)
-  if err != nil { return err }
-
-  waiter := s3.NewBucketExistsWaiter(self.client)
-  wait_rq := &s3.HeadBucketInput{ Bucket: &self.conf.Aws.S3.BucketName, }
-  err = waiter.Wait(ctx, wait_rq, self.bucket_wait)
-  if err != nil { return err }
-
-  access_in := &s3.PutPublicAccessBlockInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
-    PublicAccessBlockConfiguration: &s3_types.PublicAccessBlockConfiguration{
-      BlockPublicAcls: true,
-      IgnorePublicAcls: true,
-      BlockPublicPolicy: true,
-      RestrictPublicBuckets: true,
-    },
-  }
-  _, err = self.client.PutPublicAccessBlock(ctx, access_in)
-  if err != nil { return err }
-  return nil
-}
-
 func (self *s3AdminStorage) getTransitionType() s3_types.TransitionStorageClass {
   for _,t := range s3_types.TransitionStorageClassDeepArchive.Values() {
     if string(self.archive_storage_class) == string(t) { return t }
@@ -153,11 +81,11 @@ func (self *s3AdminStorage) SetupStorage(ctx context.Context) (<-chan error) {
   done := make(chan error, 1)
   go func() {
     defer close(done)
-    exists, err := self.checkBucketExistsAndIsOwnedByMyAccount(ctx)
+    exists, err := self.common.CheckBucketExistsAndIsOwnedByMyAccount(ctx)
     if err != nil { done <- err ; return }
     if exists { return }
 
-    err = self.createBucket(ctx)
+    err = self.common.CreateBucket(ctx)
     if err != nil { done <- err ; return }
     err = self.createLifecycleRule(ctx)
     if err != nil { done <- err ; return }
@@ -182,7 +110,8 @@ func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
   if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
   old_conf := s3_impl.conf
   s3_impl.conf = conf
-  return func() { s3_impl.conf = old_conf }
+  common_restore := s3_impl.common.TestOnlySwapConf(conf)
+  return func() { common_restore(); s3_impl.conf = old_conf }
 }
 
 func TestOnlyChangeIterationSize(storage types.Storage, size int32) func() {

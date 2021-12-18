@@ -14,30 +14,27 @@ package aws_s3_storage
 import (
   "bufio"
   "context"
-  "errors"
   "fmt"
   "io"
   "regexp"
   "strconv"
   "strings"
-  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
   store "btrfs_to_glacier/volume_store"
+  s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
 
   "github.com/aws/aws-sdk-go-v2/aws"
   "github.com/aws/aws-sdk-go-v2/service/s3"
   s3mgr "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
-  "github.com/aws/smithy-go"
 
   "github.com/google/uuid"
 )
 
 const (
-  bucket_wait_secs = 60
   deep_glacier_trans_days = 30
   remove_multipart_days = 3
   restore_lifetime_days = 3
@@ -50,14 +47,12 @@ const (
 // The subset of the s3 client used.
 // Convenient for unittesting purposes.
 type usedS3If interface {
-  CreateBucket (context.Context, *s3.CreateBucketInput,  ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+  s3_common.UsedS3If
   DeleteObjects(context.Context, *s3.DeleteObjectsInput, ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error)
   GetObject    (context.Context, *s3.GetObjectInput,     ...func(*s3.Options)) (*s3.GetObjectOutput, error)
-  HeadBucket   (context.Context, *s3.HeadBucketInput,    ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
   HeadObject   (context.Context, *s3.HeadObjectInput,    ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
   ListObjectsV2(context.Context, *s3.ListObjectsV2Input, ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
   PutBucketLifecycleConfiguration(context.Context, *s3.PutBucketLifecycleConfigurationInput, ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
-  PutPublicAccessBlock(context.Context, *s3.PutPublicAccessBlockInput, ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error)
   RestoreObject(context.Context, *s3.RestoreObjectInput, ...func(*s3.Options)) (*s3.RestoreObjectOutput, error)
 }
 
@@ -71,9 +66,8 @@ type s3Storage struct {
   codec       types.Codec
   aws_conf    *aws.Config
   client      usedS3If
+  common      *s3_common.S3Common
   uploader    uploaderIf
-  bucket_wait time.Duration
-  account_id  string
   deep_glacier_trans_days int32
   remove_multipart_days   int32
   restore_lifetime_days   int32
@@ -108,41 +102,19 @@ func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types
   uploader := s3mgr.NewUploader(client,
                                 func(u *s3mgr.Uploader) { u.LeavePartsOnError = false },
                                 func(u *s3mgr.Uploader) { u.Concurrency = 1 })
+  common, err := s3_common.NewS3Common(conf, aws_conf, client)
+  if err != nil { return nil, err }
+
   storage := &s3Storage{
     conf: conf,
     codec: codec,
     aws_conf: aws_conf,
     client: client,
+    common: common,
     uploader: uploader,
-    bucket_wait: bucket_wait_secs * time.Second,
-    account_id: "", // lazy fetch
   }
   injectConstants(storage)
   return storage, nil
-}
-
-func StrToApiErr(code string) smithy.APIError {
-  return &smithy.GenericAPIError{ Code: code, }
-}
-
-// Ugly fix because this does not do sh*t 
-// if errors.As(err, new(s3_types.NoSuchBucket)) { ... }
-func IsS3Error(err_to_compare error, err error) bool {
-  if err != nil {
-    // Be careful it is a trap ! This will not take into account the underlying type
-    //if errors.As(err, &fixed_err) { return true }
-    var ae smithy.APIError
-    if !errors.As(err, &ae) { util.Fatalf("Got an aws error of unexpected type: %v", err) }
-
-    //util.Debugf("%v ? %v", err_to_compare, err)
-    switch fixed_err := err_to_compare.(type) {
-      case smithy.APIError:
-        return ae.ErrorCode() == fixed_err.ErrorCode()
-      default:
-        return ae.ErrorCode() == fixed_err.Error()
-    }
-  }
-  return false
 }
 
 func (self *s3Storage) uploadSummary(result types.ChunksOrError) string {
@@ -264,11 +236,11 @@ func (self *s3Storage) sendSingleRestore(ctx context.Context, key string) types.
   }
   _, err := self.client.RestoreObject(ctx, restore_in)
   //util.Debugf("restore_in: %+v\nbucket: %v, key: %v", restore_in, *restore_in.Bucket, *restore_in.Key)
-  if IsS3Error(StrToApiErr(RestoreAlreadyInProgress), err) {
+  if s3_common.IsS3Error(s3_common.StrToApiErr(RestoreAlreadyInProgress), err) {
     return types.ObjRestoreOrErr{ Stx:types.Pending, }
   }
   // Probably this object is still in the standard storage class.
-  if IsS3Error(new(s3_types.InvalidObjectState), err) {
+  if s3_common.IsS3Error(new(s3_types.InvalidObjectState), err) {
     return types.ObjRestoreOrErr{ Stx:types.Unknown, }
   }
   if err != nil {

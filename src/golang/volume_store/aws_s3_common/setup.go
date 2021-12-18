@@ -1,0 +1,153 @@
+package aws_s3_common
+
+import (
+  "context"
+  "errors"
+  "fmt"
+  "time"
+
+  pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/util"
+
+  "github.com/aws/aws-sdk-go-v2/aws"
+  "github.com/aws/aws-sdk-go-v2/service/s3"
+  s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+  "github.com/aws/smithy-go"
+)
+
+const (
+  bucket_wait_secs = 60
+)
+
+// The subset of the s3 client used.
+// Convenient for unittesting purposes.
+type UsedS3If interface {
+  CreateBucket (context.Context, *s3.CreateBucketInput,  ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+  HeadBucket   (context.Context, *s3.HeadBucketInput,    ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+  PutPublicAccessBlock(context.Context, *s3.PutPublicAccessBlockInput, ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error)
+}
+
+type S3Common struct {
+  Conf        *pb.Config
+  Aws_conf    *aws.Config
+  Client      UsedS3If
+  BucketWait  time.Duration
+  AccountId   string
+}
+
+func NewS3Common(conf *pb.Config, aws_conf *aws.Config, client UsedS3If) (*S3Common, error) {
+  return &S3Common{
+    Conf: conf,
+    Aws_conf: aws_conf,
+    Client: client,
+    BucketWait: bucket_wait_secs * time.Second,
+    AccountId: "", // lazy fetch
+  }, nil
+}
+
+func StrToApiErr(code string) smithy.APIError {
+  return &smithy.GenericAPIError{ Code: code, }
+}
+
+// Ugly fix because this does not do sh*t 
+// if errors.As(err, new(s3_types.NoSuchBucket)) { ... }
+func IsS3Error(err_to_compare error, err error) bool {
+  if err != nil {
+    // Be careful it is a trap ! This will not take into account the underlying type
+    //if errors.As(err, &fixed_err) { return true }
+    var ae smithy.APIError
+    if !errors.As(err, &ae) { util.Fatalf("Got an aws error of unexpected type: %v", err) }
+
+    //util.Debugf("%v ? %v", err_to_compare, err)
+    switch fixed_err := err_to_compare.(type) {
+      case smithy.APIError:
+        return ae.ErrorCode() == fixed_err.ErrorCode()
+      default:
+        return ae.ErrorCode() == fixed_err.Error()
+    }
+  }
+  return false
+}
+
+func (self *S3Common) TestOnlySwapConf(conf *pb.Config) func() {
+  old_conf := self.Conf
+  self.Conf = conf
+  return func() { self.Conf = old_conf }
+}
+
+func (self *S3Common) GetAccountIdOrDie(ctx context.Context) *string {
+  if len(self.AccountId) < 1 {
+    var err error
+    self.AccountId, err = util.GetAccountId(ctx, self.Aws_conf)
+    if err != nil { util.Fatalf("Failed to get account id: %v", err) }
+  }
+  return &self.AccountId
+}
+
+// Returns false if the bucket does not exist.
+func (self *S3Common) CheckBucketExistsAndIsOwnedByMyAccount(ctx context.Context) (bool, error) {
+  var err error
+  head_in := &s3.HeadBucketInput{
+    Bucket: &self.Conf.Aws.S3.BucketName,
+    ExpectedBucketOwner: self.GetAccountIdOrDie(ctx),
+  }
+  _, err = self.Client.HeadBucket(ctx, head_in)
+
+  if IsS3Error(new(s3_types.NotFound), err) || IsS3Error(new(s3_types.NoSuchBucket), err) {
+    util.Debugf("Bucket '%s' does not exist", self.Conf.Aws.S3.BucketName)
+    return false, nil
+  }
+  if err != nil { return false, err }
+  return true, nil
+}
+
+// Bucket creation parameters:
+// * no server side encryption
+// * no object lock, not versioning for objects
+// * block all public access
+func (self *S3Common) CreateBucket(ctx context.Context) error {
+  var err error
+  var bucket_location s3_types.BucketLocationConstraint
+
+  bucket_location, err = self.locationConstraintFromConf()
+  if err != nil { return err }
+
+  create_in := &s3.CreateBucketInput{
+    Bucket: &self.Conf.Aws.S3.BucketName,
+    ACL: s3_types.BucketCannedACLPrivate,
+    CreateBucketConfiguration: &s3_types.CreateBucketConfiguration{
+      LocationConstraint: bucket_location,
+    },
+    ObjectLockEnabledForBucket: false,
+  }
+  _, err = self.Client.CreateBucket(ctx, create_in)
+  if err != nil { return err }
+
+  waiter := s3.NewBucketExistsWaiter(self.Client)
+  wait_rq := &s3.HeadBucketInput{ Bucket: &self.Conf.Aws.S3.BucketName, }
+  err = waiter.Wait(ctx, wait_rq, self.BucketWait)
+  if err != nil { return err }
+
+  access_in := &s3.PutPublicAccessBlockInput{
+    Bucket: &self.Conf.Aws.S3.BucketName,
+    PublicAccessBlockConfiguration: &s3_types.PublicAccessBlockConfiguration{
+      BlockPublicAcls: true,
+      IgnorePublicAcls: true,
+      BlockPublicPolicy: true,
+      RestrictPublicBuckets: true,
+    },
+  }
+  _, err = self.Client.PutPublicAccessBlock(ctx, access_in)
+  if err != nil { return err }
+  return nil
+}
+
+func (self *S3Common) locationConstraintFromConf() (s3_types.BucketLocationConstraint, error) {
+  var invalid s3_types.BucketLocationConstraint = ""
+  for _,region := range s3_types.BucketLocationConstraintEu.Values() {
+    if string(region) == self.Conf.Aws.Region { return region, nil }
+  }
+  return invalid, fmt.Errorf("region '%s' does not match any location constraint",
+                             self.Conf.Aws.Region)
+}
+

@@ -8,6 +8,7 @@ import (
   "math/rand"
 
   store "btrfs_to_glacier/volume_store/aws_s3_storage"
+  s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
@@ -250,7 +251,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.
   select {
     case res := <-done:
       got_err := res[keys[0]].Err
-      if !store.IsS3Error(new(s3_types.NoSuchKey), got_err) {
+      if !s3_common.IsS3Error(new(s3_types.NoSuchKey), got_err) {
         util.Fatalf("Expected error status: %v", res)
       }
     case <-ctx.Done(): util.Fatalf("timedout")

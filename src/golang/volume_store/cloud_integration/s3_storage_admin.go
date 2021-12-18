@@ -4,7 +4,7 @@ import (
   "context"
   "time"
 
-  store "btrfs_to_glacier/volume_store/aws_s3_storage"
+  s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
@@ -21,7 +21,7 @@ func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client,
   err := deleteBucket(ctx, conf, client)
 
   if err != nil {
-    if !store.IsS3Error(new(s3_types.NoSuchBucket), err) {
+    if !s3_common.IsS3Error(new(s3_types.NoSuchBucket), err) {
       util.Fatalf("%v", err)
     }
     util.Infof("TestStorageSetup '%s' not exist", conf.Aws.S3.BucketName)
@@ -65,7 +65,7 @@ func (self *s3AdminTester) testDeleteChunks_Helper(ctx context.Context, obj_coun
 
   for _,key := range keys {
     _,err := self.getObject(ctx, key)
-    if !store.IsS3Error(new(s3_types.NoSuchKey), err) {
+    if !s3_common.IsS3Error(new(s3_types.NoSuchKey), err) {
       util.Fatalf("Key '%s' was not deleted", key)
     }
   }

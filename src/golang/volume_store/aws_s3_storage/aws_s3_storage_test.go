@@ -5,7 +5,6 @@ import (
   "context"
   "fmt"
   "io"
-  "sort"
   "testing"
   "time"
 
@@ -13,170 +12,27 @@ import (
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
+  s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
 
-  "github.com/aws/aws-sdk-go-v2/aws"
-  "github.com/aws/aws-sdk-go-v2/service/s3"
-  s3mgr "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
   "google.golang.org/protobuf/proto"
   "github.com/google/uuid"
 )
 
-type mockS3Client struct {
-  Err              error
-  RestoreObjectErr error
-  DeleteObjsErr    error
-  AccountId string
-  Data map[string][]byte
-  RestoreStx map[string]string
-  Class map[string]s3_types.StorageClass
-  Buckets map[string]bool
-  HeadAlwaysEmpty bool
-  HeadAlwaysAccessDenied bool
-  FirstListObjEmpty      bool
-  LastLifecycleIn *s3.PutBucketLifecycleConfigurationInput
-  LastPublicAccessBlockIn *s3.PutPublicAccessBlockInput
-}
-
-func (self *mockS3Client) setObject(key string, data []byte, class s3_types.StorageClass, ongoing bool) {
-  self.Data[key] = make([]byte, len(data))
-  copy(self.Data[key], data)
-  //self.Data[key] =  data
-  self.Class[key] = class
-  if class != s3_types.StorageClassStandard {
-    self.RestoreStx[key] = fmt.Sprintf(`ongoing-request="%v"`, ongoing)
-  }
-}
-func (self *mockS3Client) CreateBucket(
-    ctx context.Context, in *s3.CreateBucketInput, opts ...func(*s3.Options)) (*s3.CreateBucketOutput, error) {
-  self.Buckets[*in.Bucket] = true
-  return &s3.CreateBucketOutput{}, self.Err
-}
-func (self *mockS3Client) DeleteObjects(
-    ctx context.Context, in *s3.DeleteObjectsInput, opts...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
-  out := &s3.DeleteObjectsOutput{}
-  for _,obj_id := range in.Delete.Objects {
-    delete(self.Data, *obj_id.Key)
-    delete(self.RestoreStx, *obj_id.Key)
-    delete(self.Class, *obj_id.Key)
-  }
-  if self.DeleteObjsErr != nil {
-    str := self.DeleteObjsErr.Error()
-    aws_err := s3_types.Error{ Code:&str, Key:&str, }
-    out.Errors = []s3_types.Error{ aws_err }
-  }
-  return out, self.Err
-}
-func (self *mockS3Client) GetObject(
-    ctx context.Context, in *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-  key := *(in.Key)
-  if _,found := self.Data[key]; !found {
-    return nil, new(s3_types.NoSuchKey)
-  }
-  out := &s3.GetObjectOutput{
-    Body: io.NopCloser(bytes.NewReader(self.Data[key])),
-    ContentLength: int64(len(self.Data[key])),
-  }
-  return out, self.Err
-}
-func (self *mockS3Client) ListObjectsV2(
-    ctx context.Context, in *s3.ListObjectsV2Input, opts ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-  if in.Prefix != nil || in.StartAfter != nil { util.Fatalf("not_implemented") }
-  var page_count int32
-  out := &s3.ListObjectsV2Output{
-    ContinuationToken: in.ContinuationToken,
-    Contents:make([]s3_types.Object, 0, len(self.Data)),
-  }
-
-  if self.FirstListObjEmpty {
-    self.FirstListObjEmpty = false
-    out.NextContinuationToken = aws.String("1")
-    return out, self.Err
-  }
-
-  // iteration order is not stable: https://go.dev/blog/maps
-  keys := make([]string, 0, len(self.Data))
-  for key,_ := range self.Data { keys = append(keys, key) }
-  sort.Strings(keys)
-
-  for _,key:= range keys {
-    if in.ContinuationToken != nil && key <= *in.ContinuationToken { continue }
-    data := self.Data[key]
-    item := s3_types.Object{ Key:aws.String(key), Size:int64(len(data)), }
-    out.Contents = append(out.Contents, item)
-    page_count += 1
-    if page_count >= in.MaxKeys { out.NextContinuationToken = aws.String(key); break }
-  }
-  out.KeyCount = page_count
-  return out, self.Err
-}
-func (self *mockS3Client) HeadBucket(
-    ctx context.Context, in *s3.HeadBucketInput, opts ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {
-  _,found := self.Buckets[*(in.Bucket)]
-  if self.HeadAlwaysEmpty || !found {
-    return nil, new(s3_types.NoSuchBucket)
-  }
-  bad_owner := in.ExpectedBucketOwner != nil && *(in.ExpectedBucketOwner) != self.AccountId
-  if self.HeadAlwaysAccessDenied || bad_owner {
-    // Error model is too complex to mock
-    // https://aws.github.io/aws-sdk-go-v2/docs/handling-errors/#api-error-responses
-    return nil, StrToApiErr("AccessDenied")
-  }
-  return &s3.HeadBucketOutput{}, self.Err
-}
-func (self *mockS3Client) HeadObject(
-    ctx context.Context, in *s3.HeadObjectInput, opts ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
-  key := *(in.Key)
-  if _,found := self.Data[key]; !found {
-    return nil, new(s3_types.NoSuchKey)
-  }
-  out := &s3.HeadObjectOutput{ StorageClass: self.Class[key], }
-  if restore,found := self.RestoreStx[key]; found { out.Restore = &restore }
-  return out, self.Err
-}
-func (self *mockS3Client) PutBucketLifecycleConfiguration(
-    ctx context.Context, in *s3.PutBucketLifecycleConfigurationInput, opts ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error) {
-  self.LastLifecycleIn = in
-  rs := &s3.PutBucketLifecycleConfigurationOutput{}
-  return rs, self.Err
-}
-func (self *mockS3Client) PutPublicAccessBlock(
-    ctx context.Context, in *s3.PutPublicAccessBlockInput, opts ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error) {
-  self.LastPublicAccessBlockIn = in
-  return &s3.PutPublicAccessBlockOutput{}, self.Err
-}
-func (self *mockS3Client) RestoreObject(
-  ctx context.Context, in *s3.RestoreObjectInput, opts ...func(*s3.Options)) (*s3.RestoreObjectOutput, error) {
-  return &s3.RestoreObjectOutput{}, self.RestoreObjectErr
-}
-func (self *mockS3Client) Upload(
-    ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3mgr.Uploader)) (*s3mgr.UploadOutput, error) {
-  if in.Bucket == nil || len(*in.Bucket) < 1 { return nil, fmt.Errorf("malormed request") }
-  if in.Key == nil || len(*in.Key) < 1 { return nil, fmt.Errorf("malormed request") }
-  if self.Err == nil {
-    buf, err := io.ReadAll(in.Body)
-    if err != nil { return nil, err }
-    if _,found := self.Data[*in.Key]; found { return nil, fmt.Errorf("overwritting key") }
-    self.Data[*in.Key] = buf
-    return &s3mgr.UploadOutput{}, self.Err
-  }
-  return nil, self.Err
-}
-
-func buildTestStorage(t *testing.T) (*s3Storage, *mockS3Client) {
+func buildTestStorage(t *testing.T) (*s3Storage, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   return buildTestStorageWithConf(t, conf)
 }
 
-func buildTestStorageWithChunkLen(t *testing.T, chunk_len uint64) (*s3Storage, *mockS3Client) {
+func buildTestStorageWithChunkLen(t *testing.T, chunk_len uint64) (*s3Storage, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   conf.Aws.S3.ChunkLen = chunk_len
   return buildTestStorageWithConf(t, conf)
 }
 
-func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *mockS3Client) {
-  client := &mockS3Client {
+func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *s3_common.MockS3Client) {
+  client := &s3_common.MockS3Client {
     AccountId: "some_random_string",
     Data: make(map[string][]byte),
     Class: make(map[string]s3_types.StorageClass),
@@ -188,15 +44,18 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *mockS
   codec := new(mocks.Codec)
   aws_conf, err := util.NewAwsConfig(context.TODO(), conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
+  common, err := s3_common.NewS3Common(conf, aws_conf, client)
+  if err != nil { t.Fatalf("Failed build common setup: %v", err) }
+  common.BucketWait = 10 * time.Millisecond
+  common.AccountId = client.AccountId
 
   storage := &s3Storage{
     conf: conf,
     codec: codec,
     aws_conf: aws_conf,
     client: client,
+    common: common,
     uploader: client,
-    bucket_wait: 10 * time.Millisecond,
-    account_id: client.AccountId,
   }
   injectConstants(storage)
   return storage, client
@@ -547,7 +406,7 @@ func testQueueRestoreObjects_Helper(
   storage,client := buildTestStorage(t)
   expect := make(map[string]types.ObjRestoreOrErr)
   for _,k := range keys {
-    client.setObject(k, []byte{}, class, ongoing)
+    client.SetObject(k, []byte{}, class, ongoing)
     expect[k] = expect_obj
   }
   client.RestoreObjectErr = restore_err
@@ -576,7 +435,7 @@ func TestQueueRestoreObjects_AlreadyRestored(t *testing.T) {
 
 func TestQueueRestoreObjects_RestoreOngoing(t *testing.T) {
   keys := []string{"k1", "k2"}
-  restore_err := StrToApiErr(RestoreAlreadyInProgress)
+  restore_err := s3_common.StrToApiErr(RestoreAlreadyInProgress)
   expect_obj := types.ObjRestoreOrErr{ Stx:types.Pending, }
   testQueueRestoreObjects_Helper(t, keys, s3_types.StorageClassDeepArchive, false, expect_obj, restore_err)
 }
@@ -619,7 +478,7 @@ func testReadChunksIntoStream_Helper(t *testing.T, chunks *pb.SnapshotChunks, da
   storage,client := buildTestStorage(t)
   for i,chunk := range chunks.Chunks {
     expect_data.Write(datas[i])
-    client.setObject(chunk.Uuid, datas[i], s3_types.StorageClassStandard, false)
+    client.SetObject(chunk.Uuid, datas[i], s3_types.StorageClassStandard, false)
   }
 
   read_end,err := storage.ReadChunksIntoStream(ctx, chunks)
@@ -702,7 +561,7 @@ func testStorageListAll_Helper(t *testing.T, total int, fill_size int32) {
   for i:=0; i<total; i+=1 {
     key := uuid.NewString()
     obj := &pb.SnapshotChunks_Chunk{ Uuid:key, Size:blob_len, }
-    client.setObject(key, util.GenerateRandomTextData(blob_len),
+    client.SetObject(key, util.GenerateRandomTextData(blob_len),
                      s3_types.StorageClassStandard, false)
     expect_objs[key] = obj
   }
@@ -748,7 +607,7 @@ func TestListAllChunks_EmptyNonFinalFill(t *testing.T) {
 
   for i:=0; i<total; i+=1 {
     key := uuid.NewString()
-    client.setObject(key, util.GenerateRandomTextData(blob_len),
+    client.SetObject(key, util.GenerateRandomTextData(blob_len),
                      s3_types.StorageClassStandard, false)
   }
 

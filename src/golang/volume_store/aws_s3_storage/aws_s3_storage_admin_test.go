@@ -6,6 +6,7 @@ import (
   "testing"
   "time"
 
+  s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
 
@@ -14,62 +15,11 @@ import (
   "github.com/google/uuid"
 )
 
-func buildTestAdminStorage(t *testing.T) (*s3AdminStorage, *mockS3Client) {
+func buildTestAdminStorage(t *testing.T) (*s3AdminStorage, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   storage,client := buildTestStorageWithConf(t, conf)
   del_storage := &s3AdminStorage{ s3Storage:storage, }
   return del_storage, client
-}
-
-func TestBucketCreation_Immediate(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-  storage,client := buildTestAdminStorage(t)
-  err := storage.createBucket(ctx)
-  if err != nil { t.Fatalf("Failed aws create bucket: %v", err) }
-  if _,ok := client.Buckets[storage.conf.Aws.S3.BucketName]; !ok {
-    t.Fatalf("Create bucket did not do a thing: %v", err)
-  }
-  block_conf := client.LastPublicAccessBlockIn.PublicAccessBlockConfiguration
-  if !block_conf.BlockPublicAcls { t.Fatalf("Malformed request: %v", *(client.LastPublicAccessBlockIn)) }
-}
-
-func TestBucketCreation_Timeout(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-  defer cancel()
-  storage,client := buildTestAdminStorage(t)
-  client.HeadAlwaysEmpty = true
-  err := storage.createBucket(ctx)
-  if err == nil { t.Fatalf("Expected create bucket to timeout") }
-}
-
-func TestCheckBucketExistsAndIsOwnedByMyAccount_NoBucket(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-  storage,_ := buildTestAdminStorage(t)
-  exists, err := storage.checkBucketExistsAndIsOwnedByMyAccount(ctx)
-  if err != nil { t.Fatalf("Failed to check for existing bucket: %v", err) }
-  if exists { t.Fatalf("there should have been no bucket") }
-}
-
-func TestCheckBucketExistsAndIsOwnedByMyAccount_BadOwner(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-  storage,client := buildTestAdminStorage(t)
-  client.HeadAlwaysAccessDenied = true
-  client.Buckets[storage.conf.Aws.S3.BucketName] = true
-  _, err := storage.checkBucketExistsAndIsOwnedByMyAccount(ctx)
-  if err == nil { t.Fatalf("Expected wrong bucket owner") }
-}
-
-func TestCheckBucketExistsAndIsOwnedByMyAccount_Exists(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-  storage,client := buildTestAdminStorage(t)
-  client.Buckets[storage.conf.Aws.S3.BucketName] = true
-  exists, err := storage.checkBucketExistsAndIsOwnedByMyAccount(ctx)
-  if err != nil { t.Fatalf("Failed to check for existing bucket: %v", err) }
-  if !exists { t.Fatalf("there should have been an existing bucket") }
 }
 
 func TestCreateLifecycleRule(t *testing.T) {
@@ -119,7 +69,7 @@ func testDeleteChunks_Helper(t *testing.T, obj_count int) {
     chunks[i] = &pb.SnapshotChunks_Chunk{
       Uuid: uuid.NewString(),
     }
-    client.setObject(chunks[i].Uuid, []byte("value"), s3_types.StorageClassStandard, false)
+    client.SetObject(chunks[i].Uuid, []byte("value"), s3_types.StorageClassStandard, false)
   }
 
   done := storage.DeleteChunks(ctx, chunks)
