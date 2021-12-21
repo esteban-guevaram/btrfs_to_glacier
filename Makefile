@@ -51,7 +51,7 @@ cloud_integ: all $(AWS_TEMP_CREDS_SH)
 	GOENV="$(GOENV)" go run ./volume_store/cloud_integration \
 		--access="$$ACCESS" --secret="$$SECRET" --session="$$SESSION" \
 		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)" \
-		--store_bucket="$(AWS_BUCKET)_store" --meta_bucket="$(AWS_BUCKET)_meta"
+		--store_bucket="$(AWS_BUCKET).store" --meta_bucket="$(AWS_BUCKET).meta"
 
 btrfs_integ: all | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
@@ -145,6 +145,7 @@ $(AWS_TEMP_CREDS_SH) $(AWS_TEMP_CREDS) &: | bin
 		END {
 		  print("NOW_SECS=`date +%s`");
 			print("[[ \$$NOW_SECS -le \$$EXP_SECS ]] || echo ERROR expired creds");
+			print("[[ \$$NOW_SECS -le \$$EXP_SECS ]] || exit 1");
 		}
 	' "$(AWS_TEMP_CREDS)" > "$(AWS_TEMP_CREDS_SH)"
 	source "$(AWS_TEMP_CREDS_SH)"

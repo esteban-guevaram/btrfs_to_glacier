@@ -3,7 +3,6 @@ package main
 import (
   "bytes"
   "context"
-  "fmt"
   "io"
   "math/rand"
 
@@ -22,53 +21,34 @@ import (
   "github.com/google/uuid"
 )
 
-type s3ReadWriteTester struct {
+type s3StoreReadWriteTester struct {
   Conf *pb.Config
   Client *s3.Client
   Storage types.AdminStorage
 }
 
-func (self *s3ReadWriteTester) getObject(ctx context.Context, key string) ([]byte, error) {
-  in := &s3.GetObjectInput{
-    Bucket: &self.Conf.Aws.S3.StorageBucketName,
-    Key: &key,
-  }
-  out, err := self.Client.GetObject(ctx, in)
-  if err != nil { return nil, err }
-
-  defer out.Body.Close()
-  var data []byte
-  data, err = io.ReadAll(out.Body)
-  if err == nil { util.Infof("Got object '%s' size=%d", key, len(data)) }
-  return data, err
+func (self *s3StoreReadWriteTester) getObject(ctx context.Context, key string) ([]byte, error) {
+  return GetObject(ctx, self.Client, self.Conf.Aws.S3.StorageBucketName, key)
 }
 
-func (self *s3ReadWriteTester) putRandomObject(ctx context.Context, size int) (string, []byte, error) {
+func (self *s3StoreReadWriteTester) putRandomObject(ctx context.Context, size int) (string, []byte, error) {
   data := util.GenerateRandomTextData(size)
-  reader := bytes.NewReader(data)
   key := uuid.NewString()
-  in := &s3.PutObjectInput{
-    Bucket: &self.Conf.Aws.S3.StorageBucketName,
-    Key: &key,
-    Body: reader,
-  }
-  _, err := self.Client.PutObject(ctx, in)
+  err := PutObject(ctx, self.Client, self.Conf.Aws.S3.StorageBucketName, key, data)
   return key, data, err
 }
 
-func (self *s3ReadWriteTester) getObjectOrDie(ctx context.Context, key string) []byte {
-  data, err := self.getObject(ctx, key)
-  if err != nil { util.Fatalf("Failed to get object '%s': %v", key, err) }
-  return data
+func (self *s3StoreReadWriteTester) getObjectOrDie(ctx context.Context, key string) []byte {
+  return GetObjectOrDie(ctx, self.Client, self.Conf.Aws.S3.StorageBucketName, key)
 }
 
-func (self *s3ReadWriteTester) putRandomObjectOrDie(ctx context.Context, size int) (string, []byte) {
+func (self *s3StoreReadWriteTester) putRandomObjectOrDie(ctx context.Context, size int) (string, []byte) {
   key, data, err := self.putRandomObject(ctx, size)
   if err != nil { util.Fatalf("Failed to put object '%s': %v", key, err) }
   return key, data
 }
 
-func (self *s3ReadWriteTester) helperWrite(
+func (self *s3StoreReadWriteTester) helperWrite(
     ctx context.Context, offset uint64, total_len uint64) *pb.SnapshotChunks {
   chunk_len := self.Conf.Aws.S3.ChunkLen
   data := util.GenerateRandomTextData(int(total_len))
@@ -99,45 +79,7 @@ func (self *s3ReadWriteTester) helperWrite(
   return chunk_or_err.Val
 }
 
-func deleteBucketOrDie(ctx context.Context, conf *pb.Config, client *s3.Client) {
-  err := deleteBucket(ctx, conf, client)
-  if err != nil { util.Fatalf("Failed bucket delete: %v", err) }
-}
-
-func emptyBucketOrDie(ctx context.Context, conf *pb.Config, client *s3.Client) {
-  err := emptyBucket(ctx, conf, client)
-  if err != nil { util.Fatalf("Failed empty object: %v", err) }
-}
-
-func emptyBucket(ctx context.Context, conf *pb.Config, client *s3.Client) error {
-  list_in := &s3.ListObjectsV2Input{
-    Bucket: &conf.Aws.S3.StorageBucketName,
-    MaxKeys: 1000,
-  }
-  out, err := client.ListObjectsV2(ctx, list_in)
-  if err != nil { return err }
-  for _,obj := range out.Contents {
-    del_in := &s3.DeleteObjectInput{
-      Bucket: &conf.Aws.S3.StorageBucketName,
-      Key: obj.Key,
-    }
-    _, err = client.DeleteObject(ctx, del_in)
-    if err != nil { return err }
-  }
-  if out.ContinuationToken != nil { return fmt.Errorf("needs more iterations to delete all") }
-  return nil
-}
-
-func deleteBucket(ctx context.Context, conf *pb.Config, client *s3.Client) error {
-  err := emptyBucket(ctx, conf, client)
-  if err != nil { return err }
-  _, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
-    Bucket: &conf.Aws.S3.StorageBucketName,
-  })
-  return err
-}
-
-func (self *s3ReadWriteTester) TestWriteObjectLessChunkLen(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestWriteObjectLessChunkLen(ctx context.Context) {
   const offset = 0
   var total_len = self.Conf.Aws.S3.ChunkLen/3
   expect_chunk := &pb.SnapshotChunks_Chunk{
@@ -152,21 +94,21 @@ func (self *s3ReadWriteTester) TestWriteObjectLessChunkLen(ctx context.Context) 
   util.EqualsOrDie("Bad SnapshotChunk[0]", first_chunk, expect_chunk)
 }
 
-func (self *s3ReadWriteTester) TestWriteObjectMoreChunkLen(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestWriteObjectMoreChunkLen(ctx context.Context) {
   const offset = 0
   var total_len = self.Conf.Aws.S3.ChunkLen*3 + 1
   snap_chunks := self.helperWrite(ctx, offset, total_len)
   util.EqualsOrDie("Bad number of chunks", len(snap_chunks.Chunks), 4)
 }
 
-func (self *s3ReadWriteTester) TestWriteObjectMultipleChunkLen(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestWriteObjectMultipleChunkLen(ctx context.Context) {
   const offset = 0
   var total_len = self.Conf.Aws.S3.ChunkLen * 2
   snap_chunks := self.helperWrite(ctx, offset, total_len)
   util.EqualsOrDie("Bad number of chunks", len(snap_chunks.Chunks), 2)
 }
 
-func (self *s3ReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
   const offset = 0
   read_end := io.NopCloser(&bytes.Buffer{})
   done, err := self.Storage.WriteStream(ctx, offset, read_end)
@@ -182,7 +124,7 @@ func (self *s3ReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
   }
 }
 
-func (self *s3ReadWriteTester) testReadObject_Helper(ctx context.Context, chunk_sizes []uint64) {
+func (self *s3StoreReadWriteTester) testReadObject_Helper(ctx context.Context, chunk_sizes []uint64) {
   var expect_data bytes.Buffer
   var offset uint64
   chunks := &pb.SnapshotChunks{ KeyFingerprint: "for_giggles", }
@@ -210,17 +152,17 @@ func (self *s3ReadWriteTester) testReadObject_Helper(ctx context.Context, chunk_
   util.EqualsOrDie( "Mismatched concat data", got_data, expect_data.Bytes())
 }
 
-func (self *s3ReadWriteTester) TestReadSingleChunkObject(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestReadSingleChunkObject(ctx context.Context) {
   sizes := []uint64{4096}
   self.testReadObject_Helper(ctx, sizes)
 }
 
-func (self *s3ReadWriteTester) TestReadMultiChunkObject(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestReadMultiChunkObject(ctx context.Context) {
   sizes := []uint64{4096, 1024, 666,}
   self.testReadObject_Helper(ctx, sizes)
 }
 
-func (self *s3ReadWriteTester) testQueueRestoreObjects_Helper(ctx context.Context, keys []string, expect_obj types.ObjRestoreOrErr) {
+func (self *s3StoreReadWriteTester) testQueueRestoreObjects_Helper(ctx context.Context, keys []string, expect_obj types.ObjRestoreOrErr) {
   done, err := self.Storage.QueueRestoreObjects(ctx, keys)
   if err != nil { util.Fatalf("failed: %v", err) }
 
@@ -235,7 +177,7 @@ func (self *s3ReadWriteTester) testQueueRestoreObjects_Helper(ctx context.Contex
   }
 }
 
-func (self *s3ReadWriteTester) TestQueueRestoreObjects_StandardClass(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_StandardClass(ctx context.Context) {
   key1,_ := self.putRandomObjectOrDie(ctx, 4096)
   key2,_ := self.putRandomObjectOrDie(ctx, 1111)
   keys := []string{key1, key2}
@@ -243,7 +185,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_StandardClass(ctx context
   self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
 }
 
-func (self *s3ReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.Context) {
   keys := []string{uuid.NewString()}
   done, err := self.Storage.QueueRestoreObjects(ctx, keys)
   if err != nil { util.Fatalf("failed: %v", err) }
@@ -258,7 +200,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.
   }
 }
 
-func (self *s3ReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Context, snowflake_bucket string, snowflake_key string) {
+func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Context, snowflake_bucket string, snowflake_key string) {
   tmp_conf := proto.Clone(self.Conf).(*pb.Config)
   tmp_conf.Aws.S3.StorageBucketName = snowflake_bucket
   restore_func := store.TestOnlySwapConf(self.Storage, tmp_conf)
@@ -270,7 +212,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Co
   self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
 }
 
-func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx context.Context, snowflake_bucket string, snowflake_key string) {
+func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx context.Context, snowflake_bucket string, snowflake_key string) {
   tmp_conf := proto.Clone(self.Conf).(*pb.Config)
   tmp_conf.Aws.S3.StorageBucketName = snowflake_bucket
   restore_func := store.TestOnlySwapConf(self.Storage, tmp_conf)
@@ -281,8 +223,9 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx conte
   self.testQueueRestoreObjects_Helper(ctx, keys, expect_obj)
 }
 
-func (self *s3ReadWriteTester) testListAllChunks_Helper(ctx context.Context, total int, fill_size int32) {
-  emptyBucketOrDie(ctx, self.Conf, self.Client)
+func (self *s3StoreReadWriteTester) testListAllChunks_Helper(ctx context.Context, total int, fill_size int32) {
+  bucket := self.Conf.Aws.S3.StorageBucketName
+  EmptyBucketOrDie(ctx, self.Client, bucket)
   restore_f := store.TestOnlyChangeIterationSize(self.Storage, fill_size)
   defer restore_f()
   expect_objs := make(map[string]*pb.SnapshotChunks_Chunk)
@@ -307,21 +250,21 @@ func (self *s3ReadWriteTester) testListAllChunks_Helper(ctx context.Context, tot
   }
 }
 
-func (self *s3ReadWriteTester) TestListAllChunksSingleFill(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestListAllChunksSingleFill(ctx context.Context) {
   const fill_size = 10
   const total = 3
   self.testListAllChunks_Helper(ctx, total, fill_size)
 }
 
-func (self *s3ReadWriteTester) TestListAllChunksMultiFill(ctx context.Context) {
+func (self *s3StoreReadWriteTester) TestListAllChunksMultiFill(ctx context.Context) {
   const fill_size = 4
   const total = fill_size * 3
   self.testListAllChunks_Helper(ctx, total, fill_size)
 }
 
 // we do not test with offsets, that should be covered by the unittests
-func TestAllS3ReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
-  suite := s3ReadWriteTester{
+func TestAllS3StoreReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
+  suite := s3StoreReadWriteTester{
     Conf: conf, Client: client, Storage: storage,
   }
 
@@ -349,14 +292,14 @@ func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
 
   codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
-  storage, err := store.NewAdminStorage(new_conf, aws_conf, codec)
+  storage, err := store.NewStorageAdmin(new_conf, aws_conf, codec)
   //client := s3.NewFromConfig(*aws_conf)
   client := store.TestOnlyGetInnerClientToAvoidConsistencyFails(storage)
   if err != nil { util.Fatalf("%v", err) }
 
   TestS3StorageSetup(ctx, new_conf, client, storage)
-  TestAllS3ReadWrite(ctx, new_conf, client, storage)
-  TestAllS3Delete(ctx, new_conf, client, storage)
-  deleteBucketOrDie(ctx, new_conf, client)
+  TestAllS3StoreReadWrite(ctx, new_conf, client, storage)
+  TestAllS3StoreDelete(ctx, new_conf, client, storage)
+  DeleteBucketOrDie(ctx, client, new_conf.Aws.S3.StorageBucketName)
 }
 

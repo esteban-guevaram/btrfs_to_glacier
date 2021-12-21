@@ -26,6 +26,7 @@ func main() {
 
   TestCallerIdentity(ctx, conf, aws_conf)
   TestAllS3Storage(ctx, conf, aws_conf)
+  TestAllS3Metadata(ctx, conf, aws_conf)
   TestAllDynamoDbMetadata(ctx, conf, aws_conf)
   util.Infof("ALL DONE")
 }
@@ -46,6 +47,8 @@ func useUniqueInfrastructureNames(conf *pb.Config) *pb.Config {
                                                 time.Now().Unix())
   new_conf.Aws.S3.StorageBucketName = fmt.Sprintf("%s%d", conf.Aws.S3.StorageBucketName,
                                       time.Now().Unix())
+  new_conf.Aws.S3.MetadataBucketName = fmt.Sprintf("%s%d", conf.Aws.S3.MetadataBucketName,
+                                       time.Now().Unix())
   return new_conf
 }
 

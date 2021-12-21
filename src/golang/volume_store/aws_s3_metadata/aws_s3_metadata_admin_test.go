@@ -10,10 +10,10 @@ import (
   "btrfs_to_glacier/util"
 )
 
-func buildTestAdminMetadata(t *testing.T) (*S3AdminMetadata, *s3_common.MockS3Client) {
+func buildTestAdminMetadata(t *testing.T) (*S3MetadataAdmin, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   metadata,client := buildTestMetadataWithConf(t, conf)
-  admin := &S3AdminMetadata{ S3Metadata:metadata, }
+  admin := &S3MetadataAdmin{ S3Metadata:metadata, }
   admin.injectConstants()
   return admin, client
 }

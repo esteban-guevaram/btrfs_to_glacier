@@ -25,13 +25,13 @@ func TestDynamoDbMetadataSetup(ctx context.Context, conf *pb.Config, client *dyn
   if err != nil {
     apiErr := new(dyn_types.ResourceNotFoundException)
     if !errors.As(err, &apiErr) { util.Fatalf("%v", err) }
-    util.Infof("TestMetadataSetup '%s' not exist", conf.Aws.DynamoDb.TableName)
+    util.Infof("TestDynamoDbMetadataSetup '%s' not exist", conf.Aws.DynamoDb.TableName)
   } else {
     waiter := dynamodb.NewTableNotExistsWaiter(client)
     wait_rq := &dynamodb.DescribeTableInput{ TableName: &conf.Aws.DynamoDb.TableName, }
     err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
     if err != nil { util.Fatalf("%v", err) }
-    util.Infof("TestMetadataSetup '%s' deleted", conf.Aws.DynamoDb.TableName)
+    util.Infof("TestDynamoDbMetadataSetup '%s' deleted", conf.Aws.DynamoDb.TableName)
   }
 
   done := metadata.SetupMetadata(ctx)

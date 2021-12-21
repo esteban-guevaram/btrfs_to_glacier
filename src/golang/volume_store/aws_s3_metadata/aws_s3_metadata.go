@@ -29,7 +29,18 @@ type S3Metadata struct {
 }
 
 func NewMetadata(conf *pb.Config, aws_conf *aws.Config) (types.Metadata, error) {
-  return nil, nil
+  client := s3.NewFromConfig(*aws_conf)
+  common, err := s3_common.NewS3Common(conf, aws_conf, client)
+  if err != nil { return nil, err }
+
+  metadata := &S3Metadata{
+    Conf: conf,
+    AwsConf: aws_conf,
+    Client: client,
+    Common: common,
+  }
+  metadata.injectConstants()
+  return metadata, nil
 }
 
 func (self *S3Metadata) injectConstants() {

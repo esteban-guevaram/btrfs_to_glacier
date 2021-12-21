@@ -7,7 +7,7 @@ import (
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
-  //"btrfs_to_glacier/util"
+  "btrfs_to_glacier/util"
   s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
 
   "github.com/aws/aws-sdk-go-v2/aws"
@@ -20,7 +20,7 @@ const (
   rule_name_suffix = "version.lifecycle"
 )
 
-type S3AdminMetadata struct {
+type S3MetadataAdmin struct {
   *S3Metadata
   remove_multipart_days int32
   old_version_days      int32
@@ -31,19 +31,19 @@ func NewMetadataAdmin(conf *pb.Config, aws_conf *aws.Config) (types.AdminMetadat
   metadata, err := NewMetadata(conf, aws_conf)
   if err != nil { return nil, err }
 
-  admin := &S3AdminMetadata{ S3Metadata: metadata.(*S3Metadata), }
+  admin := &S3MetadataAdmin{ S3Metadata: metadata.(*S3Metadata), }
   admin.injectConstants()
   return admin, nil
 }
 
-func (self *S3AdminMetadata) injectConstants() {
+func (self *S3MetadataAdmin) injectConstants() {
   self.S3Metadata.injectConstants()
   self.remove_multipart_days = s3_common.RemoveMultipartDays
   self.old_version_days = old_version_days
   self.rule_name_suffix = rule_name_suffix
 }
 
-func (self *S3AdminMetadata) SetupMetadata(
+func (self *S3MetadataAdmin) SetupMetadata(
     ctx context.Context) (<-chan error) {
   bucket_name := self.Conf.Aws.S3.MetadataBucketName
   done := make(chan error, 1)
@@ -63,7 +63,7 @@ func (self *S3AdminMetadata) SetupMetadata(
   return done
 }
 
-func (self *S3AdminMetadata) enableVersioning(
+func (self *S3MetadataAdmin) enableVersioning(
     ctx context.Context, bucket_name string) error {
   versioning_in := &s3.PutBucketVersioningInput{
     Bucket: &bucket_name,
@@ -79,7 +79,7 @@ func (self *S3AdminMetadata) enableVersioning(
 // Bucket lifecycle configuration
 // * Keep non current versions for X days
 // * Multipart uploads are removed after Y days
-func (self *S3AdminMetadata) createLifecycleRule(
+func (self *S3MetadataAdmin) createLifecycleRule(
     ctx context.Context, bucket_name string) error {
   name := fmt.Sprintf("%s.%s.%d",
                       bucket_name, self.rule_name_suffix,
@@ -112,13 +112,22 @@ func (self *S3AdminMetadata) createLifecycleRule(
 }
 
 
-func (self *S3AdminMetadata) DeleteMetadataUuids(
+func (self *S3MetadataAdmin) DeleteMetadataUuids(
     ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error) {
   return nil
 }
 
-func (self *S3AdminMetadata) ReplaceSnapshotSeqHead(
+func (self *S3MetadataAdmin) ReplaceSnapshotSeqHead(
     ctx context.Context, head *pb.SnapshotSeqHead) (*pb.SnapshotSeqHead, error) {
   return nil, nil
+}
+
+// see `TestOnlyGetInnerClientToAvoidConsistencyFails` for s3 storage.
+func TestOnlyGetInnerClientToAvoidConsistencyFails(metadata types.Metadata) *s3.Client {
+  s3_impl,ok := metadata.(*S3MetadataAdmin)
+  if !ok { util.Fatalf("called with the wrong impl") }
+  client,ok := s3_impl.Client.(*s3.Client)
+  if !ok { util.Fatalf("storage does not contain a real aws client") }
+  return client
 }
 

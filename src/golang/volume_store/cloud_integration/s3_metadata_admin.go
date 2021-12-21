@@ -1,0 +1,53 @@
+package main
+
+import (
+  "context"
+  "time"
+
+  s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
+  "btrfs_to_glacier/util"
+
+  "github.com/aws/aws-sdk-go-v2/service/s3"
+  s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+)
+
+type s3MetaAdminTester struct { *s3MetaReadWriteTester }
+
+func (self *s3MetaAdminTester) deleteBucket(ctx context.Context) error {
+  bucket := self.Conf.Aws.S3.MetadataBucketName
+  return DeleteBucket(ctx, self.Client, bucket)
+}
+
+func (self *s3MetaAdminTester) TestS3MetadataSetup(ctx context.Context) {
+  bucket := self.Conf.Aws.S3.MetadataBucketName
+  err := self.deleteBucket(ctx)
+
+  if err != nil {
+    if !s3_common.IsS3Error(new(s3_types.NoSuchBucket), err) {
+      util.Fatalf("%v", err)
+    }
+    util.Infof("TestS3MetadataSetup '%s' not exist", bucket)
+  } else {
+    waiter := s3.NewBucketNotExistsWaiter(self.Client)
+    wait_rq := &s3.HeadBucketInput{ Bucket: &bucket, }
+    err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
+    if err != nil { util.Fatalf("%v", err) }
+    util.Infof("TestS3MetadataSetup '%s' deleted", bucket)
+  }
+
+  done := self.Metadata.SetupMetadata(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("%v", err) }
+      util.Infof("Bucket '%s' created OK", bucket)
+    case <-ctx.Done():
+  }
+
+  done = self.Metadata.SetupMetadata(ctx)
+  select {
+    case err := <-done:
+      if err != nil { util.Fatalf("Not idempotent %v", err) }
+    case <-ctx.Done():
+  }
+}
+

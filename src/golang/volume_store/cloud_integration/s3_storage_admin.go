@@ -15,11 +15,11 @@ import (
   "github.com/google/uuid"
 )
 
-type s3AdminTester struct { *s3ReadWriteTester }
+type s3AdminStoreTester struct { *s3StoreReadWriteTester }
 
 func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
-  err := deleteBucket(ctx, conf, client)
   bucket := conf.Aws.S3.StorageBucketName
+  err := DeleteBucket(ctx, client, bucket)
 
   if err != nil {
     if !s3_common.IsS3Error(new(s3_types.NoSuchBucket), err) {
@@ -50,7 +50,7 @@ func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client,
   }
 }
 
-func (self *s3AdminTester) testDeleteChunks_Helper(ctx context.Context, obj_count int) {
+func (self *s3AdminStoreTester) testDeleteChunks_Helper(ctx context.Context, obj_count int) {
   keys := make([]string, obj_count)
   for i:=0; i<obj_count; i+=1 {
     keys[i],_ = self.putRandomObjectOrDie(ctx, 1024)
@@ -72,15 +72,15 @@ func (self *s3AdminTester) testDeleteChunks_Helper(ctx context.Context, obj_coun
   }
 }
 
-func (self *s3AdminTester) TestDeleteChunks_Single(ctx context.Context) {
+func (self *s3AdminStoreTester) TestDeleteChunks_Single(ctx context.Context) {
   self.testDeleteChunks_Helper(ctx, 1)
 }
 
-func (self *s3AdminTester) TestDeleteChunks_Multi(ctx context.Context) {
+func (self *s3AdminStoreTester) TestDeleteChunks_Multi(ctx context.Context) {
   self.testDeleteChunks_Helper(ctx, 3)
 }
 
-func (self *s3AdminTester) TestDeleteChunks_NoSuchKey(ctx context.Context) {
+func (self *s3AdminStoreTester) TestDeleteChunks_NoSuchKey(ctx context.Context) {
   key := uuid.NewString()
   uuids := []*pb.SnapshotChunks_Chunk{
     &pb.SnapshotChunks_Chunk{ Uuid:key, },
@@ -90,9 +90,9 @@ func (self *s3AdminTester) TestDeleteChunks_NoSuchKey(ctx context.Context) {
   if err != nil { util.Fatalf("delete of unexisting object should be a noop: %v", err) }
 }
 
-func TestAllS3Delete(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
-  suite := s3AdminTester{
-    &s3ReadWriteTester{ Conf:conf, Client:client, Storage:storage, },
+func TestAllS3StoreDelete(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
+  suite := s3AdminStoreTester{
+    &s3StoreReadWriteTester{ Conf:conf, Client:client, Storage:storage, },
   }
 
   suite.TestDeleteChunks_Single(ctx)

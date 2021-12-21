@@ -22,30 +22,30 @@ const (
   rule_name_suffix = "chunk.lifecycle"
 )
 
-type s3AdminStorage struct {
+type s3StorageAdmin struct {
   *s3Storage
   deep_glacier_trans_days int32
   remove_multipart_days   int32
   rule_name_suffix        string
 }
 
-func NewAdminStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.AdminStorage, error) {
+func NewStorageAdmin(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.AdminStorage, error) {
   storage, err := NewStorage(conf, aws_conf, codec)
   if err != nil { return nil, err }
 
-  del_storage := &s3AdminStorage{ s3Storage: storage.(*s3Storage), }
+  del_storage := &s3StorageAdmin{ s3Storage: storage.(*s3Storage), }
   del_storage.injectConstants()
   return del_storage, nil
 }
 
-func (self *s3AdminStorage) injectConstants() {
+func (self *s3StorageAdmin) injectConstants() {
   self.s3Storage.injectConstants()
   self.deep_glacier_trans_days = deep_glacier_trans_days
   self.remove_multipart_days = s3_common.RemoveMultipartDays
   self.rule_name_suffix = rule_name_suffix
 }
 
-func (self *s3AdminStorage) getTransitionType() s3_types.TransitionStorageClass {
+func (self *s3StorageAdmin) getTransitionType() s3_types.TransitionStorageClass {
   for _,t := range s3_types.TransitionStorageClassDeepArchive.Values() {
     if string(self.archive_storage_class) == string(t) { return t }
   }
@@ -57,7 +57,7 @@ func (self *s3AdminStorage) getTransitionType() s3_types.TransitionStorageClass 
 // * Storage class applies to all objects in bucket (no prefix)
 // * Transition for current objects Standard -> Deep Glacier after X days
 // * Multipart uploads are removed after Y days
-func (self *s3AdminStorage) createLifecycleRule(
+func (self *s3StorageAdmin) createLifecycleRule(
     ctx context.Context, bucket_name string) error {
   name := fmt.Sprintf("%s.%s.%d",
                       bucket_name, self.rule_name_suffix,
@@ -92,7 +92,7 @@ func (self *s3AdminStorage) createLifecycleRule(
 
 // object standard tier
 // object no tags no metadata (that way we only need a simple kv store)
-func (self *s3AdminStorage) SetupStorage(ctx context.Context) (<-chan error) {
+func (self *s3StorageAdmin) SetupStorage(ctx context.Context) (<-chan error) {
   bucket_name := self.conf.Aws.S3.StorageBucketName
   done := make(chan error, 1)
   go func() {
@@ -114,7 +114,7 @@ func (self *s3AdminStorage) SetupStorage(ctx context.Context) (<-chan error) {
 // with a **different client object** may return NoSuchBucket errors.
 // https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel
 func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Client {
-  s3_impl,ok := storage.(*s3AdminStorage)
+  s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl") }
   client,ok := s3_impl.client.(*s3.Client)
   if !ok { util.Fatalf("storage does not contain a real aws client") }
@@ -122,7 +122,7 @@ func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Cl
 }
 
 func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
-  s3_impl,ok := storage.(*s3AdminStorage)
+  s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
   old_conf := s3_impl.conf
   s3_impl.conf = conf
@@ -131,14 +131,14 @@ func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
 }
 
 func TestOnlyChangeIterationSize(storage types.Storage, size int32) func() {
-  s3_impl,ok := storage.(*s3AdminStorage)
+  s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
   old_size := s3_impl.iter_buf_len
   s3_impl.iter_buf_len = size
   return func() { s3_impl.iter_buf_len = old_size }
 }
 
-func (self *s3AdminStorage) deleteBatch(
+func (self *s3StorageAdmin) deleteBatch(
     ctx context.Context, low_bound int, up_bound int, chunks []*pb.SnapshotChunks_Chunk) error {
   del_in := &s3.DeleteObjectsInput{
     Bucket: &self.conf.Aws.S3.StorageBucketName,
@@ -156,7 +156,7 @@ func (self *s3AdminStorage) deleteBatch(
   return nil
 }
 
-func (self *s3AdminStorage) DeleteChunks(
+func (self *s3StorageAdmin) DeleteChunks(
     ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error) {
   if len(chunks) < 1 { return util.WrapInChan(fmt.Errorf("cannot delete 0 keys")) }
   done := make(chan error, 1)

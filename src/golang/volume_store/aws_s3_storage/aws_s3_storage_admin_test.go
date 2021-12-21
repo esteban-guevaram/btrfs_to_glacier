@@ -15,10 +15,10 @@ import (
   "github.com/google/uuid"
 )
 
-func buildTestAdminStorage(t *testing.T) (*s3AdminStorage, *s3_common.MockS3Client) {
+func buildTestAdminStorage(t *testing.T) (*s3StorageAdmin, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   storage,client := buildTestStorageWithConf(t, conf)
-  del_storage := &s3AdminStorage{ s3Storage:storage, }
+  del_storage := &s3StorageAdmin{ s3Storage:storage, }
   del_storage.injectConstants()
   return del_storage, client
 }
