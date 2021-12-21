@@ -50,7 +50,8 @@ cloud_integ: all $(AWS_TEMP_CREDS_SH)
 	pushd "$(MYGOSRC)"
 	GOENV="$(GOENV)" go run ./volume_store/cloud_integration \
 		--access="$$ACCESS" --secret="$$SECRET" --session="$$SESSION" \
-		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)" --bucket="$(AWS_BUCKET)"
+		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)" \
+		--store_bucket="$(AWS_BUCKET)_store" --meta_bucket="$(AWS_BUCKET)_meta"
 
 btrfs_integ: all | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
@@ -75,7 +76,7 @@ go_unittest: go_code
 	pushd "$(MYGOSRC)"
 	# add --test.v to get verbose tests
 	# add --test.count=1 to not cache results
-	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "_integration$$|/shim|/types"` )
+	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "_integration$$|/types"` )
 	GOENV="$(GOENV)" go test "$${pkg_to_test[@]}"
 
 go_deflake: go_code
@@ -89,14 +90,14 @@ go_deflake: go_code
 go_debug: go_code
 	pushd "$(MYGOSRC)"
 	echo '
-	break btrfs_to_glacier/volume_store/garbage_collector.(*garbageCollector).deleteMetaItems_ForwardsArgsInReturn
-	# break encryption/aes_gzip_codec.go:250
+	#break btrfs_to_glacier/volume_store/garbage_collector.(*garbageCollector).deleteMetaItems_ForwardsArgsInReturn
+	break volume_source/shim/linux_utils.go:340
 	continue
 	' > "$(MYDLVINIT)"
 	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
-	  dlv test "btrfs_to_glacier/volume_store/garbage_collector" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
-		  -- --test.run='TestCleanUnreachableMetadata_CleanSnaps$$' --test.v
+	  dlv test "btrfs_to_glacier/volume_source/shim" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
+		  -- --test.run='TestListBtrfsFilesystems$$' --test.v
 
 # Fails with a linker error if missing `c_code`
 go_upgrade_mods: $(GOENV) c_code

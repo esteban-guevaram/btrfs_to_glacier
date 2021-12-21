@@ -19,6 +19,7 @@ func buildTestAdminStorage(t *testing.T) (*s3AdminStorage, *s3_common.MockS3Clie
   conf := util.LoadTestConf()
   storage,client := buildTestStorageWithConf(t, conf)
   del_storage := &s3AdminStorage{ s3Storage:storage, }
+  del_storage.injectConstants()
   return del_storage, client
 }
 
@@ -26,7 +27,8 @@ func TestCreateLifecycleRule(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   storage,client := buildTestAdminStorage(t)
-  err := storage.createLifecycleRule(ctx)
+  bucket := storage.conf.Aws.S3.StorageBucketName
+  err := storage.createLifecycleRule(ctx, bucket)
   if err != nil { t.Fatalf("Failed lifecycle creation: %v", err) }
   lf_conf := client.LastLifecycleIn.LifecycleConfiguration
   if len(lf_conf.Rules) != 1 { t.Fatalf("Malformed request: %v", *(client.LastLifecycleIn)) }

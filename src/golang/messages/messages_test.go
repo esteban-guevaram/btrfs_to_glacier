@@ -63,7 +63,11 @@ func TestConfigTextMarshal(t *testing.T) {
       SecretAccessKey: "coucou",
       Region: "eu-central-1", // needs to be valid for unittests
       DynamoDb: &Aws_DynamoDb{ TableName: "coucou", },
-      S3: &Aws_S3{ BucketName: "coucou", ChunkLen: 1024*1024, },
+      S3: &Aws_S3{
+        StorageBucketName: "coucou_store",
+        MetadataBucketName: "coucou_meta",
+        ChunkLen: 1024*1024,
+      },
     },
   }
   var loadedConf Config

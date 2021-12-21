@@ -10,15 +10,17 @@ var secret_flag string
 var session_flag string
 var region_flag string
 var table_flag string
-var bucket_flag string
+var store_bucket_flag string
+var meta_bucket_flag string
 
 func init() {
-  flag.StringVar(&access_flag,  "access",  "", "Access Key ID")
-  flag.StringVar(&secret_flag,  "secret",  "", "Secret access key")
-  flag.StringVar(&session_flag, "session", "", "Session token for temporal credentials")
-  flag.StringVar(&region_flag,  "region",  "", "Default AWS region")
-  flag.StringVar(&table_flag,   "table",   "", "Dynamodb table name")
-  flag.StringVar(&bucket_flag,  "bucket",  "", "S3 bucket name")
+  flag.StringVar(&access_flag,       "access",       "", "Access Key ID")
+  flag.StringVar(&secret_flag,       "secret",       "", "Secret access key")
+  flag.StringVar(&session_flag,      "session",      "", "Session token for temporal credentials")
+  flag.StringVar(&region_flag,       "region",       "", "Default AWS region")
+  flag.StringVar(&table_flag,        "table",        "", "Dynamodb table name")
+  flag.StringVar(&store_bucket_flag, "store_bucket", "", "S3 storage bucket name")
+  flag.StringVar(&meta_bucket_flag,  "meta_bucket",  "", "S3 metadata bucket name")
 }
 
 func Load() (*pb.Config, error) {
@@ -30,12 +32,13 @@ func Load() (*pb.Config, error) {
 
 func overwriteWithFlags(conf *pb.Config) {
   flag.Parse()
-  if access_flag  != "" { conf.Aws.AccessKeyId = access_flag }
-  if secret_flag  != "" { conf.Aws.SecretAccessKey = secret_flag }
-  if session_flag != "" { conf.Aws.SessionToken = session_flag }
-  if region_flag  != "" { conf.Aws.Region = region_flag }
-  if table_flag   != "" { conf.Aws.DynamoDb.TableName = table_flag }
-  if bucket_flag  != "" { conf.Aws.S3.BucketName = bucket_flag }
+  if access_flag       != "" { conf.Aws.AccessKeyId = access_flag }
+  if secret_flag       != "" { conf.Aws.SecretAccessKey = secret_flag }
+  if session_flag      != "" { conf.Aws.SessionToken = session_flag }
+  if region_flag       != "" { conf.Aws.Region = region_flag }
+  if table_flag        != "" { conf.Aws.DynamoDb.TableName = table_flag }
+  if store_bucket_flag != "" { conf.Aws.S3.StorageBucketName = store_bucket_flag }
+  if meta_bucket_flag  != "" { conf.Aws.S3.MetadataBucketName = meta_bucket_flag }
 }
 
 func LoadTestConf() *pb.Config {
@@ -59,7 +62,11 @@ func LoadTestConf() *pb.Config {
       SecretAccessKey: "coucou",
       Region: "eu-central-1", // needs to be valid for unittests
       DynamoDb: &pb.Aws_DynamoDb{ TableName: "coucou", },
-      S3: &pb.Aws_S3{ BucketName: "coucou", ChunkLen: 1024*1024, },
+      S3: &pb.Aws_S3{
+        StorageBucketName: "coucou_store",
+        MetadataBucketName: "coucou_meta",
+        ChunkLen: 1024*1024,
+      },
     },
   }
   overwriteWithFlags(&conf)

@@ -44,8 +44,8 @@ func useUniqueInfrastructureNames(conf *pb.Config) *pb.Config {
   new_conf := proto.Clone(conf).(*pb.Config)
   new_conf.Aws.DynamoDb.TableName = fmt.Sprintf("%s%d", conf.Aws.DynamoDb.TableName,
                                                 time.Now().Unix())
-  new_conf.Aws.S3.BucketName = fmt.Sprintf("%s%d", conf.Aws.S3.BucketName,
-                                           time.Now().Unix())
+  new_conf.Aws.S3.StorageBucketName = fmt.Sprintf("%s%d", conf.Aws.S3.StorageBucketName,
+                                      time.Now().Unix())
   return new_conf
 }
 

@@ -57,7 +57,7 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *s3_co
     common: common,
     uploader: client,
   }
-  injectConstants(storage)
+  storage.injectConstants()
   return storage, client
 }
 

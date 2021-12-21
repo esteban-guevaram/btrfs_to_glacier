@@ -30,7 +30,7 @@ type s3ReadWriteTester struct {
 
 func (self *s3ReadWriteTester) getObject(ctx context.Context, key string) ([]byte, error) {
   in := &s3.GetObjectInput{
-    Bucket: &self.Conf.Aws.S3.BucketName,
+    Bucket: &self.Conf.Aws.S3.StorageBucketName,
     Key: &key,
   }
   out, err := self.Client.GetObject(ctx, in)
@@ -48,7 +48,7 @@ func (self *s3ReadWriteTester) putRandomObject(ctx context.Context, size int) (s
   reader := bytes.NewReader(data)
   key := uuid.NewString()
   in := &s3.PutObjectInput{
-    Bucket: &self.Conf.Aws.S3.BucketName,
+    Bucket: &self.Conf.Aws.S3.StorageBucketName,
     Key: &key,
     Body: reader,
   }
@@ -111,14 +111,14 @@ func emptyBucketOrDie(ctx context.Context, conf *pb.Config, client *s3.Client) {
 
 func emptyBucket(ctx context.Context, conf *pb.Config, client *s3.Client) error {
   list_in := &s3.ListObjectsV2Input{
-    Bucket: &conf.Aws.S3.BucketName,
+    Bucket: &conf.Aws.S3.StorageBucketName,
     MaxKeys: 1000,
   }
   out, err := client.ListObjectsV2(ctx, list_in)
   if err != nil { return err }
   for _,obj := range out.Contents {
     del_in := &s3.DeleteObjectInput{
-      Bucket: &conf.Aws.S3.BucketName,
+      Bucket: &conf.Aws.S3.StorageBucketName,
       Key: obj.Key,
     }
     _, err = client.DeleteObject(ctx, del_in)
@@ -132,7 +132,7 @@ func deleteBucket(ctx context.Context, conf *pb.Config, client *s3.Client) error
   err := emptyBucket(ctx, conf, client)
   if err != nil { return err }
   _, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
-    Bucket: &conf.Aws.S3.BucketName,
+    Bucket: &conf.Aws.S3.StorageBucketName,
   })
   return err
 }
@@ -260,7 +260,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.
 
 func (self *s3ReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Context, snowflake_bucket string, snowflake_key string) {
   tmp_conf := proto.Clone(self.Conf).(*pb.Config)
-  tmp_conf.Aws.S3.BucketName = snowflake_bucket
+  tmp_conf.Aws.S3.StorageBucketName = snowflake_bucket
   restore_func := store.TestOnlySwapConf(self.Storage, tmp_conf)
   defer restore_func()
 
@@ -272,7 +272,7 @@ func (self *s3ReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Co
 
 func (self *s3ReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx context.Context, snowflake_bucket string, snowflake_key string) {
   tmp_conf := proto.Clone(self.Conf).(*pb.Config)
-  tmp_conf.Aws.S3.BucketName = snowflake_bucket
+  tmp_conf.Aws.S3.StorageBucketName = snowflake_bucket
   restore_func := store.TestOnlySwapConf(self.Storage, tmp_conf)
   defer restore_func()
 

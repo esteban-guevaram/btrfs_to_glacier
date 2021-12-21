@@ -32,12 +32,13 @@ func buildTestAdminsetup(t *testing.T) (*S3Common, *MockS3Client) {
 }
 
 func TestBucketCreation_Immediate(t *testing.T) {
+  const bucket = "bucket_name"
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
-  err := setup.CreateBucket(ctx)
+  err := setup.CreateBucket(ctx, bucket)
   if err != nil { t.Fatalf("Failed aws create bucket: %v", err) }
-  if _,ok := client.Buckets[setup.Conf.Aws.S3.BucketName]; !ok {
+  if _,ok := client.Buckets[bucket]; !ok {
     t.Fatalf("Create bucket did not do a thing: %v", err)
   }
   block_conf := client.LastPublicAccessBlockIn.PublicAccessBlockConfiguration
@@ -45,11 +46,12 @@ func TestBucketCreation_Immediate(t *testing.T) {
 }
 
 func TestBucketCreation_Timeout(t *testing.T) {
+  const bucket = "bucket_name"
   ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
   client.HeadAlwaysEmpty = true
-  err := setup.CreateBucket(ctx)
+  err := setup.CreateBucket(ctx, bucket)
   if err == nil { t.Fatalf("Expected create bucket to timeout") }
 }
 
@@ -57,18 +59,20 @@ func TestCheckBucketExistsAndIsOwnedByMyAccount_NoBucket(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   setup,_ := buildTestAdminsetup(t)
-  exists, err := setup.CheckBucketExistsAndIsOwnedByMyAccount(ctx)
+  bucket := setup.Conf.Aws.S3.StorageBucketName
+  exists, err := setup.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket)
   if err != nil { t.Fatalf("Failed to check for existing bucket: %v", err) }
   if exists { t.Fatalf("there should have been no bucket") }
 }
 
 func TestCheckBucketExistsAndIsOwnedByMyAccount_BadOwner(t *testing.T) {
+  const bucket = "bucket_name"
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
   client.HeadAlwaysAccessDenied = true
-  client.Buckets[setup.Conf.Aws.S3.BucketName] = true
-  _, err := setup.CheckBucketExistsAndIsOwnedByMyAccount(ctx)
+  client.Buckets[bucket] = true
+  _, err := setup.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket)
   if err == nil { t.Fatalf("Expected wrong bucket owner") }
 }
 
@@ -76,8 +80,9 @@ func TestCheckBucketExistsAndIsOwnedByMyAccount_Exists(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
-  client.Buckets[setup.Conf.Aws.S3.BucketName] = true
-  exists, err := setup.CheckBucketExistsAndIsOwnedByMyAccount(ctx)
+  bucket := setup.Conf.Aws.S3.MetadataBucketName
+  client.Buckets[bucket] = true
+  exists, err := setup.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket)
   if err != nil { t.Fatalf("Failed to check for existing bucket: %v", err) }
   if !exists { t.Fatalf("there should have been an existing bucket") }
 }

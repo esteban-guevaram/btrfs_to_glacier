@@ -8,6 +8,7 @@ import (
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+  s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
 
   "github.com/aws/aws-sdk-go-v2/aws"
   "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -17,10 +18,15 @@ import (
 const (
   // see https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/s3#Client.DeleteObjects
   delete_objects_max = 1000
+  deep_glacier_trans_days = 30
+  rule_name_suffix = "chunk.lifecycle"
 )
 
 type s3AdminStorage struct {
   *s3Storage
+  deep_glacier_trans_days int32
+  remove_multipart_days   int32
+  rule_name_suffix        string
 }
 
 func NewAdminStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.AdminStorage, error) {
@@ -28,7 +34,15 @@ func NewAdminStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (
   if err != nil { return nil, err }
 
   del_storage := &s3AdminStorage{ s3Storage: storage.(*s3Storage), }
+  del_storage.injectConstants()
   return del_storage, nil
+}
+
+func (self *s3AdminStorage) injectConstants() {
+  self.s3Storage.injectConstants()
+  self.deep_glacier_trans_days = deep_glacier_trans_days
+  self.remove_multipart_days = s3_common.RemoveMultipartDays
+  self.rule_name_suffix = rule_name_suffix
 }
 
 func (self *s3AdminStorage) getTransitionType() s3_types.TransitionStorageClass {
@@ -43,9 +57,10 @@ func (self *s3AdminStorage) getTransitionType() s3_types.TransitionStorageClass 
 // * Storage class applies to all objects in bucket (no prefix)
 // * Transition for current objects Standard -> Deep Glacier after X days
 // * Multipart uploads are removed after Y days
-func (self *s3AdminStorage) createLifecycleRule(ctx context.Context) error {
+func (self *s3AdminStorage) createLifecycleRule(
+    ctx context.Context, bucket_name string) error {
   name := fmt.Sprintf("%s.%s.%d",
-                      self.conf.Aws.S3.BucketName, self.rule_name_suffix,
+                      bucket_name, self.rule_name_suffix,
                       time.Now().Unix())
   transition := s3_types.Transition{
     Days: self.deep_glacier_trans_days,
@@ -65,7 +80,7 @@ func (self *s3AdminStorage) createLifecycleRule(ctx context.Context) error {
     Transitions: []s3_types.Transition{ transition },
   }
   lifecycle_in := &s3.PutBucketLifecycleConfigurationInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
+    Bucket: &bucket_name,
     LifecycleConfiguration: &s3_types.BucketLifecycleConfiguration{
       Rules: []s3_types.LifecycleRule{ rule },
     },
@@ -78,16 +93,17 @@ func (self *s3AdminStorage) createLifecycleRule(ctx context.Context) error {
 // object standard tier
 // object no tags no metadata (that way we only need a simple kv store)
 func (self *s3AdminStorage) SetupStorage(ctx context.Context) (<-chan error) {
+  bucket_name := self.conf.Aws.S3.StorageBucketName
   done := make(chan error, 1)
   go func() {
     defer close(done)
-    exists, err := self.common.CheckBucketExistsAndIsOwnedByMyAccount(ctx)
+    exists, err := self.common.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket_name)
     if err != nil { done <- err ; return }
     if exists { return }
 
-    err = self.common.CreateBucket(ctx)
+    err = self.common.CreateBucket(ctx, bucket_name)
     if err != nil { done <- err ; return }
-    err = self.createLifecycleRule(ctx)
+    err = self.createLifecycleRule(ctx, bucket_name)
     if err != nil { done <- err ; return }
   }()
   return done
@@ -125,7 +141,7 @@ func TestOnlyChangeIterationSize(storage types.Storage, size int32) func() {
 func (self *s3AdminStorage) deleteBatch(
     ctx context.Context, low_bound int, up_bound int, chunks []*pb.SnapshotChunks_Chunk) error {
   del_in := &s3.DeleteObjectsInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
+    Bucket: &self.conf.Aws.S3.StorageBucketName,
     Delete: &s3_types.Delete{
       Objects: make([]s3_types.ObjectIdentifier, up_bound-low_bound),
       Quiet: true,

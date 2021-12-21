@@ -19,25 +19,26 @@ type s3AdminTester struct { *s3ReadWriteTester }
 
 func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
   err := deleteBucket(ctx, conf, client)
+  bucket := conf.Aws.S3.StorageBucketName
 
   if err != nil {
     if !s3_common.IsS3Error(new(s3_types.NoSuchBucket), err) {
       util.Fatalf("%v", err)
     }
-    util.Infof("TestStorageSetup '%s' not exist", conf.Aws.S3.BucketName)
+    util.Infof("TestStorageSetup '%s' not exist", bucket)
   } else {
     waiter := s3.NewBucketNotExistsWaiter(client)
-    wait_rq := &s3.HeadBucketInput{ Bucket: &conf.Aws.S3.BucketName, }
+    wait_rq := &s3.HeadBucketInput{ Bucket: &bucket, }
     err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
     if err != nil { util.Fatalf("%v", err) }
-    util.Infof("TestStorageSetup '%s' deleted", conf.Aws.S3.BucketName)
+    util.Infof("TestStorageSetup '%s' deleted", bucket)
   }
 
   done := storage.SetupStorage(ctx)
   select {
     case err := <-done:
       if err != nil { util.Fatalf("%v", err) }
-      util.Infof("Bucket '%s' created OK", conf.Aws.S3.BucketName)
+      util.Infof("Bucket '%s' created OK", bucket)
     case <-ctx.Done():
   }
 

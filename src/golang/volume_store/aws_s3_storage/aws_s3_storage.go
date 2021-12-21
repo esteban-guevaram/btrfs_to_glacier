@@ -35,13 +35,10 @@ import (
 )
 
 const (
-  deep_glacier_trans_days = 30
-  remove_multipart_days = 3
-  restore_lifetime_days = 3
-  rule_name_suffix = "chunk.lifecycle"
   // Somehow the s3 library has not declared this error
   RestoreAlreadyInProgress = "RestoreAlreadyInProgress"
   s3_iter_buf_len = 1000
+  restore_lifetime_days = 3
 )
 
 // The subset of the s3 client used.
@@ -68,11 +65,8 @@ type s3Storage struct {
   client      usedS3If
   common      *s3_common.S3Common
   uploader    uploaderIf
-  deep_glacier_trans_days int32
-  remove_multipart_days   int32
-  restore_lifetime_days   int32
   iter_buf_len            int32
-  rule_name_suffix        string
+  restore_lifetime_days   int32
   start_storage_class     s3_types.StorageClass
   archive_storage_class   s3_types.StorageClass
 }
@@ -84,16 +78,6 @@ type s3ObjectIterator struct {
   buf_next int
   started  bool
   err      error
-}
-
-func injectConstants(storage *s3Storage) {
-  storage.deep_glacier_trans_days = deep_glacier_trans_days
-  storage.remove_multipart_days = remove_multipart_days
-  storage.restore_lifetime_days = restore_lifetime_days
-  storage.iter_buf_len = s3_iter_buf_len
-  storage.rule_name_suffix = rule_name_suffix
-  storage.start_storage_class = s3_types.StorageClassStandard
-  storage.archive_storage_class = s3_types.StorageClassDeepArchive
 }
 
 func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.Storage, error) {
@@ -113,8 +97,15 @@ func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types
     common: common,
     uploader: uploader,
   }
-  injectConstants(storage)
+  storage.injectConstants()
   return storage, nil
+}
+
+func (self *s3Storage) injectConstants() {
+  self.iter_buf_len = s3_iter_buf_len
+  self.restore_lifetime_days = restore_lifetime_days
+  self.start_storage_class = s3_types.StorageClassStandard
+  self.archive_storage_class = s3_types.StorageClassDeepArchive
 }
 
 func (self *s3Storage) uploadSummary(result types.ChunksOrError) string {
@@ -151,7 +142,7 @@ func (self *s3Storage) writeOneChunk(
   if err == io.EOF { return nil, false, nil }
 
   upload_in := &s3.PutObjectInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
+    Bucket: &self.conf.Aws.S3.StorageBucketName,
     Key:    &key_str,
     Body:   chunk_reader,
     ACL:    s3_types.ObjectCannedACLBucketOwnerFullControl,
@@ -224,7 +215,7 @@ func (self *s3Storage) WriteStream(
 
 func (self *s3Storage) sendSingleRestore(ctx context.Context, key string) types.ObjRestoreOrErr {
   restore_in := &s3.RestoreObjectInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
+    Bucket: &self.conf.Aws.S3.StorageBucketName,
     Key: aws.String(key),
     RestoreRequest: &s3_types.RestoreRequest{
       Days: self.restore_lifetime_days,
@@ -257,7 +248,7 @@ func init() {
 
 func (self *s3Storage) pollRestoreStatus(ctx context.Context, key string) types.ObjRestoreOrErr {
   head_in := &s3.HeadObjectInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
+    Bucket: &self.conf.Aws.S3.StorageBucketName,
     Key: aws.String(key),
   }
   head_out, err := self.client.HeadObject(ctx, head_in)
@@ -313,7 +304,7 @@ func (self *s3Storage) QueueRestoreObjects(
 func (self *s3Storage) readOneChunk(
     ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
   get_in := &s3.GetObjectInput{
-    Bucket: &self.conf.Aws.S3.BucketName,
+    Bucket: &self.conf.Aws.S3.StorageBucketName,
     Key: aws.String(chunk.Uuid),
   }
   get_out, err := self.client.GetObject(ctx, get_in)
@@ -369,7 +360,7 @@ func (self *s3ObjectIterator) popBuffer(chunk *pb.SnapshotChunks_Chunk) error {
 func (self *s3ObjectIterator) fillBuffer(ctx context.Context) error {
   if self.buf_next < len(self.buffer) { util.Fatalf("filling before exhausting buffer") }
   list_in := &s3.ListObjectsV2Input{
-    Bucket: &self.parent.conf.Aws.S3.BucketName,
+    Bucket: &self.parent.conf.Aws.S3.StorageBucketName,
     ContinuationToken: self.token,
     MaxKeys: self.parent.iter_buf_len,
   }

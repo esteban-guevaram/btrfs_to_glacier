@@ -16,6 +16,7 @@ import (
 )
 
 const (
+  RemoveMultipartDays = 3
   bucket_wait_secs = 60
 )
 
@@ -85,16 +86,17 @@ func (self *S3Common) GetAccountIdOrDie(ctx context.Context) *string {
 }
 
 // Returns false if the bucket does not exist.
-func (self *S3Common) CheckBucketExistsAndIsOwnedByMyAccount(ctx context.Context) (bool, error) {
+func (self *S3Common) CheckBucketExistsAndIsOwnedByMyAccount(
+    ctx context.Context, bucket_name string) (bool, error) {
   var err error
   head_in := &s3.HeadBucketInput{
-    Bucket: &self.Conf.Aws.S3.BucketName,
+    Bucket: &bucket_name,
     ExpectedBucketOwner: self.GetAccountIdOrDie(ctx),
   }
   _, err = self.Client.HeadBucket(ctx, head_in)
 
   if IsS3Error(new(s3_types.NotFound), err) || IsS3Error(new(s3_types.NoSuchBucket), err) {
-    util.Debugf("Bucket '%s' does not exist", self.Conf.Aws.S3.BucketName)
+    util.Debugf("Bucket '%s' does not exist", bucket_name)
     return false, nil
   }
   if err != nil { return false, err }
@@ -105,7 +107,7 @@ func (self *S3Common) CheckBucketExistsAndIsOwnedByMyAccount(ctx context.Context
 // * no server side encryption
 // * no object lock, not versioning for objects
 // * block all public access
-func (self *S3Common) CreateBucket(ctx context.Context) error {
+func (self *S3Common) CreateBucket(ctx context.Context, bucket_name string) error {
   var err error
   var bucket_location s3_types.BucketLocationConstraint
 
@@ -113,7 +115,7 @@ func (self *S3Common) CreateBucket(ctx context.Context) error {
   if err != nil { return err }
 
   create_in := &s3.CreateBucketInput{
-    Bucket: &self.Conf.Aws.S3.BucketName,
+    Bucket: &bucket_name,
     ACL: s3_types.BucketCannedACLPrivate,
     CreateBucketConfiguration: &s3_types.CreateBucketConfiguration{
       LocationConstraint: bucket_location,
@@ -124,12 +126,12 @@ func (self *S3Common) CreateBucket(ctx context.Context) error {
   if err != nil { return err }
 
   waiter := s3.NewBucketExistsWaiter(self.Client)
-  wait_rq := &s3.HeadBucketInput{ Bucket: &self.Conf.Aws.S3.BucketName, }
+  wait_rq := &s3.HeadBucketInput{ Bucket: &bucket_name, }
   err = waiter.Wait(ctx, wait_rq, self.BucketWait)
   if err != nil { return err }
 
   access_in := &s3.PutPublicAccessBlockInput{
-    Bucket: &self.Conf.Aws.S3.BucketName,
+    Bucket: &bucket_name,
     PublicAccessBlockConfiguration: &s3_types.PublicAccessBlockConfiguration{
       BlockPublicAcls: true,
       IgnorePublicAcls: true,
