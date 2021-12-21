@@ -30,6 +30,7 @@ type MockS3Client struct {
   FirstListObjEmpty      bool
   LastLifecycleIn *s3.PutBucketLifecycleConfigurationInput
   LastPublicAccessBlockIn *s3.PutPublicAccessBlockInput
+  LastPutBucketVersioning *s3.PutBucketVersioningInput
 }
 
 func (self *MockS3Client) SetObject(key string, data []byte, class s3_types.StorageClass, ongoing bool) {
@@ -41,11 +42,16 @@ func (self *MockS3Client) SetObject(key string, data []byte, class s3_types.Stor
     self.RestoreStx[key] = fmt.Sprintf(`ongoing-request="%v"`, ongoing)
   }
 }
+
 func (self *MockS3Client) CreateBucket(
     ctx context.Context, in *s3.CreateBucketInput, opts ...func(*s3.Options)) (*s3.CreateBucketOutput, error) {
+  if _,found := self.Buckets[*in.Bucket]; found {
+    return &s3.CreateBucketOutput{}, fmt.Errorf("already created bucket %s", util.AsJson(in))
+  }
   self.Buckets[*in.Bucket] = true
   return &s3.CreateBucketOutput{}, self.Err
 }
+
 func (self *MockS3Client) DeleteObjects(
     ctx context.Context, in *s3.DeleteObjectsInput, opts...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
   out := &s3.DeleteObjectsOutput{}
@@ -61,6 +67,7 @@ func (self *MockS3Client) DeleteObjects(
   }
   return out, self.Err
 }
+
 func (self *MockS3Client) GetObject(
     ctx context.Context, in *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
   key := *(in.Key)
@@ -73,6 +80,7 @@ func (self *MockS3Client) GetObject(
   }
   return out, self.Err
 }
+
 func (self *MockS3Client) ListObjectsV2(
     ctx context.Context, in *s3.ListObjectsV2Input, opts ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
   if in.Prefix != nil || in.StartAfter != nil { util.Fatalf("not_implemented") }
@@ -104,6 +112,7 @@ func (self *MockS3Client) ListObjectsV2(
   out.KeyCount = page_count
   return out, self.Err
 }
+
 func (self *MockS3Client) HeadBucket(
     ctx context.Context, in *s3.HeadBucketInput, opts ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {
   _,found := self.Buckets[*(in.Bucket)]
@@ -118,6 +127,7 @@ func (self *MockS3Client) HeadBucket(
   }
   return &s3.HeadBucketOutput{}, self.Err
 }
+
 func (self *MockS3Client) HeadObject(
     ctx context.Context, in *s3.HeadObjectInput, opts ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
   key := *(in.Key)
@@ -128,21 +138,31 @@ func (self *MockS3Client) HeadObject(
   if restore,found := self.RestoreStx[key]; found { out.Restore = &restore }
   return out, self.Err
 }
+
 func (self *MockS3Client) PutBucketLifecycleConfiguration(
     ctx context.Context, in *s3.PutBucketLifecycleConfigurationInput, opts ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error) {
+  if _,found := self.Buckets[*in.Bucket]; !found {
+    return &s3.PutBucketLifecycleConfigurationOutput{}, fmt.Errorf("unknown bucket %v", util.AsJson(in))
+  }
   self.LastLifecycleIn = in
   rs := &s3.PutBucketLifecycleConfigurationOutput{}
   return rs, self.Err
 }
+
 func (self *MockS3Client) PutPublicAccessBlock(
     ctx context.Context, in *s3.PutPublicAccessBlockInput, opts ...func(*s3.Options)) (*s3.PutPublicAccessBlockOutput, error) {
+  if _,found := self.Buckets[*in.Bucket]; !found {
+    return &s3.PutPublicAccessBlockOutput{}, fmt.Errorf("unknown bucket %v", util.AsJson(in))
+  }
   self.LastPublicAccessBlockIn = in
   return &s3.PutPublicAccessBlockOutput{}, self.Err
 }
+
 func (self *MockS3Client) RestoreObject(
   ctx context.Context, in *s3.RestoreObjectInput, opts ...func(*s3.Options)) (*s3.RestoreObjectOutput, error) {
   return &s3.RestoreObjectOutput{}, self.RestoreObjectErr
 }
+
 func (self *MockS3Client) Upload(
     ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3mgr.Uploader)) (*s3mgr.UploadOutput, error) {
   if in.Bucket == nil || len(*in.Bucket) < 1 { return nil, fmt.Errorf("malormed request") }
@@ -157,4 +177,12 @@ func (self *MockS3Client) Upload(
   return nil, self.Err
 }
 
+func (self *MockS3Client) PutBucketVersioning(
+  ctx context.Context, in *s3.PutBucketVersioningInput, opts ...func(*s3.Options)) (*s3.PutBucketVersioningOutput, error) {
+  if _,found := self.Buckets[*in.Bucket]; !found {
+    return &s3.PutBucketVersioningOutput{}, fmt.Errorf("unknown bucket %v", util.AsJson(in))
+  }
+  self.LastPutBucketVersioning = in
+  return &s3.PutBucketVersioningOutput{}, self.Err
+}
 

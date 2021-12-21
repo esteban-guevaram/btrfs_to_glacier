@@ -28,6 +28,7 @@ func TestCreateLifecycleRule(t *testing.T) {
   defer cancel()
   storage,client := buildTestAdminStorage(t)
   bucket := storage.conf.Aws.S3.StorageBucketName
+  client.Buckets[bucket] = true
   err := storage.createLifecycleRule(ctx, bucket)
   if err != nil { t.Fatalf("Failed lifecycle creation: %v", err) }
   lf_conf := client.LastLifecycleIn.LifecycleConfiguration
@@ -37,11 +38,15 @@ func TestCreateLifecycleRule(t *testing.T) {
 func TestSetupStorage(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  storage,_ := buildTestAdminStorage(t)
+  storage,client := buildTestAdminStorage(t)
+  bucket := storage.conf.Aws.S3.StorageBucketName
   done := storage.SetupStorage(ctx)
   select {
     case err := <-done:
       if err != nil { t.Errorf("Returned error: %v", err) }
+      if client.LastPublicAccessBlockIn == nil { t.Errorf("did not block ppublic access: %v", err) }
+      if len(client.Buckets) != 1 { t.Errorf("Bad bucket creation: %v", err) } 
+      if _,found := client.Buckets[bucket]; !found { t.Errorf("Bad bucket name: %v", err) } 
     case <-ctx.Done():
       t.Fatalf("TestSetupStorage timeout")
   }
