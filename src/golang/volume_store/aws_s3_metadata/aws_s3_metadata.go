@@ -1,6 +1,7 @@
 package aws_s3_metadata
 
 import (
+  "bytes"
   "context"
   "fmt"
   "io"
@@ -32,6 +33,8 @@ type usedS3If interface {
     context.Context, *s3.PutBucketVersioningInput, ...func(*s3.Options)) (*s3.PutBucketVersioningOutput, error)
   PutBucketLifecycleConfiguration(
     context.Context, *s3.PutBucketLifecycleConfigurationInput, ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
+  PutObject          (
+    context.Context, *s3.PutObjectInput,     ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 }
 
 type S3Metadata struct {
@@ -84,6 +87,30 @@ func (self *S3Metadata) LoadPreviousStateFromS3(ctx context.Context) error {
   data, err := io.ReadAll(get_out.Body)
   if err != nil { return err }
   err = proto.Unmarshal(data, self.State)
+  return err
+}
+
+func (self *S3Metadata) SaveCurrentStateToS3(ctx context.Context) error {
+  if self.State == nil { util.Fatalf("Cannot store nil state") }
+
+  content_type := "application/octet-stream"
+  data, err := proto.Marshal(self.State)
+  if err != nil { return err }
+  reader := bytes.NewReader(data)
+
+  put_in := &s3.PutObjectInput{
+    Bucket: &self.Conf.Aws.S3.MetadataBucketName,
+    Key:    &self.Key,
+    Body:   reader,
+    ACL:    s3_types.ObjectCannedACLBucketOwnerFullControl,
+    ContentType:  &content_type,
+    StorageClass: s3_types.StorageClassStandard,
+  }
+
+  put_out, err := self.Client.PutObject(ctx, put_in)
+  if err != nil { return err }
+
+  util.Infof("Saved metadata version: '%v'", put_out.VersionId)
   return err
 }
 

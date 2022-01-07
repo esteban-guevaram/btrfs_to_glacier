@@ -3,6 +3,7 @@ package aws_s3_metadata
 import (
   "context"
   "errors"
+  "fmt"
   "testing"
   "time"
 
@@ -50,7 +51,7 @@ func buildTestMetadataWithState(t *testing.T, state *pb.AllMetadata) (*S3Metadat
   conf := util.LoadTestConf()
   meta, client := buildTestMetadataWithConf(t, conf)
   client.Buckets[conf.Aws.S3.MetadataBucketName] = true
-  client.Data[meta.Key], err = proto.Marshal(state)
+  err = client.PutProto(meta.Key, state, s3_types.StorageClassStandard, false)
   if err != nil { t.Fatalf("failed to set init state: %v", err) }
   if meta.LoadPreviousStateFromS3(context.TODO()) != nil {
     t.Fatalf("Failed to meta.LoadPreviousStateFromS3")
@@ -75,7 +76,7 @@ func LoadPreviousStateFromS3_NoBucket(t *testing.T) {
 func LoadPreviousStateFromS3_NoKey(t *testing.T) {
   meta, client := buildTestMetadataWithState(t, &pb.AllMetadata{})
   meta.State = nil
-  delete(client.Data, meta.Key)
+  client.DelObject(meta.Key)
   meta.LoadPreviousStateFromS3(context.TODO())
   util.EqualsOrFailTest(t, "Bad object", client.Data[meta.Key], nil)
   compareStates(t, "expected empty state", meta.State, &pb.AllMetadata{})
@@ -85,6 +86,52 @@ func LoadPreviousStateFromS3_PreviousState(t *testing.T) {
   _, expect_state := util.DummyAllMetadata()
   meta,_ := buildTestMetadataWithState(t, expect_state)
   compareStates(t, "expected empty state", meta.State, expect_state)
+}
+
+func TestSaveCurrentStateToS3_NoPrevState(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  _, expect_state := util.DummyAllMetadata()
+  meta, client := buildTestMetadataWithState(t, proto.Clone(expect_state).(*pb.AllMetadata))
+  client.DelObject(meta.Key)
+
+  err := meta.SaveCurrentStateToS3(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  persisted_state := &pb.AllMetadata{}
+  err = client.GetProto(meta.Key, persisted_state)
+  if err != nil { t.Errorf("client.GetProto error: %v", err) }
+  util.EqualsOrFailTest(t, "Bad state", persisted_state, expect_state)
+}
+
+func TestSaveCurrentStateToS3_WithPrevState(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  vol_uuid, prev_state := util.DummyAllMetadata()
+  var expect_state pb.AllMetadata = *prev_state
+  meta, client := buildTestMetadataWithState(t, prev_state)
+
+  new_seq := util.DummySnapshotSequence(vol_uuid, uuid.NewString())
+  head, err := meta.RecordSnapshotSeqHead(ctx, new_seq)
+  if err != nil { t.Fatalf("RecordSnapshotSeqHead error: %v", err) }
+  expect_state.Heads[0] = head
+
+  err = meta.SaveCurrentStateToS3(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  persisted_state := &pb.AllMetadata{}
+  err = client.GetProto(meta.Key, persisted_state)
+  if err != nil { t.Errorf("client.GetProto error: %v", err) }
+  util.EqualsOrFailTest(t, "Bad state", persisted_state, expect_state)
+}
+
+func TestSaveCurrentStateToS3_Err(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  _, prev_state := util.DummyAllMetadata()
+  meta, client := buildTestMetadataWithState(t, prev_state)
+  client.Err = fmt.Errorf("TestSaveCurrentStateToS3_Err")
+
+  err := meta.SaveCurrentStateToS3(ctx)
+  if err == nil { t.Errorf("Expected error got: %v", err) }
 }
 
 func TestRecordSnapshotSeqHead_New(t *testing.T) {

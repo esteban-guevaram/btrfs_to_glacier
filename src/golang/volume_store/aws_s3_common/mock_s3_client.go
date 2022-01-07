@@ -13,6 +13,9 @@ import (
   "github.com/aws/aws-sdk-go-v2/service/s3"
   s3mgr "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+  "github.com/google/uuid"
+  "google.golang.org/protobuf/proto"
 )
 
 
@@ -41,6 +44,33 @@ func (self *MockS3Client) SetObject(key string, data []byte, class s3_types.Stor
   if class != s3_types.StorageClassStandard {
     self.RestoreStx[key] = fmt.Sprintf(`ongoing-request="%v"`, ongoing)
   }
+}
+
+func (self *MockS3Client) DelObject(key string) {
+  delete(self.Data, key)
+  delete(self.Class, key)
+  delete(self.RestoreStx, key)
+}
+
+func (self *MockS3Client) GetProto(key string, msg proto.Message) error {
+  data,found := self.Data[key];
+  if !found { return fmt.Errorf("not_found") }
+  err := proto.Unmarshal(data, msg)
+  return err
+}
+
+func (self *MockS3Client) PutProto(
+    key string, msg proto.Message, class s3_types.StorageClass, ongoing bool) error {
+  data, err := proto.Marshal(msg)
+  if err != nil { return err }
+  self.Data[key] = make([]byte, len(data))
+  copy(self.Data[key], data)
+  //self.Data[key] =  data
+  self.Class[key] = class
+  if class != s3_types.StorageClassStandard {
+    self.RestoreStx[key] = fmt.Sprintf(`ongoing-request="%v"`, ongoing)
+  }
+  return nil
 }
 
 func (self *MockS3Client) CreateBucket(
@@ -173,6 +203,20 @@ func (self *MockS3Client) Upload(
     if _,found := self.Data[*in.Key]; found { return nil, fmt.Errorf("overwritting key") }
     self.Data[*in.Key] = buf
     return &s3mgr.UploadOutput{}, self.Err
+  }
+  return nil, self.Err
+}
+
+func (self *MockS3Client) PutObject(
+    ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+  if self.Err == nil {
+    buf, err := io.ReadAll(in.Body)
+    if err != nil { return nil, err }
+    self.Data[*in.Key] = buf
+    put_out := &s3.PutObjectOutput{
+      VersionId: aws.String(uuid.NewString()),
+    }
+    return put_out, self.Err
   }
   return nil, self.Err
 }
