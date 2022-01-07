@@ -4,6 +4,7 @@ import (
   "fmt"
   "math/rand"
   "hash/adler32"
+  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -121,6 +122,21 @@ func DummySnapshotSeqHead(seq *pb.SnapshotSequence, prev ...string) *pb.Snapshot
     Uuid: seq.Volume.Uuid,
     CurSeqUuid: seq.Uuid,
     PrevSeqUuid: prev,
+  }
+}
+
+func DummyAllMetadata() (string, *pb.AllMetadata) {
+  vol_uuid := uuid.NewString()
+  seq_uuid := uuid.NewString()
+  expect_seq := DummySnapshotSequence(vol_uuid, seq_uuid)
+  expect_head := DummySnapshotSeqHead(expect_seq)
+  expect_snap := DummySnapshot(expect_seq.SnapUuids[0], vol_uuid)
+  return vol_uuid, &pb.AllMetadata{
+    Uuid: "dummy_key",
+    CreatedTs: uint64(time.Now().Unix()),
+    Heads: []*pb.SnapshotSeqHead{ expect_head, },
+    Sequences: []*pb.SnapshotSequence{ expect_seq, },
+    Snapshots: []*pb.SubVolume{ expect_snap, },
   }
 }
 

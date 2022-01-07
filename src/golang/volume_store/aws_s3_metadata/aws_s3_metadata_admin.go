@@ -27,8 +27,9 @@ type S3MetadataAdmin struct {
   rule_name_suffix      string
 }
 
-func NewMetadataAdmin(conf *pb.Config, aws_conf *aws.Config) (types.AdminMetadata, error) {
-  metadata, err := NewMetadata(conf, aws_conf)
+func NewMetadataAdmin(
+    ctx context.Context, conf *pb.Config, aws_conf *aws.Config) (types.AdminMetadata, error) {
+  metadata, err := NewMetadata(ctx, conf, aws_conf)
   if err != nil { return nil, err }
 
   admin := &S3MetadataAdmin{ S3Metadata: metadata.(*S3Metadata), }
@@ -124,6 +125,7 @@ func (self *S3MetadataAdmin) ReplaceSnapshotSeqHead(
 
 // see `TestOnlyGetInnerClientToAvoidConsistencyFails` for s3 storage.
 func TestOnlyGetInnerClientToAvoidConsistencyFails(metadata types.Metadata) *s3.Client {
+  if metadata == nil { util.Fatalf("metadata == nil") }
   s3_impl,ok := metadata.(*S3MetadataAdmin)
   if !ok { util.Fatalf("called with the wrong impl") }
   client,ok := s3_impl.Client.(*s3.Client)

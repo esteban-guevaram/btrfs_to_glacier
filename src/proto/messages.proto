@@ -67,6 +67,14 @@ message SnapshotSequence {
   repeated string snap_uuids = 3;
 }
 
+message AllMetadata {
+  string uuid = 1;
+  fixed64 created_ts = 2;
+  repeated SnapshotSeqHead heads = 3;
+  repeated SnapshotSequence sequences = 4;
+  repeated SubVolume snapshots = 5;
+}
+
 message SnapshotChanges {
   enum Type {
     UNKNOWN = 0;

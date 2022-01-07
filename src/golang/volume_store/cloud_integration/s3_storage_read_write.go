@@ -262,6 +262,21 @@ func (self *s3StoreReadWriteTester) TestListAllChunksMultiFill(ctx context.Conte
   self.testListAllChunks_Helper(ctx, total, fill_size)
 }
 
+func TestS3GenericRead_UnknownKey(ctx context.Context, conf *pb.Config, client *s3.Client) {
+  bucket := conf.Aws.S3.StorageBucketName
+  unk_key := uuid.NewString()
+
+  get_in := &s3.GetObjectInput{
+    Bucket: &bucket,
+    Key:    &unk_key,
+  }
+  get_out, err := client.GetObject(ctx, get_in)
+  util.Debugf("GetObjectInput (unknown key): %s", util.AsJson(get_out))
+  if !s3_common.IsS3Error(new(s3_types.NoSuchKey), err) {
+    util.Fatalf("failed while reading unknown key: %v", err)
+  }
+}
+
 // we do not test with offsets, that should be covered by the unittests
 func TestAllS3StoreReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
   suite := s3StoreReadWriteTester{
@@ -298,6 +313,7 @@ func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
   if err != nil { util.Fatalf("%v", err) }
 
   TestS3StorageSetup(ctx, new_conf, client, storage)
+  TestS3GenericRead_UnknownKey(ctx, new_conf, client)
   TestAllS3StoreReadWrite(ctx, new_conf, client, storage)
   TestAllS3StoreDelete(ctx, new_conf, client, storage)
   DeleteBucketOrDie(ctx, client, new_conf.Aws.S3.StorageBucketName)

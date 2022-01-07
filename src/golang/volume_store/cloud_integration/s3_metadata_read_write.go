@@ -27,9 +27,9 @@ func TestAllS3MetaReadWrite(
 func TestAllS3Metadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
   new_conf := proto.Clone(conf).(*pb.Config)
 
-  metadata, err := meta.NewMetadataAdmin(new_conf, aws_conf)
-  client := meta.TestOnlyGetInnerClientToAvoidConsistencyFails(metadata)
+  metadata, err := meta.NewMetadataAdmin(ctx, new_conf, aws_conf)
   if err != nil { util.Fatalf("%v", err) }
+  client := meta.TestOnlyGetInnerClientToAvoidConsistencyFails(metadata)
 
   suite := s3MetaAdminTester {
     &s3MetaReadWriteTester{ Conf: conf, Client: client, Metadata: metadata, },
