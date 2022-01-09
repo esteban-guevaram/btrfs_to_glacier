@@ -114,10 +114,28 @@ func (self *S3MetadataAdmin) createLifecycleRule(
   return nil
 }
 
-
 func (self *S3MetadataAdmin) DeleteMetadataUuids(
     ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error) {
-  return nil
+  seq_set := make(map[string]bool)
+  for _,uuid := range seq_uuids { seq_set[uuid] = true }
+  snap_set := make(map[string]bool)
+  for _,uuid := range snap_uuids { snap_set[uuid] = true }
+
+  new_seqs := make([]*pb.SnapshotSequence, 0, len(self.State.Sequences))
+  new_snaps := make([]*pb.SubVolume, 0, len(self.State.Snapshots))
+
+  for _,seq := range self.State.Sequences {
+    if seq_set[seq.Uuid] { continue }
+    new_seqs = append(new_seqs, seq)
+  }
+  for _,snap := range self.State.Snapshots {
+    if snap_set[snap.Uuid] { continue }
+    new_snaps = append(new_snaps, snap)
+  }
+
+  self.State.Sequences = new_seqs
+  self.State.Snapshots = new_snaps
+  return util.WrapInChan(nil)
 }
 
 func (self *S3MetadataAdmin) ReplaceSnapshotSeqHead(
