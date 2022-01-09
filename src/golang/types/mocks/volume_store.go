@@ -225,6 +225,10 @@ func (self *Metadata) ReplaceSnapshotSeqHead(
   return old_head, nil
 }
 
+func (self *Metadata) PersistCurrentMetadataState(ctx context.Context) (string, error) {
+  return uuid_mod.NewString(), nil
+}
+
 ///////////////////////// Storage //////////////////////////
 
 func (self *Storage) WriteStream(

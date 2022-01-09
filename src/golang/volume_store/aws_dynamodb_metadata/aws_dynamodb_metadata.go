@@ -368,3 +368,7 @@ func (self *dynamoMetadata) ListAllSnapshots(ctx context.Context) (types.Snapsho
   return it, nil
 }
 
+func (self *dynamoMetadata) PersistCurrentMetadataState(ctx context.Context) (string, error) {
+  return "", fmt.Errorf("dynamoMetadata.PersistCurrentMetadataState not_implemented")
+}
+

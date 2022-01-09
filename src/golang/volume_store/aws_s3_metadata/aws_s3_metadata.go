@@ -90,12 +90,12 @@ func (self *S3Metadata) LoadPreviousStateFromS3(ctx context.Context) error {
   return err
 }
 
-func (self *S3Metadata) SaveCurrentStateToS3(ctx context.Context) error {
+func (self *S3Metadata) SaveCurrentStateToS3(ctx context.Context) (string, error) {
   if self.State == nil { util.Fatalf("Cannot store nil state") }
 
   content_type := "application/octet-stream"
   data, err := proto.Marshal(self.State)
-  if err != nil { return err }
+  if err != nil { return "", err }
   reader := bytes.NewReader(data)
 
   put_in := &s3.PutObjectInput{
@@ -108,10 +108,13 @@ func (self *S3Metadata) SaveCurrentStateToS3(ctx context.Context) error {
   }
 
   put_out, err := self.Client.PutObject(ctx, put_in)
-  if err != nil { return err }
+  if err != nil { return "", err }
+  if put_out.VersionId == nil {
+    return "", fmt.Errorf("Got bad PutObjectOutput: %s", util.AsJson(put_out))
+  }
 
-  util.Infof("Saved metadata version: '%v'", put_out.VersionId)
-  return err
+  util.Infof("Saved metadata version: '%v'", *put_out.VersionId)
+  return *put_out.VersionId, nil
 }
 
 func (self *S3Metadata) findHead(uuid string) *pb.SnapshotSeqHead {
@@ -327,5 +330,9 @@ func (self *S3Metadata) ListAllSnapshotSeqs(
 func (self *S3Metadata) ListAllSnapshots(
     ctx context.Context) (types.SnapshotIterator, error) {
   return &SnapshotIterator{ List: self.State.Snapshots, }, nil
+}
+
+func (self *S3Metadata) PersistCurrentMetadataState(ctx context.Context) (string, error) {
+  return self.SaveCurrentStateToS3(ctx)
 }
 

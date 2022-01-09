@@ -13,6 +13,8 @@ import (
   "github.com/aws/aws-sdk-go-v2/aws"
   "github.com/aws/aws-sdk-go-v2/service/s3"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+  "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -131,5 +133,12 @@ func TestOnlyGetInnerClientToAvoidConsistencyFails(metadata types.Metadata) *s3.
   client,ok := s3_impl.Client.(*s3.Client)
   if !ok { util.Fatalf("storage does not contain a real aws client") }
   return client
+}
+
+func TestOnlySetInnerState(metadata types.Metadata, state *pb.AllMetadata) {
+  if metadata == nil { util.Fatalf("metadata == nil") }
+  s3_impl,ok := metadata.(*S3MetadataAdmin)
+  if !ok { util.Fatalf("called with the wrong impl") }
+  s3_impl.State = proto.Clone(state).(*pb.AllMetadata)
 }
 

@@ -95,8 +95,9 @@ func TestSaveCurrentStateToS3_NoPrevState(t *testing.T) {
   meta, client := buildTestMetadataWithState(t, proto.Clone(expect_state).(*pb.AllMetadata))
   client.DelObject(meta.Key)
 
-  err := meta.SaveCurrentStateToS3(ctx)
+  version, err := meta.SaveCurrentStateToS3(ctx)
   if err != nil { t.Errorf("Returned error: %v", err) }
+  if len(version) < 1 { t.Errorf("empty version") }
   persisted_state := &pb.AllMetadata{}
   err = client.GetProto(meta.Key, persisted_state)
   if err != nil { t.Errorf("client.GetProto error: %v", err) }
@@ -115,8 +116,9 @@ func TestSaveCurrentStateToS3_WithPrevState(t *testing.T) {
   if err != nil { t.Fatalf("RecordSnapshotSeqHead error: %v", err) }
   expect_state.Heads[0] = head
 
-  err = meta.SaveCurrentStateToS3(ctx)
+  version, err := meta.SaveCurrentStateToS3(ctx)
   if err != nil { t.Errorf("Returned error: %v", err) }
+  if len(version) < 1 { t.Errorf("empty version") }
   persisted_state := &pb.AllMetadata{}
   err = client.GetProto(meta.Key, persisted_state)
   if err != nil { t.Errorf("client.GetProto error: %v", err) }
@@ -130,7 +132,7 @@ func TestSaveCurrentStateToS3_Err(t *testing.T) {
   meta, client := buildTestMetadataWithState(t, prev_state)
   client.Err = fmt.Errorf("TestSaveCurrentStateToS3_Err")
 
-  err := meta.SaveCurrentStateToS3(ctx)
+  _, err := meta.SaveCurrentStateToS3(ctx)
   if err == nil { t.Errorf("Expected error got: %v", err) }
 }
 

@@ -93,6 +93,11 @@ type Metadata interface {
 
   // Returns all snapshots in no particular order.
   ListAllSnapshots(ctx context.Context) (SnapshotIterator, error)
+
+  // If this method returns successfully, all of the writes to the metadata done until that point will be persisted.
+  // That version of the metadata should be protected from later modifications to prevent corruption.
+  // Returns an identifier for the metadata version persisted.
+  PersistCurrentMetadataState(ctx context.Context) (string, error)
 }
 
 // Separate from `Metadata` since it contains dangerous operations that should only be invoked by admins.
