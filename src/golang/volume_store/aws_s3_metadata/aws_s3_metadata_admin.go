@@ -8,6 +8,7 @@ import (
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+  store "btrfs_to_glacier/volume_store"
   s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
 
   "github.com/aws/aws-sdk-go-v2/aws"
@@ -140,7 +141,14 @@ func (self *S3MetadataAdmin) DeleteMetadataUuids(
 
 func (self *S3MetadataAdmin) ReplaceSnapshotSeqHead(
     ctx context.Context, head *pb.SnapshotSeqHead) (*pb.SnapshotSeqHead, error) {
-  return nil, nil
+  err := store.ValidateSnapshotSeqHead(head)
+  if err != nil { return nil, err }
+
+  idx, prev_head := self.findHead(head.Uuid)
+  if prev_head == nil { return nil, fmt.Errorf("%w uuid=%v", types.ErrNotFound, head.Uuid) }
+
+  self.State.Heads[idx] = proto.Clone(head).(*pb.SnapshotSeqHead)
+  return prev_head, nil
 }
 
 // see `TestOnlyGetInnerClientToAvoidConsistencyFails` for s3 storage.

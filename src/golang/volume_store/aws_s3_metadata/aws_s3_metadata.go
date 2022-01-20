@@ -117,15 +117,15 @@ func (self *S3Metadata) SaveCurrentStateToS3(ctx context.Context) (string, error
   return *put_out.VersionId, nil
 }
 
-func (self *S3Metadata) findHead(uuid string) *pb.SnapshotSeqHead {
+func (self *S3Metadata) findHead(uuid string) (int,*pb.SnapshotSeqHead) {
   if self.State == nil { util.Fatalf("state not loaded") }
-  for _,head := range self.State.Heads {
-    if head.Uuid == uuid { return head }
+  for idx,head := range self.State.Heads {
+    if head.Uuid == uuid { return idx,head }
   }
-  return nil
+  return 0, nil
 }
 func (self *S3Metadata) findOrAppendHead(uuid string) *pb.SnapshotSeqHead {
-  if head := self.findHead(uuid); head != nil { return head }
+  if _,head := self.findHead(uuid); head != nil { return head }
   head := &pb.SnapshotSeqHead{ Uuid: uuid, }
   self.State.Heads = append(self.State.Heads, head)
   return head
@@ -246,7 +246,7 @@ func (self *S3Metadata) ReadSnapshotSeqHead(
     ctx context.Context, uuid string) (*pb.SnapshotSeqHead, error) {
   if len(uuid) < 1 { return nil, fmt.Errorf("ReadSnapshotSeqHead: uuid is nil") }
 
-  head := self.findHead(uuid)
+  _,head := self.findHead(uuid)
   if head == nil { return nil, types.ErrNotFound }
 
   err := store.ValidateSnapshotSeqHead(head)

@@ -156,3 +156,31 @@ func TestDeleteMetadataUuids_UuidNotFound(t *testing.T) {
   }
 }
 
+func TestReplaceSnapshotSeqHead(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  vol_uuid, expect_state := util.DummyAllMetadata()
+  ini_state := proto.Clone(expect_state).(*pb.AllMetadata)
+  meta_admin,_ := buildTestAdminMetadataWithState(t, ini_state)
+
+  new_head := util.DummySnapshotSeqHead(util.DummySnapshotSequence(vol_uuid, "seq_new"))
+  old_head := proto.Clone(expect_state.Heads[0]).(*pb.SnapshotSeqHead)
+  expect_state.Heads[0] = proto.Clone(new_head).(*pb.SnapshotSeqHead)
+
+
+  got_old_head, err := meta_admin.ReplaceSnapshotSeqHead(ctx, new_head)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+
+  compareStates(t, "bad head state", meta_admin.State, expect_state)
+  util.EqualsOrFailTest(t, "OldSnapshotSeqHead", got_old_head, old_head)
+}
+
+func TestReplaceSnapshotSeqHead_NoOldHead(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  meta_admin, _ := buildTestAdminMetadataWithState(t, &pb.AllMetadata{})
+  new_head := util.DummySnapshotSeqHead(util.DummySnapshotSequence("vol", "seq_new"))
+  _, err := meta_admin.ReplaceSnapshotSeqHead(ctx, new_head)
+  if err == nil { t.Errorf("expected error.") }
+}
+
