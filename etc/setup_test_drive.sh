@@ -148,7 +148,7 @@ prepare_loop_dev() {
   local backfile="/sys/block/`basename $LOOP_DEV`/loop/backing_file"
   [[ "$CREATE_DISK_FLAG" == 1 ]] || return
 
-  run_cmd dd if=/dev/zero of="$LOOP_FILE" bs=128M count=1
+  run_cmd dd if=/dev/zero of="$LOOP_FILE" bs=64M count=1
   run_cmd sudo losetup "$LOOP_DEV" "$LOOP_FILE"
   run_cmd sudo "${PARTED_CMD[@]}" "$LOOP_DEV" mklabel gpt
   try_or_die -b "$LOOP_DEV"
@@ -165,7 +165,7 @@ prepare_partition() {
   run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" name 1 "$PART_LBL_SRC"
   run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" name 2 "$PART_LBL_DST"
 
-  sync
+  sync && sleep 1
   run_cmd ls "/dev/disk/by-partlabel"
   try_or_die -e "/dev/disk/by-partlabel/$PART_LBL_SRC"
   try_or_die -e "/dev/disk/by-partlabel/$PART_LBL_DST"
@@ -174,7 +174,7 @@ prepare_partition() {
 prepare_filesystem() {
   for label in "$PART_LBL_SRC" "$PART_LBL_DST"; do
     local part_path="/dev/disk/by-partlabel/${label}"
-    run_cmd sudo mkfs.btrfs -fL "$label" "$part_path"
+    run_cmd sudo mkfs.btrfs --mixed -fL "$label" "$part_path"
 
     #run_cmd sudo blkid --garbage-collect
     #run_cmd blkid --label "$label"
@@ -206,8 +206,8 @@ prepare_all_for_loop_fiasco() {
   mkdir -p "$root_image/subvolumes"
   mkdir -p "$root_image/snapshots"
 
-  dd if=/dev/zero of="$LOOP_FILE" bs=128M count=1
-  mkfs.btrfs --rootdir=root_image "$LOOP_FILE"
+  dd if=/dev/zero of="$LOOP_FILE" bs=64M count=1
+  mkfs.btrfs --mixed --rootdir=root_image "$LOOP_FILE"
 
   # Requires the following in /etc/fstab
   # $LOOP_FILE $MOUNT_SRC  auto user_subvol_rm_allowed,noauto,user,noexec 0 2
