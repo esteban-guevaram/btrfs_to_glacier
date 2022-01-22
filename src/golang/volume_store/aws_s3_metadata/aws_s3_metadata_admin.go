@@ -8,7 +8,6 @@ import (
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
-  store "btrfs_to_glacier/volume_store"
   s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
 
   "github.com/aws/aws-sdk-go-v2/aws"
@@ -35,7 +34,9 @@ func NewMetadataAdmin(
   metadata, err := NewMetadata(ctx, conf, aws_conf)
   if err != nil { return nil, err }
 
-  admin := &S3MetadataAdmin{ S3Metadata: metadata.(*S3Metadata), }
+  admin := &S3MetadataAdmin{
+    S3Metadata: metadata.(*S3Metadata),
+  }
   admin.injectConstants()
   return admin, nil
 }
@@ -113,42 +114,6 @@ func (self *S3MetadataAdmin) createLifecycleRule(
   _, err := self.Client.PutBucketLifecycleConfiguration(ctx, lifecycle_in)
   if err != nil { return err }
   return nil
-}
-
-func (self *S3MetadataAdmin) DeleteMetadataUuids(
-    ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error) {
-  seq_set := make(map[string]bool)
-  for _,uuid := range seq_uuids { seq_set[uuid] = true }
-  snap_set := make(map[string]bool)
-  for _,uuid := range snap_uuids { snap_set[uuid] = true }
-
-  new_seqs := make([]*pb.SnapshotSequence, 0, len(self.State.Sequences))
-  new_snaps := make([]*pb.SubVolume, 0, len(self.State.Snapshots))
-
-  for _,seq := range self.State.Sequences {
-    if seq_set[seq.Uuid] { continue }
-    new_seqs = append(new_seqs, seq)
-  }
-  for _,snap := range self.State.Snapshots {
-    if snap_set[snap.Uuid] { continue }
-    new_snaps = append(new_snaps, snap)
-  }
-
-  self.State.Sequences = new_seqs
-  self.State.Snapshots = new_snaps
-  return util.WrapInChan(nil)
-}
-
-func (self *S3MetadataAdmin) ReplaceSnapshotSeqHead(
-    ctx context.Context, head *pb.SnapshotSeqHead) (*pb.SnapshotSeqHead, error) {
-  err := store.ValidateSnapshotSeqHead(head)
-  if err != nil { return nil, err }
-
-  idx, prev_head := self.findHead(head.Uuid)
-  if prev_head == nil { return nil, fmt.Errorf("%w uuid=%v", types.ErrNotFound, head.Uuid) }
-
-  self.State.Heads[idx] = proto.Clone(head).(*pb.SnapshotSeqHead)
-  return prev_head, nil
 }
 
 // see `TestOnlyGetInnerClientToAvoidConsistencyFails` for s3 storage.

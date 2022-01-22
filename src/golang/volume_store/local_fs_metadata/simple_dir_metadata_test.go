@@ -12,6 +12,7 @@ import (
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
   store "btrfs_to_glacier/volume_store"
+  "btrfs_to_glacier/volume_store/mem_only"
 
   "github.com/google/uuid"
   "google.golang.org/protobuf/proto"
@@ -40,11 +41,13 @@ func buildTestMetadataWithConf(t *testing.T, conf *pb.Config) (*SimpleDirMetadat
   client := &SimpleDirRw{part}
 
   meta := &SimpleDirMetadata{
-    Conf: conf,
+    Metadata: &mem_only.Metadata{
+      Conf: conf,
+      State: &pb.AllMetadata{},
+    },
     DirInfo: part,
     SymLink: SymLink(part),
     KeepLast: KeepLast,
-    State: &pb.AllMetadata{},
   }
   return meta, client
 }

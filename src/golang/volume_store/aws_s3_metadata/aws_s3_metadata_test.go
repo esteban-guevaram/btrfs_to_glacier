@@ -12,6 +12,7 @@ import (
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
   store "btrfs_to_glacier/volume_store"
+  "btrfs_to_glacier/volume_store/mem_only"
 
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
@@ -37,11 +38,13 @@ func buildTestMetadataWithConf(t *testing.T, conf *pb.Config) (*S3Metadata, *s3_
   common.AccountId = client.AccountId
 
   meta := &S3Metadata{
-    Conf: conf,
+    Metadata: &mem_only.Metadata{
+      Conf: conf,
+      State: &pb.AllMetadata{},
+    },
     AwsConf: aws_conf,
     Client: client,
     Common: common,
-    State: &pb.AllMetadata{},
   }
   meta.injectConstants()
   return meta, client
