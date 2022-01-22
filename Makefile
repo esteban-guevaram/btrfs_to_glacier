@@ -53,10 +53,10 @@ cloud_integ: all $(AWS_TEMP_CREDS_SH)
 		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)" \
 		--store_bucket="$(AWS_BUCKET).store" --meta_bucket="$(AWS_BUCKET).meta"
 
-btrfs_integ: all | $(SUBVOL_PATH)
+shim_integ: all | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
 	pushd "$(MYGOSRC)"
-	GOENV="$(GOENV)" go run ./volume_source/shim/shim_integration \
+	GOENV="$(GOENV)" go run ./shim/shim_integration \
 	  --subvol="$(SUBVOL_PATH)" \
 		--subvol-alt="$(SUBVOL_ALT_PATH)" \
 		--rootvol="$(MOUNT_TESTVOL_SRC)" \
@@ -91,12 +91,12 @@ go_debug: go_code
 	pushd "$(MYGOSRC)"
 	echo '
 	#break btrfs_to_glacier/volume_store/garbage_collector.(*garbageCollector).deleteMetaItems_ForwardsArgsInReturn
-	break volume_source/shim/linux_utils.go:340
+	break shim/linux_utils.go:340
 	continue
 	' > "$(MYDLVINIT)"
 	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
-	  dlv test "btrfs_to_glacier/volume_source/shim" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
+	  dlv test "btrfs_to_glacier/shim" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
 		  -- --test.run='TestListBtrfsFilesystems$$' --test.v
 
 # Fails with a linker error if missing `c_code`

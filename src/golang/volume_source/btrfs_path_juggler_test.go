@@ -7,10 +7,10 @@ import (
   fpmod "path/filepath"
 
   pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/shim"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
-  "btrfs_to_glacier/volume_source/shim"
 
   "github.com/google/uuid"
 )

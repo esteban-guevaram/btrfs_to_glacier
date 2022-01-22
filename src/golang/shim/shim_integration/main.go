@@ -9,7 +9,7 @@ import (
   "strings"
   "time"
   pb "btrfs_to_glacier/messages"
-  "btrfs_to_glacier/volume_source/shim"
+  "btrfs_to_glacier/shim"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
 )
