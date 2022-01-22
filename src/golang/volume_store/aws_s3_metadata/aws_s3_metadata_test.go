@@ -41,6 +41,7 @@ func buildTestMetadataWithConf(t *testing.T, conf *pb.Config) (*S3Metadata, *s3_
     AwsConf: aws_conf,
     Client: client,
     Common: common,
+    State: &pb.AllMetadata{},
   }
   meta.injectConstants()
   return meta, client
@@ -53,9 +54,7 @@ func buildTestMetadataWithState(t *testing.T, state *pb.AllMetadata) (*S3Metadat
   client.Buckets[conf.Aws.S3.MetadataBucketName] = true
   err = client.PutProto(meta.Key, state, s3_types.StorageClassStandard, false)
   if err != nil { t.Fatalf("failed to set init state: %v", err) }
-  if meta.LoadPreviousStateFromS3(context.TODO()) != nil {
-    t.Fatalf("Failed to meta.LoadPreviousStateFromS3")
-  }
+  meta.State = state
   return meta, client
 }
 
@@ -65,15 +64,17 @@ func compareStates(t *testing.T, msg string, left *pb.AllMetadata, right *pb.All
   util.EqualsOrFailTest(t, msg, left.Snapshots, right.Snapshots)
 }
 
-func LoadPreviousStateFromS3_NoBucket(t *testing.T) {
+func TestLoadPreviousStateFromS3_NoBucket(t *testing.T) {
   conf := util.LoadTestConf()
   meta, client := buildTestMetadataWithConf(t, conf)
+  meta.State = nil
+  meta.LoadPreviousStateFromS3(context.TODO())
   util.EqualsOrFailTest(t, "Bad bucket", client.Buckets[conf.Aws.S3.MetadataBucketName], false)
   util.EqualsOrFailTest(t, "Bad object", client.Data[meta.Key], nil)
   compareStates(t, "expected empty state", meta.State, &pb.AllMetadata{})
 }
 
-func LoadPreviousStateFromS3_NoKey(t *testing.T) {
+func TestLoadPreviousStateFromS3_NoKey(t *testing.T) {
   meta, client := buildTestMetadataWithState(t, &pb.AllMetadata{})
   meta.State = nil
   client.DelObject(meta.Key)
@@ -82,9 +83,11 @@ func LoadPreviousStateFromS3_NoKey(t *testing.T) {
   compareStates(t, "expected empty state", meta.State, &pb.AllMetadata{})
 }
 
-func LoadPreviousStateFromS3_PreviousState(t *testing.T) {
+func TestLoadPreviousStateFromS3_PreviousState(t *testing.T) {
   _, expect_state := util.DummyAllMetadata()
   meta,_ := buildTestMetadataWithState(t, expect_state)
+  meta.State = nil
+  meta.LoadPreviousStateFromS3(context.TODO())
   compareStates(t, "expected empty state", meta.State, expect_state)
 }
 

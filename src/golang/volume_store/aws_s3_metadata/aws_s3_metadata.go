@@ -92,6 +92,7 @@ func (self *S3Metadata) LoadPreviousStateFromS3(ctx context.Context) error {
 
 func (self *S3Metadata) SaveCurrentStateToS3(ctx context.Context) (string, error) {
   if self.State == nil { util.Fatalf("Cannot store nil state") }
+  self.State.CreatedTs = uint64(time.Now().Unix())
 
   content_type := "application/octet-stream"
   data, err := proto.Marshal(self.State)
