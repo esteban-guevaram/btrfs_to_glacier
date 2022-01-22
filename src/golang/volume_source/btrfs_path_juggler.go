@@ -4,7 +4,6 @@ import (
   "errors"
   "fmt"
   fpmod "path/filepath"
-  "os"
   "sort"
   "strings"
 
@@ -21,13 +20,7 @@ type BtrfsPathJuggler struct {
   Linuxutil   types.Linuxutil
   Conf        *pb.Config
   Filesystems []*types.Filesystem
-  IsDir IsDirFunc
-}
-
-func IsDir(path string) bool {
-  f_info, err := os.Stat(path)
-  if err != nil { return false }
-  return f_info.IsDir()
+  IsDir       IsDirFunc
 }
 
 // This implementation considers the filesystems and mounts are constant through
@@ -40,7 +33,7 @@ func NewBtrfsPathJuggler(
     Linuxutil: linuxutil,
     Conf: conf,
     Filesystems: filesys,
-    IsDir: IsDir,
+    IsDir: util.IsDir,
   }
   return juggler, err
 }

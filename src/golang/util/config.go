@@ -1,7 +1,11 @@
 package util
 
 import (
+  "os"
   "flag"
+  "io/fs"
+  fpmod "path/filepath"
+
   pb "btrfs_to_glacier/messages"
 )
 
@@ -41,7 +45,37 @@ func overwriteWithFlags(conf *pb.Config) {
   if meta_bucket_flag  != "" { conf.Aws.S3.MetadataBucketName = meta_bucket_flag }
 }
 
-func LoadTestConf() *pb.Config {
+func TestSimpleDirLocalFs() (*pb.LocalFs, func()) {
+  local_fs_dir, err := os.MkdirTemp(os.TempDir(), "localfs_")
+  if err != nil { Fatalf("failed to create tmp dir: %v", err) }
+  err = os.Mkdir(fpmod.Join(local_fs_dir, "metadata"), fs.ModePerm)
+  if err != nil { Fatalf("failed to create dir: %v", err) }
+  err = os.Mkdir(fpmod.Join(local_fs_dir, "storage"), fs.ModePerm)
+  if err != nil { Fatalf("failed to create dir: %v", err) }
+
+  local_fs := &pb.LocalFs{
+    Partitions: []*pb.LocalFs_Partition{
+      &pb.LocalFs_Partition{
+        DeviceUuid: "dev_uuid",
+        PartitionUuid: "part_uuid",
+        MountRoot: local_fs_dir,
+        MetadataDir: "metadata",
+        StorageDir: "storage",
+      },
+    },
+  }
+  return local_fs, func() { CleanLocalFs(local_fs) }
+}
+
+func CleanLocalFs(local_fs *pb.LocalFs) {
+  tmp_root := os.TempDir()
+  for _,p := range local_fs.Partitions {
+    if !fpmod.HasPrefix(p.MountRoot, tmp_root) { continue }
+    os.RemoveAll(p.MountRoot)
+  }
+}
+
+func LoadTestConfWithLocalFs(local_fs *pb.LocalFs) *pb.Config {
   source := &pb.Source{
     Type: pb.Source_BTRFS,
     Paths: []*pb.Source_VolSnapPathPair{
@@ -68,9 +102,14 @@ func LoadTestConf() *pb.Config {
         ChunkLen: 1024*1024,
       },
     },
+    LocalFs: local_fs,
   }
   overwriteWithFlags(&conf)
   return &conf
+}
+
+func LoadTestConf() *pb.Config {
+  return LoadTestConfWithLocalFs(nil)
 }
 
 func Validate(conf *pb.Config) error {

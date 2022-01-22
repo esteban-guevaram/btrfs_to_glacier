@@ -23,6 +23,17 @@ message Aws {
   S3 s3 = 6;
 }
 
+message LocalFs {
+  message Partition {
+    string device_uuid = 1;
+    string partition_uuid = 2;
+    string mount_root = 3;
+    string metadata_dir = 4;
+    string storage_dir = 5;
+  }
+  repeated Partition partitions = 1;
+}
+
 // Additional tools not directly related to backup/restores.
 message Tool {
   enum Type {
@@ -74,10 +85,12 @@ message Store {
     INVALID_META = 0;
     AWS_DYNAMODB_META = 1;
     AWS_S3_META = 2;
+    LOCAL_FS_META = 3;
   }
   enum StoreType {
     INVALID_STORE = 0;
     AWS_S3_STORE = 1;
+    LOCAL_FS_STORE = 2;
   }
   MetadataType meta_type  = 1;
   StoreType    store_type = 2;
@@ -98,13 +111,17 @@ message Restore {
 message Config {
   repeated Workflow workflows = 1;
   repeated Tool tools = 2;
+
   repeated Source sources = 3;
   repeated Store stores = 4;
   repeated Restore restores = 5;
+
   // The first element is used to encrypt new content.
   // Key length may be imposed by the encryption algorithm.
   // Keys are stored symmetrically encrypted into the configuration.
   repeated string encryption_keys = 6;
+
   Aws aws = 7;
+  LocalFs local_fs = 8;
 }
 

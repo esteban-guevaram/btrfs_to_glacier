@@ -2,10 +2,12 @@ package util
 
 import (
   "bytes"
+  "compress/gzip"
   "context"
   "errors"
   "fmt"
   "io"
+  "io/fs"
   "os"
   "os/exec"
   "reflect"
@@ -15,6 +17,7 @@ import (
   "btrfs_to_glacier/types"
 
   "google.golang.org/protobuf/proto"
+  "golang.org/x/sys/unix"
 )
 
 type PipeImpl struct {
@@ -179,5 +182,56 @@ func IsOnlyAsciiString(str string, allow_ctrl bool) error {
     }
   }
   return nil
+}
+
+func IsDir(path string) bool {
+  f_info, err := os.Stat(path)
+  if err != nil { return false }
+  return f_info.IsDir()
+}
+
+func IsSymLink(path string) bool {
+  f_info, err := os.Lstat(path)
+  if err != nil { return false }
+  return f_info.Mode() & fs.ModeSymlink != 0
+}
+
+// os.IsNotExists does not do sh*t
+func IsNotExist(err error) bool {
+  return os.IsNotExist(err) || errors.Is(err, unix.ENOENT)
+}
+
+func Exists(path string) bool {
+  _, err := os.Lstat(path)
+  return !IsNotExist(err)
+}
+
+func UnmarshalGzProto(path string, msg proto.Message) error {
+  f, err := os.Open(path)
+  if err != nil { return err }
+  defer f.Close()
+
+  reader, err := gzip.NewReader(f)
+  if err != nil { return err }
+  defer reader.Close()
+
+  data, err := io.ReadAll(reader)
+  if err != nil { return err }
+  err = proto.Unmarshal(data, msg)
+  return err
+}
+
+func MarshalGzProto(path string, msg proto.Message) error {
+  f, err := os.Create(path)
+  if err != nil { return err }
+  defer f.Close()
+
+  data, err := proto.Marshal(msg)
+  if err != nil { return err }
+
+  writer := gzip.NewWriter(f)
+  _,err = writer.Write(data)
+  if err != nil { writer.Close(); return err }
+  return writer.Close()
 }
 
