@@ -69,7 +69,6 @@ func (self *S3Metadata) injectConstants() {
 func (self *S3Metadata) LoadPreviousStateFromS3(ctx context.Context) error {
   if self.State != nil { util.Fatalf("Cannot load state twice") }
   self.State = &pb.AllMetadata{
-    Uuid: self.Key,
     CreatedTs: uint64(time.Now().Unix()),
   }
 

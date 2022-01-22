@@ -63,7 +63,6 @@ func (self *SimpleDirMetadata) LoadPreviousStateFromDir(ctx context.Context) err
   }
   err := util.UnmarshalGzProto(self.SymLink, self.State)
   if err != nil && !errors.Is(err, os.ErrNotExist) { return err }
-  self.State.Uuid = self.SymLink
   return nil
 }
 

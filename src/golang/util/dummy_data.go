@@ -132,7 +132,6 @@ func DummyAllMetadata() (string, *pb.AllMetadata) {
   expect_head := DummySnapshotSeqHead(expect_seq)
   expect_snap := DummySnapshot(expect_seq.SnapUuids[0], vol_uuid)
   return vol_uuid, &pb.AllMetadata{
-    Uuid: "dummy_key",
     CreatedTs: uint64(time.Now().Unix()),
     Heads: []*pb.SnapshotSeqHead{ expect_head, },
     Sequences: []*pb.SnapshotSequence{ expect_seq, },

@@ -68,11 +68,10 @@ message SnapshotSequence {
 }
 
 message AllMetadata {
-  string uuid = 1;
-  fixed64 created_ts = 2;
-  repeated SnapshotSeqHead heads = 3;
-  repeated SnapshotSequence sequences = 4;
-  repeated SubVolume snapshots = 5;
+  fixed64 created_ts = 1;
+  repeated SnapshotSeqHead heads = 2;
+  repeated SnapshotSequence sequences = 3;
+  repeated SubVolume snapshots = 4;
 }
 
 message SnapshotChanges {
