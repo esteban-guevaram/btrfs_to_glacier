@@ -7,14 +7,13 @@ import (
 )
 
 // Represents a line in /proc/self/mountinfo
+// Many be enriched from info from other places ...
 type MountEntry struct {
   Id int // NOT stable across reads of mountinfo
-  // Device major and minor may not match any real device.
-  Minor, Major int
+  Device *Device
   TreePath string
   MountedPath string
   FsType string
-  DevPath string
   Options map[string]string // correspond to the per-superblock options
   BtrfsVolId uint64
   // Bind mounts to the same filesystem/subvolume
@@ -22,7 +21,10 @@ type MountEntry struct {
 }
 type Device struct {
   Name string
+  // Device major and minor may not match any real device.
   Minor, Major int
+  FsUuid string
+  GptUuid string
 }
 type Filesystem struct {
   Uuid string
@@ -49,6 +51,15 @@ type Linuxutil interface {
   // Only works if go binary invoked via `sudo`.
   // Returns a function that can be called to restore user permissions.
   GetRoot() (func(), error)
+
+  // Mounts the device into the target path.
+  // You may need root before calling this, unless that device is mountable by the user in /etc/fstab.
+  Mount(*Device, string) error
+  UMount(string) error
+  // Returns all mounts found on the host.
+  // Bind mounts are not deduplicated.
+  // Retrieves each mount `FsUUID` and `GptUUID`.
+  ListMounts() ([]*MountEntry, error)
   // Returns all btrfs filesystems found on the host.
   // For each filesystem list all the mounts it owns.
   ListBtrfsFilesystems() ([]*Filesystem, error)

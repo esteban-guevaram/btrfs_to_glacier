@@ -19,6 +19,7 @@ type Linuxutil struct {
   IsAdmin bool
   SysInfo *pb.SystemInfo
   Filesystems []*types.Filesystem
+  Mounts      []*types.MountEntry
 }
 func (self *Linuxutil) IsCapSysAdmin() bool { return self.IsAdmin }
 func (self *Linuxutil) LinuxKernelVersion() (uint32, uint32) {
@@ -32,6 +33,15 @@ func (self *Linuxutil) DropRoot() (func(), error) { return func() {}, self.Err }
 func (self *Linuxutil) GetRoot() (func(), error) { return func() {}, self.Err }
 func (self *Linuxutil) ListBtrfsFilesystems() ([]*types.Filesystem, error) {
   return self.Filesystems, self.Err
+}
+func (self *Linuxutil) Mount(dev *types.Device, target string) error {
+  return self.Err
+}
+func (self *Linuxutil) UMount(mount_path string) error {
+  return self.Err
+}
+func (self *Linuxutil) ListMounts() ([]*types.MountEntry, error) {
+  return self.Mounts, self.Err
 }
 
 type Btrfsutil struct {

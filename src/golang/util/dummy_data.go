@@ -35,16 +35,22 @@ func DummyMountEntryForSv(sv *pb.SubVolume) *types.MountEntry {
 }
 
 func DummyMountEntry(btrfs_id uint64, mnt_path string, tree_path string) *types.MountEntry {
+  id := int(adler32.Checksum([]byte(mnt_path)) + adler32.Checksum([]byte(tree_path)))
+  dev := &types.Device{
+    Name: uuid.NewString(),
+    FsUuid: uuid.NewString(),
+    GptUuid: uuid.NewString(),
+    Minor: id,
+    Major: id,
+  }
   mnt := &types.MountEntry{
-    Id: int(adler32.Checksum([]byte(mnt_path)) + adler32.Checksum([]byte(tree_path))),
+    Id: id,
     TreePath: tree_path,
     MountedPath: mnt_path,
-    DevPath: "",
+    Device: dev,
     Options: nil,
     BtrfsVolId: btrfs_id,
   }
-  mnt.Minor = mnt.Id
-  mnt.Major = mnt.Id
   var bind types.MountEntry = *mnt
   bind.Id = rand.Int()
   bind.MountedPath = fmt.Sprintf("/binds%s", mnt.MountedPath)
