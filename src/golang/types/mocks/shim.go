@@ -40,7 +40,7 @@ func (self *Linuxutil) Mount(dev *types.Device, target string) error {
 func (self *Linuxutil) UMount(mount_path string) error {
   return self.Err
 }
-func (self *Linuxutil) ListMounts() ([]*types.MountEntry, error) {
+func (self *Linuxutil) ListBlockDevMounts() ([]*types.MountEntry, error) {
   return self.Mounts, self.Err
 }
 

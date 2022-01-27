@@ -11,18 +11,9 @@ import (
   "btrfs_to_glacier/util"
 )
 
-type FsReaderMock struct {}
-type DirEntry struct {
-  Leaf string
-  IsLink bool
-}
+type FsReaderMock_ForBtrfs struct {}
 
-func (self *DirEntry) Name() string { return self.Leaf }
-func (self *DirEntry) IsDir() bool { return !self.IsLink }
-func (self *DirEntry) Type() fs.FileMode { var m fs.FileMode; return m }
-func (self *DirEntry) Info() (fs.FileInfo, error) { return nil, nil }
-
-func (self *FsReaderMock) ReadAsciiFile(
+func (self *FsReaderMock_ForBtrfs) ReadAsciiFile(
     dir string, name string, allow_ctrl bool) (string, error) {
   switch name {
     case fpmod.Base(MOUNT_INFO):
@@ -53,13 +44,13 @@ func (self *FsReaderMock) ReadAsciiFile(
   return "", fmt.Errorf("'%s/%s' not found in mock", dir, name)
 }
 
-func (self *FsReaderMock) ReadDir(dir string) ([]os.DirEntry, error) {
+func (self *FsReaderMock_ForBtrfs) ReadDir(dir string) ([]os.DirEntry, error) {
   switch dir {
     case SYS_FS_BTRFS:
       return []fs.DirEntry{
-        &DirEntry{ Leaf:"fs1_uuid" },
-        &DirEntry{ Leaf:"fs2_uuid" },
-        &DirEntry{ Leaf:"fs3_uuid" },
+        &DirEntry{ Leaf:"fs1_uuid", Mode:fs.ModeDir, },
+        &DirEntry{ Leaf:"fs2_uuid", Mode:fs.ModeDir, },
+        &DirEntry{ Leaf:"fs3_uuid", Mode:fs.ModeDir, },
       }, nil
     case fpmod.Join(SYS_FS_BTRFS, "fs1_uuid"): fallthrough
     case fpmod.Join(SYS_FS_BTRFS, "fs2_uuid"): fallthrough
@@ -67,34 +58,27 @@ func (self *FsReaderMock) ReadDir(dir string) ([]os.DirEntry, error) {
       return []fs.DirEntry{
         &DirEntry{ Leaf:SYS_FS_UUID },
         &DirEntry{ Leaf:SYS_FS_LABEL },
-        &DirEntry{ Leaf:SYS_FS_DEVICE_DIR },
+        &DirEntry{ Leaf:SYS_FS_DEVICE_DIR, Mode:fs.ModeDir, },
       }, nil
     case fpmod.Join(SYS_FS_BTRFS, "fs1_uuid", SYS_FS_DEVICE_DIR):
       return []fs.DirEntry{
-        &DirEntry{ Leaf:"sda1", IsLink:true },
-        &DirEntry{ Leaf:"sdc1", IsLink:true },
+        &DirEntry{ Leaf:"sda1", Mode:fs.ModeSymlink },
+        &DirEntry{ Leaf:"sdc1", Mode:fs.ModeSymlink },
       }, nil
     case fpmod.Join(SYS_FS_BTRFS, "fs2_uuid", SYS_FS_DEVICE_DIR):
-      return []fs.DirEntry{ &DirEntry{ Leaf:"loop111p1", IsLink:true }, }, nil
+      return []fs.DirEntry{ &DirEntry{ Leaf:"loop111p1", Mode:fs.ModeSymlink }, }, nil
     case fpmod.Join(SYS_FS_BTRFS, "fs3_uuid", SYS_FS_DEVICE_DIR):
-      return []fs.DirEntry{ &DirEntry{ Leaf:"loop111p2", IsLink:true }, }, nil
+      return []fs.DirEntry{ &DirEntry{ Leaf:"loop111p2", Mode:fs.ModeSymlink }, }, nil
   }
   return nil, fmt.Errorf("'%s' not found in mock", dir)
 }
 
-func (self *FsReaderMock) EvalSymlinks(path string) (string, error) {
+func (self *FsReaderMock_ForBtrfs) EvalSymlinks(path string) (string, error) {
   return path, nil
 }
 
-func BuildFilesystemUtil(t *testing.T) *FilesystemUtil {
-  lu := &FilesystemUtil{
-    FsReader: &FsReaderMock{},
-  }
-  return lu
-}
-
 func TestListBtrfsFilesystems(t *testing.T) {
-  linuxutils := BuildFilesystemUtil(t)
+  linuxutils := &FilesystemUtil{ FsReader: &FsReaderMock_ForBtrfs{}, }
   fs_list,err := linuxutils.ListBtrfsFilesystems()
   if err != nil { t.Errorf("ListBtrfsFilesystems: %v", err) }
   if len(fs_list) != 3 { t.Errorf("found wrong number of filesystems") }
@@ -105,6 +89,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
     "Devices": [
       {
         "Name": "sda1",
+        "MapperGroup": "",
         "Minor": 35,
         "Major": 35,
         "FsUuid": "",
@@ -112,6 +97,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
       },
       {
         "Name": "sdc1",
+        "MapperGroup": "",
         "Minor": 35,
         "Major": 35,
         "FsUuid": "",
@@ -123,6 +109,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Id": 169,
         "Device": {
           "Name": "sdc1",
+          "MapperGroup": "",
           "Minor": 38,
           "Major": 0,
           "FsUuid": "",
@@ -142,6 +129,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
             "Id": 189,
             "Device": {
               "Name": "sdc1",
+              "MapperGroup": "",
               "Minor": 38,
               "Major": 0,
               "FsUuid": "",
@@ -161,6 +149,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
             "Id": 194,
             "Device": {
               "Name": "sdc1",
+              "MapperGroup": "",
               "Minor": 38,
               "Major": 0,
               "FsUuid": "",
@@ -183,6 +172,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Id": 172,
         "Device": {
           "Name": "sdc1",
+          "MapperGroup": "",
           "Minor": 38,
           "Major": 0,
           "FsUuid": "",
@@ -202,6 +192,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Id": 170,
         "Device": {
           "Name": "sdc1",
+          "MapperGroup": "",
           "Minor": 38,
           "Major": 0,
           "FsUuid": "",
@@ -220,6 +211,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
             "Id": 199,
             "Device": {
               "Name": "sdc1",
+              "MapperGroup": "",
               "Minor": 38,
               "Major": 0,
               "FsUuid": "",
@@ -239,6 +231,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
             "Id": 204,
             "Device": {
               "Name": "sdc1",
+              "MapperGroup": "",
               "Minor": 38,
               "Major": 0,
               "FsUuid": "",
@@ -260,6 +253,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Id": 436,
         "Device": {
           "Name": "sdc1",
+          "MapperGroup": "",
           "Minor": 38,
           "Major": 0,
           "FsUuid": "",
@@ -284,6 +278,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
     "Devices": [
       {
         "Name": "loop111p1",
+        "MapperGroup": "",
         "Minor": 40,
         "Major": 40,
         "FsUuid": "",
@@ -295,6 +290,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Id": 527,
         "Device": {
           "Name": "loop111p1",
+          "MapperGroup": "",
           "Minor": 43,
           "Major": 0,
           "FsUuid": "",
@@ -315,6 +311,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Id": 561,
         "Device": {
           "Name": "loop111p1",
+          "MapperGroup": "",
           "Minor": 43,
           "Major": 0,
           "FsUuid": "",
@@ -334,6 +331,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Id": 578,
         "Device": {
           "Name": "loop111p1",
+          "MapperGroup": "",
           "Minor": 43,
           "Major": 0,
           "FsUuid": "",
@@ -357,6 +355,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
     "Devices": [
       {
         "Name": "loop111p2",
+        "MapperGroup": "",
         "Minor": 40,
         "Major": 40,
         "FsUuid": "",
@@ -368,6 +367,7 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Id": 544,
         "Device": {
           "Name": "loop111p2",
+          "MapperGroup": "",
           "Minor": 46,
           "Major": 0,
           "FsUuid": "",

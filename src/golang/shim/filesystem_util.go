@@ -2,6 +2,7 @@ package shim
 
 import (
   "fmt"
+  "io/fs"
   fpmod "path/filepath"
   "regexp"
   "strconv"
@@ -11,6 +12,10 @@ import (
   "btrfs_to_glacier/util"
 )
 
+const DEV_BLOCK = "/dev/block" //ex: 8:1 -> ../sda1
+const DEV_BY_PART = "/dev/disk/by-partuuid" //ex: YYYYYYYY-bc17-4e6f-9c1d-XXXXXXXXXXXX -> ../../sda3
+const DEV_BY_UUID = "/dev/disk/by-uuid" //ex: ZZZZ-WWWW -> ../../sda1
+const DEV_MAPPER = "/dev/mapper" //ex: mapper-group -> ../dm-0
 const SYS_FS_BTRFS = "/sys/fs/btrfs"
 const SYS_FS_FEATURE_DIR = "features"
 const SYS_FS_UUID = "metadata_uuid"
@@ -130,9 +135,87 @@ func (self *FilesystemUtil) parseProcMountInfoFile() ([]*types.MountEntry, error
   return mnt_list, nil
 }
 
+// Example:
+// nameOfTarget("/dev/disk/by-uuid", "<uuid>") -> sda3, nil
+func (self *FilesystemUtil) nameOfTarget(path string, link string) (string, error) {
+  real_path, err := self.FsReader.EvalSymlinks(fpmod.Join(path, link))
+  if err != nil { return "", err }
+  return fpmod.Base(real_path), err
+}
+
+func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.Device, error) {
+  dev_list := make(map[string]*types.Device)
+
+  items, err := self.FsReader.ReadDir(DEV_BLOCK)
+  if err != nil { return nil, err }
+  for _,item := range items {
+    if item.Type() & fs.ModeSymlink == 0 { continue }
+    name, err := self.nameOfTarget(DEV_BLOCK, item.Name())
+    if err != nil { return nil, err }
+    maj, min, err := majminFromString(item.Name())
+    if err != nil { return nil, err }
+    dev_list[name] = &types.Device{ Name:name, Major:maj, Minor:min, }
+  }
+
+  items, err = self.FsReader.ReadDir(DEV_MAPPER)
+  if err != nil { return nil, err }
+  for _,item := range items {
+    if item.Type() & fs.ModeSymlink == 0 { continue }
+    name, err := self.nameOfTarget(DEV_MAPPER, item.Name())
+    if err != nil { return nil, err }
+    dev, found := dev_list[name]
+    if !found { continue }
+    dev.MapperGroup = item.Name()
+  }
+
+  items, err = self.FsReader.ReadDir(DEV_BY_PART)
+  if err != nil { return nil, err }
+  for _,item := range items {
+    if item.Type() & fs.ModeSymlink == 0 { continue }
+    name, err := self.nameOfTarget(DEV_BY_PART, item.Name())
+    if err != nil { return nil, err }
+    dev, found := dev_list[name]
+    if !found { continue }
+    dev.GptUuid = item.Name()
+  }
+
+  items, err = self.FsReader.ReadDir(DEV_BY_UUID)
+  if err != nil { return nil, err }
+  for _,item := range items {
+    if item.Type() & fs.ModeSymlink == 0 { continue }
+    name, err := self.nameOfTarget(DEV_BY_UUID, item.Name())
+    if err != nil { return nil, err }
+    dev, found := dev_list[name]
+    if !found { continue }
+    dev.FsUuid = item.Name()
+  }
+  return dev_list, nil
+}
+
 func (self *FilesystemUtil) Mount(dev *types.Device, target string) error { return nil }
 func (self *FilesystemUtil) UMount(mount_path string) error { return nil }
-func (self *FilesystemUtil) ListMounts() ([]*types.MountEntry, error) { return nil, nil }
+
+func (self *FilesystemUtil) ListBlockDevMounts() ([]*types.MountEntry, error) {
+  var filter_mnts []*types.MountEntry
+  mnt_list, err := self.parseProcMountInfoFile()
+  if err != nil { return nil, err }
+  dev_map, err := self.listBlockDevPartitionsOnHost()
+  if err != nil { return nil, err }
+
+  for _, mnt := range mnt_list {
+    dev, found := dev_map[mnt.Device.Name]
+    if !found {
+      //util.Debugf("Mapper for '%s' %s", mnt.MountedPath, mnt.Device.Name)
+      for _,d := range dev_map {
+        if d.MapperGroup == mnt.Device.Name { dev = d; found = true; break }
+      }
+    }
+    if !found { continue }
+    mnt.Device = dev
+    filter_mnts = append(filter_mnts, mnt)
+  }
+  return filter_mnts, nil
+}
 
 ///////////////// BTRFS ///////////////////////////////////////////////////////
 
@@ -279,6 +362,7 @@ func (self *FilesystemUtil) btrfsFilesystemsFromSysFs() ([]*types.Filesystem, er
       fs_list = append(fs_list, fs_item)
     }
   }
+  util.Infof("Found %d btrfs filesystems", len(fs_list))
   return fs_list, nil
 }
 
@@ -294,7 +378,6 @@ func (self *FilesystemUtil) ListBtrfsFilesystems() ([]*types.Filesystem, error) 
   if err != nil { return nil, err }
   err = self.matchMountEntriesToFilesystem(mnt_list, fs_list)
   if err != nil { return nil, err }
-  util.Infof("Found %d btrfs filesystems", len(fs_list))
   return fs_list, nil
 }
 

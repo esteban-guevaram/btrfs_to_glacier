@@ -21,10 +21,10 @@ type MountEntry struct {
 }
 type Device struct {
   Name string
-  // Device major and minor may not match any real device.
-  Minor, Major int
-  FsUuid string
-  GptUuid string
+  MapperGroup string // if device belongs to a virtual block device
+  Minor, Major int // Unreliable when taken from /proc/self/mountinfo
+  FsUuid string  // Optional
+  GptUuid string // Optional
 }
 type Filesystem struct {
   Uuid string
@@ -56,11 +56,14 @@ type Linuxutil interface {
   // You may need root before calling this, unless that device is mountable by the user in /etc/fstab.
   Mount(*Device, string) error
   UMount(string) error
-  // Returns all mounts found on the host.
-  // Bind mounts are not deduplicated.
-  // Retrieves each mount `FsUUID` and `GptUUID`.
-  ListMounts() ([]*MountEntry, error)
+  // Returns all mounts found on the host that are backed by a block device.
+  // Caveats:
+  // * Bind mounts are NOT deduplicated.
+  // * Mounts assotiated to multiple devices (ex: btrfs raid) will only have device assotiated
+  // * Retrieves each mount `FsUUID` and `GptUUID` (if available: /dev/mapper does not have a GptUuid)
+  ListBlockDevMounts() ([]*MountEntry, error)
   // Returns all btrfs filesystems found on the host.
+  // Bind mounts to the same subvolume are deduplicated.
   // For each filesystem list all the mounts it owns.
   ListBtrfsFilesystems() ([]*Filesystem, error)
 }
@@ -106,5 +109,4 @@ type Btrfsutil interface {
   // Calls `btrfs_util_start_sync()` to wait for a transaction to sync.
   WaitForTransactionId(root_fs string, tid uint64) error
 }
-
 
