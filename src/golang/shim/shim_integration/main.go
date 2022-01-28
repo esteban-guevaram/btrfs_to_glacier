@@ -15,6 +15,7 @@ import (
 )
 
 var root_flag string
+var dest_flag string
 var snap1_flag string
 var snap2_flag string
 var subvol_flag string
@@ -23,7 +24,8 @@ var subvol_dir string
 var not_btrfs_path string
 
 func init() {
-  flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the btrfs filesystem")
+  flag.StringVar(&root_flag, "rootvol", "", "the fullpath to the source btrfs filesystem")
+  flag.StringVar(&dest_flag, "destvol", "", "the fullpath to the destination btrfs filesystem")
   flag.StringVar(&snap1_flag, "snap1",  "", "the fullpath to the oldest snapshot")
   flag.StringVar(&snap2_flag, "snap2",  "", "the fullpath to the latest snapshot")
   flag.StringVar(&subvol_flag, "subvol",  "", "the fullpath to the btrfs subvolume")
@@ -41,7 +43,7 @@ type TestBtrfsUtil struct {
 
 func GetConf() *pb.Config {
   conf := &pb.Config{}
-  flags := []string{subvol_flag, subvol_alt_flag, root_flag, snap1_flag, snap2_flag,}
+  flags := []string{subvol_flag, subvol_alt_flag, root_flag, dest_flag, snap1_flag, snap2_flag,}
   for _,f := range flags {
     if f == "" { util.Fatalf("Bad flag value: '%s'", f) }
   }
@@ -281,7 +283,7 @@ func main() {
   linuxutil := GetLinuxUtil()
   btrfsutil := GetBtrfsUtil(conf, linuxutil)
 
-  TestLinuxUtils_AllFuncs(linuxutil)
+  TestLinuxUtils_AllFuncs(linuxutil, root_flag, dest_flag)
   TestBtrfsUtil_AllFuncs(conf, linuxutil, btrfsutil)
   TestSendDumpAll(btrfsutil)
   TestBtrfsSendStreamAll(linuxutil, btrfsutil)

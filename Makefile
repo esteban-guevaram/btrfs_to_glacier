@@ -60,6 +60,7 @@ shim_integ: all | $(SUBVOL_PATH)
 	  --subvol="$(SUBVOL_PATH)" \
 		--subvol-alt="$(SUBVOL_ALT_PATH)" \
 		--rootvol="$(MOUNT_TESTVOL_SRC)" \
+		--destvol="$(MOUNT_TESTVOL_DST)" \
 		--snap1="$(SNAP1_PATH)" --snap2="$(SNAP2_PATH)"
 
 test: go_unittest cloud_integ btrfs_integ

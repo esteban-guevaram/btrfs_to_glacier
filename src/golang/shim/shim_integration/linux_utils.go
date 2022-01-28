@@ -79,24 +79,8 @@ func (self *TestLinuxUtils) TestGetRoot() {
   if self.linuxutil.IsCapSysAdmin() { util.Fatalf("still have cap sys admin") }
 }
 
-func (self *TestLinuxUtils) TestListBtrfsFilesystems() {
-  fs_list, err := self.linuxutil.ListBtrfsFilesystems()
-  if err != nil { util.Fatalf("cannot get filesystems: %v", err) }
-  if len(fs_list) < 1 { util.Fatalf("failed to find any btrfs fs") }
-  util.Debugf("fs_list: %s", util.AsJson(fs_list))
-  for _,fs := range fs_list {
-    if len(fs.Uuid) < 1 { util.Fatalf("bad uuid") }
-    if len(fs.Label) < 1 { util.Fatalf("bad label") }
-    if len(fs.Devices) < 1 { util.Fatalf("no devices found") }
-    if len(fs.Mounts) < 1 { util.Fatalf("no mounts found") }
-    for _,mnt := range fs.Mounts {
-      if mnt.BtrfsVolId < 1 { util.Fatalf("bad btrfs subvol id") }
-      if len(mnt.MountedPath) < 1 { util.Fatalf("bad btrfs mounted path") }
-    }
-  }
-}
-
-func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
+func TestLinuxUtils_AllFuncs(
+    linuxutil types.Linuxutil, src_fs string, dest_fs string) {
   suite := &TestLinuxUtils{linuxutil.(*shim.Linuxutil)}
   suite.TestIsCapSysAdmin()
   suite.TestLinuxKernelVersion()
@@ -104,6 +88,6 @@ func TestLinuxUtils_AllFuncs(linuxutil types.Linuxutil) {
   suite.TestProjectVersion()
   suite.TestDropRoot()
   suite.TestGetRoot()
-  suite.TestListBtrfsFilesystems()
+  TestFilesystemUtil_AllFuncs(linuxutil, src_fs, dest_fs)
 }
 
