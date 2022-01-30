@@ -67,7 +67,8 @@ test: go_unittest cloud_integ btrfs_integ
 
 $(SUBVOL_PATH) fs_init &:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
-	bash etc/setup_test_drive.sh -r -f -p -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
+	bash etc/setup_test_drive.sh -r -f -p \
+	  -e "$(EXT4_PREFIX)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
 
 go_code: c_code $(GOENV) $(go_files) $(GO_PROTO_GEN_SRCS)
 	pushd "$(MYGOSRC)"

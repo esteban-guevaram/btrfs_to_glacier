@@ -3,6 +3,8 @@
 
 MOUNT_SRC=""
 MOUNT_DST=""
+MOUNT_EXT4_1=""
+MOUNT_EXT4_2=""
 RESTORE_POINT=""
 SNAP_POINT=""
 
@@ -12,6 +14,9 @@ BASE_DEVICE=""
 PART_PREFIX=""
 PART_LBL_SRC=""
 PART_LBL_DST=""
+EXT4_PREFIX=""
+EXT4_LBL_1=""
+EXT4_LBL_2=""
 
 SUBVOL_LIST=( )
 CREATE_DISK_FLAG=0
@@ -20,23 +25,28 @@ CREATE_SNAP_FLAG=0
 CREATE_RSTR_SNAP=0
 LEAVE_UMOUNTED=0
 DRY_RUN=""
-LOOP_FILE="/tmp/loop.btrfs.setup_test_drive"
+LOOP_FILE="/tmp/loop.test_drive"
 LOOP_DEV="/dev/loop111"
+LOOP_SIZE="128M"
 
 PARTED_CMD=( parted --align=optimal --script )
 
 parse_opts() {
-  while getopts 'd:l:fpsur' opt; do
+  while getopts 'd:l:e:fpsur' opt; do
     case $opt in
       d) DISK_UUID="$OPTARG" ;;
       l) PART_PREFIX="$OPTARG" ;;
+      e) EXT4_PREFIX="$OPTARG" ;;
       f) CREATE_DISK_FLAG=1 ;;
       p) CREATE_PART_FLAG=1 ;;
       s) CREATE_SNAP_FLAG=1 ;;
       r) CREATE_RSTR_SNAP=1 ;;
       u) LEAVE_UMOUNTED=1 ;;
       *)
-        echo "[USAGE] $0 -d DISK_UUID -l PART_PREFIX [-f][-p][-s][-u][-r] [SUBVOL_LIST]"
+        echo "[USAGE] $0 "
+        echo "        -d DISK_UUID -l PART_PREFIX -e EXT4_PREFIX"
+        echo "        [-f] [-p] [-s] [-u] [-r]"
+        echo "        [SUBVOL_LIST]"
         exit 5
       ;;
     esac
@@ -46,10 +56,14 @@ parse_opts() {
 	BASE_DEVICE="`basename "$DISK_DEVICE"`"
   PART_LBL_SRC="${PART_PREFIX}_src"
   PART_LBL_DST="${PART_PREFIX}_dst"
+  EXT4_LBL_1="${EXT4_PREFIX}_1"
+  EXT4_LBL_2="${EXT4_PREFIX}_2"
   SUBVOL_LIST=( "$@" )
   MOUNT_SRC="$TEMP/${PART_PREFIX}_src"
   MOUNT_VOL="$TEMP/${PART_PREFIX}_vol"
   MOUNT_DST="$TEMP/${PART_PREFIX}_dst"
+  MOUNT_EXT4_1="$TEMP/${EXT4_PREFIX}_1"
+  MOUNT_EXT4_2="$TEMP/${EXT4_PREFIX}_2"
   RESTORE_POINT="$MOUNT_DST/restore"
   SNAP_POINT="$MOUNT_SRC/snapshots"
 }
@@ -109,7 +123,11 @@ avoid_shot_in_the_foot_loop() {
 }
 
 umount_fs() {
-  for mntpt in "$MOUNT_VOL"/* "$MOUNT_SRC" "$MOUNT_DST"; do
+  local -a mnt_list=(
+    "$MOUNT_VOL"/* "$MOUNT_SRC" "$MOUNT_DST"
+    "$MOUNT_EXT4_1" "$MOUNT_EXT4_2"
+  )
+  for mntpt in "${mnt_list[@]}"; do
     [[ -e "$mntpt" ]] || continue
     mountpoint -q "$mntpt" && run_cmd sudo umount "$mntpt"
   done
@@ -124,19 +142,27 @@ umount_fs() {
 }
 
 mount_fs() {
-  for part_mnt in "${PART_LBL_SRC}:${MOUNT_SRC}" "${PART_LBL_DST}:${MOUNT_DST}"; do
+  local -a part_mnt_list=(
+    "${PART_LBL_SRC}:${MOUNT_SRC}"
+    "${PART_LBL_DST}:${MOUNT_DST}"
+    "${EXT4_LBL_1}:${MOUNT_EXT4_1}"
+    "${EXT4_LBL_2}:${MOUNT_EXT4_2}"
+  )
+  for part_mnt in "${part_mnt_list[@]}"; do
     local mntpt="${part_mnt#*:}"
     local part_path="/dev/disk/by-partlabel/${part_mnt%:*}"
+    local mnt_opts="user,noexec"
     [[ -d "$mntpt" ]] || run_cmd mkdir "$mntpt"
+    [[ "$part_mnt" == *btrfs* ]] && mnt_opts="${mnt_opts},user_subvol_rm_allowed"
 
     if ! mountpoint -q "$mntpt"; then
-      run_cmd sudo mount -o user_subvol_rm_allowed,user,noexec "$part_path" "$mntpt"
+      run_cmd sudo mount -o "$mnt_opts" "$part_path" "$mntpt"
       run_cmd sudo chown -R "`whoami`": "$mntpt"
-
-      [[ -d "$RESTORE_POINT" ]] || run_cmd mkdir -p "$RESTORE_POINT"
-      [[ -d "$MOUNT_VOL" ]] || run_cmd mkdir -p "$MOUNT_VOL"
     fi
   done
+
+  [[ -d "$RESTORE_POINT" ]] || run_cmd mkdir -p "$RESTORE_POINT"
+  [[ -d "$MOUNT_VOL" ]] || run_cmd mkdir -p "$MOUNT_VOL"
 }
 
 prepare_disk_dev() {
@@ -148,7 +174,7 @@ prepare_loop_dev() {
   local backfile="/sys/block/`basename $LOOP_DEV`/loop/backing_file"
   [[ "$CREATE_DISK_FLAG" == 1 ]] || return
 
-  run_cmd dd if=/dev/zero of="$LOOP_FILE" bs=64M count=1
+  run_cmd dd if=/dev/zero of="$LOOP_FILE" bs="$LOOP_SIZE" count=1
   run_cmd sudo losetup "$LOOP_DEV" "$LOOP_FILE"
   run_cmd sudo "${PARTED_CMD[@]}" "$LOOP_DEV" mklabel gpt
   try_or_die -b "$LOOP_DEV"
@@ -157,28 +183,45 @@ prepare_loop_dev() {
 
 prepare_partition() {
   local disk_dev="$1"
+  local -a all_parts=( "$PART_LBL_SRC" "$PART_LBL_DST" "$EXT4_LBL_1" "$EXT4_LBL_2" )
+  local index=0
+
   try_or_die ! -z "$disk_dev"
   [[ "$CREATE_PART_FLAG" == 1 ]] || return
   run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" print
-  run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" mkpart primary btrfs 1% 49%
-  run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" mkpart primary btrfs 50% 99%
-  run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" name 1 "$PART_LBL_SRC"
-  run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" name 2 "$PART_LBL_DST"
+
+  run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" mkpart primary btrfs 1%  25%
+  run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" mkpart primary btrfs 25% 50%
+  run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" mkpart primary ext4  50% 75%
+  run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" mkpart primary ext4  75% 100%
+
+  for part in "${all_parts[@]}"; do
+    index=$(( index + 1 ))
+    run_cmd sudo "${PARTED_CMD[@]}" "$disk_dev" name "$index" "$part"
+  done
 
   sync && sleep 1
   run_cmd ls "/dev/disk/by-partlabel"
-  try_or_die -e "/dev/disk/by-partlabel/$PART_LBL_SRC"
-  try_or_die -e "/dev/disk/by-partlabel/$PART_LBL_DST"
+  for part in "${all_parts[@]}"; do
+    try_or_die -e "/dev/disk/by-partlabel/$part"
+  done
 }
 
 prepare_filesystem() {
   for label in "$PART_LBL_SRC" "$PART_LBL_DST"; do
     local part_path="/dev/disk/by-partlabel/${label}"
     run_cmd sudo mkfs.btrfs --mixed -fL "$label" "$part_path"
-
-    #run_cmd sudo blkid --garbage-collect
-    #run_cmd blkid --label "$label"
   done
+
+  for label in "$EXT4_LBL_1" "$EXT4_LBL_2"; do
+    local part_path="/dev/disk/by-partlabel/${label}"
+    # Be careful it is a trap !
+    # ext4 fs labels are 16 chars max
+    run_cmd sudo mkfs.ext4 -L "${label: -16:16}" "$part_path"
+  done
+
+  #run_cmd sudo blkid --garbage-collect
+  #run_cmd blkid --label "$label"
 }
 
 prepare_all_for_disk_dev() {
@@ -206,7 +249,7 @@ prepare_all_for_loop_fiasco() {
   mkdir -p "$root_image/subvolumes"
   mkdir -p "$root_image/snapshots"
 
-  dd if=/dev/zero of="$LOOP_FILE" bs=64M count=1
+  dd if=/dev/zero of="$LOOP_FILE" bs="$LOOP_SIZE" count=1
   mkfs.btrfs --mixed --rootdir=root_image "$LOOP_FILE"
 
   # Requires the following in /etc/fstab
