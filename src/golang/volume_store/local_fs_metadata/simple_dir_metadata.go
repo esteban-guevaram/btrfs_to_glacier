@@ -157,7 +157,11 @@ func (self *SimpleDirMetadataAdmin) SetupMetadata(ctx context.Context) (<-chan e
       done <- fmt.Errorf("'%s' is not a directory", MetaDir(p))
       return
     }
-    if !util.Exists(SymLink(p)) { done <- nil ; return }
+    if !util.Exists(SymLink(p)) {
+      if self.State == nil { self.State = &pb.AllMetadata{} }
+      done <- nil
+      return
+    }
     if !util.IsSymLink(SymLink(p)) {
       done <- fmt.Errorf("'%s' is not a symlink", SymLink(p))
       return
@@ -168,8 +172,7 @@ func (self *SimpleDirMetadataAdmin) SetupMetadata(ctx context.Context) (<-chan e
       done <- fmt.Errorf("'%s' points outside of '%s'", SymLink(p), MetaDir(p))
       return
     }
-    err = self.LoadPreviousStateFromDir(ctx)
-    if err != nil { done <- err; return }
+    if self.State == nil { done <- self.LoadPreviousStateFromDir(ctx); return }
     done <- nil
   }()
   return done

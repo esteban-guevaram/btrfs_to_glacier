@@ -60,17 +60,8 @@ func buildTestMetadataWithState(t *testing.T, state *pb.AllMetadata) (*SimpleDir
   return meta, client, clean_f
 }
 
-func buildTestAdminMetadata(t *testing.T) (*SimpleDirMetadataAdmin, *SimpleDirRw, func()) {
-  local_fs, clean_f := util.TestSimpleDirLocalFs()
-  conf := util.LoadTestConfWithLocalFs(local_fs)
-  metadata,client := buildTestMetadataWithConf(t, conf)
-  admin := &SimpleDirMetadataAdmin{ SimpleDirMetadata:metadata, }
-  return admin, client, clean_f
-}
-
-func buildTestAdminMetadataWithState(
-    t *testing.T, state *pb.AllMetadata) (*SimpleDirMetadataAdmin, *SimpleDirRw, func()) {
-  metadata,client,clean_f := buildTestMetadataWithState(t, state)
+func buildTestAdminMetadata_NilState(t *testing.T) (*SimpleDirMetadataAdmin, *SimpleDirRw, func()) {
+  metadata,client,clean_f := buildTestMetadataWithState(t, nil)
   admin := &SimpleDirMetadataAdmin{ SimpleDirMetadata:metadata, }
   return admin, client, clean_f
 }
@@ -158,8 +149,9 @@ func TestSaveCurrentStateToDir_Err(t *testing.T) {
 func TestSetupMetadata(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  meta_admin,_,clean_f := buildTestAdminMetadata(t)
+  meta_admin,_,clean_f := buildTestAdminMetadata_NilState(t)
   defer clean_f()
+  if meta_admin.State != nil { t.Errorf("State already loaded") }
   done := meta_admin.SetupMetadata(ctx)
   select {
     case err := <-done:
@@ -172,7 +164,7 @@ func TestSetupMetadata(t *testing.T) {
 func TestSetupMetadata_Fail(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  meta_admin,_,clean_f := buildTestAdminMetadata(t)
+  meta_admin,_,clean_f := buildTestAdminMetadata_NilState(t)
   defer clean_f()
   meta_admin.DirInfo.MetadataDir = uuid.NewString() // this dir should not exist
   done := meta_admin.SetupMetadata(ctx)
@@ -187,13 +179,35 @@ func TestSetupMetadata_Fail(t *testing.T) {
 func TestSetupMetadata_Idempotent(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  meta_admin,_,clean_f := buildTestAdminMetadata(t)
+  meta_admin,_,clean_f := buildTestAdminMetadata_NilState(t)
   defer clean_f()
   for i:=0; i<2; i+=1 {
     done := meta_admin.SetupMetadata(ctx)
     select {
       case err := <-done:
         if err != nil { t.Errorf("Returned error: %v", err) }
+        if meta_admin.State == nil { t.Errorf("State not loaded") }
+      case <-ctx.Done():
+        t.Fatalf("TestSetupMetadata_Idempotent timeout")
+    }
+  }
+}
+
+func TestSetupMetadata_IdempotentNoState(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  meta_admin,_,clean_f := buildTestAdminMetadata_NilState(t)
+  defer clean_f()
+  if err := os.Remove(SymLink(meta_admin.DirInfo)); err != nil {
+    t.Fatalf("Failed to clean initial state link: %v", err)
+  }
+
+  for i:=0; i<2; i+=1 {
+    done := meta_admin.SetupMetadata(ctx)
+    select {
+      case err := <-done:
+        if err != nil { t.Errorf("Returned error: %v", err) }
+        util.EqualsOrFailTest(t, "Bad state", meta_admin.State, &pb.AllMetadata{})
       case <-ctx.Done():
         t.Fatalf("TestSetupMetadata_Idempotent timeout")
     }
