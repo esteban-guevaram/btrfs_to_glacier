@@ -25,13 +25,15 @@ message Aws {
 
 message LocalFs {
   message Partition {
-    string device_uuid = 1;
-    string partition_uuid = 2;
-    string mount_root = 3;
-    string metadata_dir = 4;
-    string storage_dir = 5;
+    string fs_uuid = 1;
+    string mount_root = 2;
+    string metadata_dir = 3;
+    string storage_dir = 4;
   }
-  repeated Partition partitions = 1;
+  message RoundRobin {
+    repeated Partition partitions = 1;
+  }
+  repeated RoundRobin sinks = 1;
 }
 
 // Additional tools not directly related to backup/restores.

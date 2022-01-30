@@ -16,6 +16,7 @@ import (
   "btrfs_to_glacier/volume_store/mem_only"
 
   "github.com/google/uuid"
+  "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -29,6 +30,10 @@ type SimpleDirMetadata struct {
   KeepLast   int
 }
 
+type SimpleDirMetadataAdmin struct {
+  *SimpleDirMetadata
+}
+
 func MetaDir(dir_info *pb.LocalFs_Partition) string {
   return fpmod.Join(dir_info.MountRoot, dir_info.MetadataDir)
 }
@@ -36,13 +41,16 @@ func SymLink(dir_info *pb.LocalFs_Partition) string {
   return fpmod.Join(dir_info.MountRoot, dir_info.MetadataDir, "metadata.pb.gz")
 }
 
-func NewMetadata(ctx context.Context, conf *pb.Config, part_uuid string) (types.Metadata, error) {
+// Does not load the state from disk.
+// Either call LoadPreviousStateFromDir or SetupMetadata.
+func NewMetadata(ctx context.Context, conf *pb.Config, fs_uuid string) (types.Metadata, error) {
   var part *pb.LocalFs_Partition
-  for _,p := range conf.LocalFs.Partitions {
-    if p.PartitionUuid != part_uuid { continue }
+  for _,g := range conf.LocalFs.Sinks {
+  for _,p := range g.Partitions {
+    if p.FsUuid != fs_uuid { continue }
     part = p
-  }
-  if part == nil { return nil, fmt.Errorf("Partition '%s' not found", part_uuid) }
+  }}
+  if part == nil { return nil, fmt.Errorf("Partition '%s' not found", fs_uuid) }
 
   metadata := &SimpleDirMetadata{
     Metadata: &mem_only.Metadata{ Conf: conf, },
@@ -50,8 +58,16 @@ func NewMetadata(ctx context.Context, conf *pb.Config, part_uuid string) (types.
     SymLink: SymLink(part),
     KeepLast: KeepLast,
   }
-  err := metadata.LoadPreviousStateFromDir(ctx)
-  return metadata, err
+  return metadata, nil
+}
+
+func NewMetadataAdmin(
+    ctx context.Context, conf *pb.Config, part_uuid string) (types.AdminMetadata, error) {
+  metadata, err := NewMetadata(ctx, conf, part_uuid)
+  if err != nil { return nil, err }
+
+  admin := &SimpleDirMetadataAdmin{ SimpleDirMetadata: metadata.(*SimpleDirMetadata), }
+  return admin, nil
 }
 
 func (self *SimpleDirMetadata) LoadPreviousStateFromDir(ctx context.Context) error {
@@ -129,5 +145,40 @@ func (self *SimpleDirMetadata) SaveCurrentStateToDir(ctx context.Context) (strin
 
 func (self *SimpleDirMetadata) PersistCurrentMetadataState(ctx context.Context) (string, error) {
   return self.SaveCurrentStateToDir(ctx)
+}
+
+// Do not create anything, just check
+func (self *SimpleDirMetadataAdmin) SetupMetadata(ctx context.Context) (<-chan error) {
+  done := make(chan error, 1)
+  go func() {
+    defer close(done)
+    p := self.DirInfo
+    if !util.IsDir(MetaDir(p)) {
+      done <- fmt.Errorf("'%s' is not a directory", MetaDir(p))
+      return
+    }
+    if !util.Exists(SymLink(p)) { done <- nil ; return }
+    if !util.IsSymLink(SymLink(p)) {
+      done <- fmt.Errorf("'%s' is not a symlink", SymLink(p))
+      return
+    }
+    target,err := fpmod.EvalSymlinks(SymLink(p))
+    if err != nil { done <- err; return }
+    if !fpmod.HasPrefix(target, MetaDir(p)) {
+      done <- fmt.Errorf("'%s' points outside of '%s'", SymLink(p), MetaDir(p))
+      return
+    }
+    err = self.LoadPreviousStateFromDir(ctx)
+    if err != nil { done <- err; return }
+    done <- nil
+  }()
+  return done
+}
+
+func TestOnlySetInnerState(metadata types.Metadata, state *pb.AllMetadata) {
+  if metadata == nil { util.Fatalf("metadata == nil") }
+  impl,ok := metadata.(*SimpleDirMetadataAdmin)
+  if !ok { util.Fatalf("called with the wrong impl") }
+  impl.State = proto.Clone(state).(*pb.AllMetadata)
 }
 

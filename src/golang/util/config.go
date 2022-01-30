@@ -53,15 +53,15 @@ func TestSimpleDirLocalFs() (*pb.LocalFs, func()) {
   err = os.Mkdir(fpmod.Join(local_fs_dir, "storage"), fs.ModePerm)
   if err != nil { Fatalf("failed to create dir: %v", err) }
 
+  part := &pb.LocalFs_Partition{
+    FsUuid: "fs_uuid",
+    MountRoot: local_fs_dir,
+    MetadataDir: "metadata",
+    StorageDir: "storage",
+  }
   local_fs := &pb.LocalFs{
-    Partitions: []*pb.LocalFs_Partition{
-      &pb.LocalFs_Partition{
-        DeviceUuid: "dev_uuid",
-        PartitionUuid: "part_uuid",
-        MountRoot: local_fs_dir,
-        MetadataDir: "metadata",
-        StorageDir: "storage",
-      },
+    Sinks: []*pb.LocalFs_RoundRobin{
+      &pb.LocalFs_RoundRobin{ Partitions: []*pb.LocalFs_Partition{ part, }, },
     },
   }
   return local_fs, func() { CleanLocalFs(local_fs) }
@@ -69,9 +69,11 @@ func TestSimpleDirLocalFs() (*pb.LocalFs, func()) {
 
 func CleanLocalFs(local_fs *pb.LocalFs) {
   tmp_root := os.TempDir()
-  for _,p := range local_fs.Partitions {
-    if !fpmod.HasPrefix(p.MountRoot, tmp_root) { continue }
-    os.RemoveAll(p.MountRoot)
+  for _,g := range local_fs.Sinks {
+    for _,p := range g.Partitions {
+      if !fpmod.HasPrefix(p.MountRoot, tmp_root) { continue }
+      os.RemoveAll(p.MountRoot)
+    }
   }
 }
 
