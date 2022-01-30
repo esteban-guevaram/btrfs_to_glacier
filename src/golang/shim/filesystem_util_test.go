@@ -1,6 +1,7 @@
 package shim
 
 import (
+  "context"
   "io/fs"
   "os"
   "testing"
@@ -8,54 +9,33 @@ import (
   "btrfs_to_glacier/util"
 )
 
-func buildFilesystemUtil(t *testing.T) (*FilesystemUtil, *FsReaderMock) {
-  fs_reader := &FsReaderMock{
+func buildFilesystemUtil(t *testing.T) (*FilesystemUtil, *SysUtilMock) {
+  sys_util := &SysUtilMock{
     FileContent: make(map[string]string),
     DirContent: make(map[string][]os.DirEntry),
     LinkTarget: make(map[string]string),
   }
-  lu := &FilesystemUtil{ FsReader:fs_reader, }
-  return lu, fs_reader
+  lu := &FilesystemUtil{ SysUtil:sys_util, }
+  return lu, sys_util
 }
 
-// 25 23 0:6 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime shared:3 - securityfs securityfs rw
-// 26 24 0:23 / /dev/shm rw,nosuid,nodev shared:9 - tmpfs tmpfs rw,size=16415840k,nr_inodes=4103960,inode64
-// 27 24 0:24 / /dev/pts rw,nosuid,noexec,relatime shared:10 - devpts devpts rw,gid=5,mode=620,ptmxmode=000
-// 28 61 0:25 / /run rw,nosuid,nodev shared:11 - tmpfs tmpfs rw,size=6566336k,nr_inodes=819200,mode=755,inode64
-// 29 23 0:26 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:4 - cgroup2 cgroup2 rw,nsdelegate,memory_recursiveprot
-// 30 23 0:27 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime shared:5 - pstore pstore rw
-// 31 23 0:28 / /sys/firmware/efi/efivars rw,nosuid,nodev,noexec,relatime shared:6 - efivarfs efivarfs rw
-// 32 23 0:29 / /sys/fs/bpf rw,nosuid,nodev,noexec,relatime shared:7 - bpf none rw,mode=700
-// 34 24 0:20 / /dev/mqueue rw,nosuid,nodev,noexec,relatime shared:14 - mqueue mqueue rw
-// 35 23 0:7 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime shared:15 - debugfs debugfs rw
-// 36 23 0:12 / /sys/kernel/tracing rw,nosuid,nodev,noexec,relatime shared:16 - tracefs tracefs rw
-// 37 61 0:31 / /tmp rw,nosuid,nodev shared:17 - tmpfs tmpfs rw,size=16415840k,nr_inodes=1048576,inode64
-// 38 23 0:32 / /sys/kernel/config rw,nosuid,nodev,noexec,relatime shared:18 - configfs configfs rw
-// 59 28 0:33 / /run/credentials/systemd-sysusers.service ro,nosuid,nodev,noexec,relatime shared:19 - ramfs none rw,mode=700
-// 39 23 0:34 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime shared:20 - fusectl fusectl rw
-// 120 33 0:36 / /proc/sys/fs/binfmt_misc rw,nosuid,nodev,noexec,relatime shared:59 - binfmt_misc binfmt_misc rw
-// 413 61 0:40 / /var/lib/hugetlbfs/global/pagesize-2MB rw,relatime shared:154 - hugetlbfs none rw,pagesize=2M
-// 424 61 0:41 / /var/lib/hugetlbfs/global/pagesize-1GB rw,relatime shared:179 - hugetlbfs none rw,pagesize=1024M
-// 435 28 0:42 / /run/user/1000 rw,nosuid,nodev,relatime shared:202 - tmpfs tmpfs rw,size=3283320k,nr_inodes=820830,mode=700,uid=1000,gid=1001,inode64
-// 451 435 0:43 / /run/user/1000/doc rw,nosuid,nodev,relatime shared:235 - fuse.portal portal rw,user_id=1000,group_id=1001
-// 86 61 259:4  /                    /home rw,noatime,nodiratime shared:38 - ext4 /dev/nvme0n1p2 rw
-// 89 61 259:6  /                    /boot/efi rw,noatime shared:45 - vfat /dev/nvme0n1p4 rw
 func TestListMounts(t *testing.T) {
   lu,fs_reader := buildFilesystemUtil(t)
   fs_reader.FileContent["/proc/self/mountinfo"] = `
-22 61 0:21   /                    /proc rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw
-23 61 0:22   /                    /sys rw,nosuid,nodev,noexec,relatime shared:2 - sysfs sysfs rw
-24 61 0:5    /                    /dev rw,nosuid shared:8 - devtmpfs devtmpfs rw
-61 1 259:3   /                    / rw,noatime,nodiratime shared:1 - ext4 /dev/nvme0n1p1 rw
-93 61 254:0  /                    /media/some_fs_a rw shared:47 - ext4 /dev/mapper/mapper-group rw
-99 86 254:0  /Bind_dm-0           /home/host_user/Bind_dm-0 rw shared:47 - ext4 /dev/mapper/mapper-group rw
-105 61 8:3   /                    /media/some_fs_b rw shared:52 - ext4 /dev/sda3 rw
-108 61 8:4   /                    /media/some_fs_c rw shared:54 - ext4 /dev/sda4 rw
-111 86 8:3   /Bind_sda3           /home/host_user/Bind_sda3 rw shared:52 - ext4 /dev/sda3 rw
-114 86 8:4   /Bind_sda4           /home/host_user/Bind_sda4 rw shared:54 - ext4 /dev/sda4 rw
-468 37 0:44  /                    /tmp/btrfs_test_partition_src rw shared:245 - btrfs /dev/loop111p1 rw
-483 37 0:47  /                    /tmp/btrfs_test_partition_dst rw shared:253 - btrfs /dev/loop111p2 rw
-498 37 0:44  /asubvol             /tmp/btrfs_test_partition_vol/asubvol rw shared:261 - btrfs /dev/loop111p1 rw
+22 61 0:21   /           /proc            rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw
+23 61 0:22   /           /sys             rw,nosuid,nodev,noexec,relatime shared:2 - sysfs sysfs rw
+24 61 0:5    /           /dev             rw,nosuid shared:8 - devtmpfs devtmpfs rw
+
+61 1 259:3   /           /                rw,noatime,nodiratime shared:1 - ext4 /dev/nvme0n1p1 rw
+93 61 254:0  /           /media/some_fs_a           rw shared:47 - ext4 /dev/mapper/mapper-group rw
+99 86 254:0  /Bind_dm-0  /home/host_user/Bind_dm-0  rw shared:47 - ext4 /dev/mapper/mapper-group rw
+105 61 8:3   /           /media/some_fs_b           rw shared:52 - ext4 /dev/sda3 rw
+108 61 8:4   /           /media/some_fs_c           rw shared:54 - ext4 /dev/sda4 rw
+111 86 8:3   /Bind_sda3  /home/host_user/Bind_sda3  rw shared:52 - ext4 /dev/sda3 rw
+114 86 8:4   /Bind_sda4  /home/host_user/Bind_sda4  rw shared:54 - ext4 /dev/sda4 rw
+468 37 0:44  /           /tmp/btrfs_mnt_1           rw shared:245 - btrfs /dev/loop111p1 rw
+483 37 0:47  /           /tmp/btrfs_mnt_2           rw shared:253 - btrfs /dev/loop111p2 rw
+498 37 0:44  /asubvol    /tmp/btrfs_mnt_3/asubvol   rw shared:261 - btrfs /dev/loop111p1 rw
 `
   fs_reader.DirContent["/dev/disk/by-partuuid"] = []os.DirEntry{
     &DirEntry{ Leaf:"gpt-uuid-sda1", Mode:fs.ModeSymlink, },
@@ -306,7 +286,7 @@ func TestListMounts(t *testing.T) {
       "GptUuid": "gpt-uuid-loop111p1"
     },
     "TreePath": "",
-    "MountedPath": "/tmp/btrfs_test_partition_src",
+    "MountedPath": "/tmp/btrfs_mnt_1",
     "FsType": "btrfs",
     "Options": {
       "rw": ""
@@ -325,7 +305,7 @@ func TestListMounts(t *testing.T) {
       "GptUuid": "gpt-uuid-loop111p2"
     },
     "TreePath": "",
-    "MountedPath": "/tmp/btrfs_test_partition_dst",
+    "MountedPath": "/tmp/btrfs_mnt_2",
     "FsType": "btrfs",
     "Options": {
       "rw": ""
@@ -344,7 +324,7 @@ func TestListMounts(t *testing.T) {
       "GptUuid": "gpt-uuid-loop111p1"
     },
     "TreePath": "asubvol",
-    "MountedPath": "/tmp/btrfs_test_partition_vol/asubvol",
+    "MountedPath": "/tmp/btrfs_mnt_3/asubvol",
     "FsType": "btrfs",
     "Options": {
       "rw": ""
@@ -358,5 +338,55 @@ func TestListMounts(t *testing.T) {
   util.Debugf("mnt_list: %v", util.AsJson(mnt_list))
   diff_line := util.DiffLines(mnt_list, expected)
   if len(diff_line) > 0 { t.Errorf(diff_line) }
+}
+
+func TestMount_Simple(t *testing.T) {
+  lu,sys_util := buildFilesystemUtil(t)
+  fs_uuid := "fs_uuid"
+  target := "/some/path"
+  sys_util.AddMount(fs_uuid, "sda666", target)
+  mnt, err := lu.Mount(context.TODO(), fs_uuid, target)
+
+  if err != nil { t.Errorf("Mount err: %v", err) }
+  if mnt.Device.FsUuid != fs_uuid || mnt.MountedPath != target {
+    t.Errorf("Bad mount: %v", mnt)
+  }
+}
+
+func TestMount_NotMounted(t *testing.T) {
+  lu,_ := buildFilesystemUtil(t)
+  fs_uuid := "fs_uuid"
+  target := "/some/path"
+  _, err := lu.Mount(context.TODO(), fs_uuid, target)
+
+  if err == nil { t.Errorf("Expected error if device was not mounted") }
+}
+
+func TestMount_MountBadPath(t *testing.T) {
+  lu,sys_util := buildFilesystemUtil(t)
+  fs_uuid := "fs_uuid"
+  target := "/some/path"
+  sys_util.AddMount(fs_uuid, "sda666", target)
+  _, err := lu.Mount(context.TODO(), fs_uuid, target+"bad")
+
+  if err == nil { t.Errorf("Expected error if device was mounted at wrong path") }
+}
+
+func TestUMount_Simple(t *testing.T) {
+  lu,sys_util := buildFilesystemUtil(t)
+  sys_util.AddMount("fs_uuid", "sda666", "/some/path")
+  err := lu.UMount(context.TODO(), "another_uuid")
+
+  if err != nil { t.Errorf("UMount err: %v", err) }
+}
+
+func TestUMount_StillMounted(t *testing.T) {
+  lu,sys_util := buildFilesystemUtil(t)
+  fs_uuid := "fs_uuid"
+  target := "/some/path"
+  sys_util.AddMount(fs_uuid, "sda666", target)
+  err := lu.UMount(context.TODO(), fs_uuid)
+
+  if err == nil { t.Errorf("Expected error if device is still mounted") }
 }
 

@@ -11,9 +11,9 @@ import (
   "btrfs_to_glacier/util"
 )
 
-type FsReaderMock_ForBtrfs struct {}
+type SysUtilMock_ForBtrfs struct { *SysUtilMock }
 
-func (self *FsReaderMock_ForBtrfs) ReadAsciiFile(
+func (self *SysUtilMock_ForBtrfs) ReadAsciiFile(
     dir string, name string, allow_ctrl bool) (string, error) {
   switch name {
     case fpmod.Base(MOUNT_INFO):
@@ -44,7 +44,7 @@ func (self *FsReaderMock_ForBtrfs) ReadAsciiFile(
   return "", fmt.Errorf("'%s/%s' not found in mock", dir, name)
 }
 
-func (self *FsReaderMock_ForBtrfs) ReadDir(dir string) ([]os.DirEntry, error) {
+func (self *SysUtilMock_ForBtrfs) ReadDir(dir string) ([]os.DirEntry, error) {
   switch dir {
     case SYS_FS_BTRFS:
       return []fs.DirEntry{
@@ -73,12 +73,12 @@ func (self *FsReaderMock_ForBtrfs) ReadDir(dir string) ([]os.DirEntry, error) {
   return nil, fmt.Errorf("'%s' not found in mock", dir)
 }
 
-func (self *FsReaderMock_ForBtrfs) EvalSymlinks(path string) (string, error) {
+func (self *SysUtilMock_ForBtrfs) EvalSymlinks(path string) (string, error) {
   return path, nil
 }
 
 func TestListBtrfsFilesystems(t *testing.T) {
-  linuxutils := &FilesystemUtil{ FsReader: &FsReaderMock_ForBtrfs{}, }
+  linuxutils := &FilesystemUtil{ SysUtil: &SysUtilMock_ForBtrfs{}, }
   fs_list,err := linuxutils.ListBtrfsFilesystems()
   if err != nil { t.Errorf("ListBtrfsFilesystems: %v", err) }
   if len(fs_list) != 3 { t.Errorf("found wrong number of filesystems") }

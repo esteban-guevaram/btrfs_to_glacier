@@ -1,9 +1,11 @@
 package shim
 
 import (
+  "context"
   "fmt"
   "io/fs"
   fpmod "path/filepath"
+  "os/exec"
   "regexp"
   "strconv"
   "strings"
@@ -25,7 +27,7 @@ const SYS_FS_DEVICE_FILE = "dev"
 const MOUNT_INFO = "/proc/self/mountinfo"
 
 type FilesystemUtil struct {
-  FsReader FsReaderIf
+  SysUtil  SysUtilIf
 }
 
 func majminFromString(in string) (int,int,error) {
@@ -89,8 +91,8 @@ func (self *FilesystemUtil) parseProcMountInfoFile() ([]*types.MountEntry, error
 
   var mnt_list []*types.MountEntry
   rx := regexp.MustCompile(" +")
-  file_content, err := self.FsReader.ReadAsciiFile(fpmod.Dir(MOUNT_INFO),
-                                                   fpmod.Base(MOUNT_INFO), true)
+  file_content, err := self.SysUtil.ReadAsciiFile(fpmod.Dir(MOUNT_INFO),
+                                                  fpmod.Base(MOUNT_INFO), true)
   if err != nil { return nil, err }
 
   for _,line := range strings.Split(file_content, "\n") {
@@ -138,7 +140,7 @@ func (self *FilesystemUtil) parseProcMountInfoFile() ([]*types.MountEntry, error
 // Example:
 // nameOfTarget("/dev/disk/by-uuid", "<uuid>") -> sda3, nil
 func (self *FilesystemUtil) nameOfTarget(path string, link string) (string, error) {
-  real_path, err := self.FsReader.EvalSymlinks(fpmod.Join(path, link))
+  real_path, err := self.SysUtil.EvalSymlinks(fpmod.Join(path, link))
   if err != nil { return "", err }
   return fpmod.Base(real_path), err
 }
@@ -146,7 +148,7 @@ func (self *FilesystemUtil) nameOfTarget(path string, link string) (string, erro
 func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.Device, error) {
   dev_list := make(map[string]*types.Device)
 
-  items, err := self.FsReader.ReadDir(DEV_BLOCK)
+  items, err := self.SysUtil.ReadDir(DEV_BLOCK)
   if err != nil { return nil, err }
   for _,item := range items {
     if item.Type() & fs.ModeSymlink == 0 { continue }
@@ -157,7 +159,7 @@ func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.De
     dev_list[name] = &types.Device{ Name:name, Major:maj, Minor:min, }
   }
 
-  items, err = self.FsReader.ReadDir(DEV_MAPPER)
+  items, err = self.SysUtil.ReadDir(DEV_MAPPER)
   if err != nil { return nil, err }
   for _,item := range items {
     if item.Type() & fs.ModeSymlink == 0 { continue }
@@ -168,7 +170,7 @@ func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.De
     dev.MapperGroup = item.Name()
   }
 
-  items, err = self.FsReader.ReadDir(DEV_BY_PART)
+  items, err = self.SysUtil.ReadDir(DEV_BY_PART)
   if err != nil { return nil, err }
   for _,item := range items {
     if item.Type() & fs.ModeSymlink == 0 { continue }
@@ -179,7 +181,7 @@ func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.De
     dev.GptUuid = item.Name()
   }
 
-  items, err = self.FsReader.ReadDir(DEV_BY_UUID)
+  items, err = self.SysUtil.ReadDir(DEV_BY_UUID)
   if err != nil { return nil, err }
   for _,item := range items {
     if item.Type() & fs.ModeSymlink == 0 { continue }
@@ -191,9 +193,6 @@ func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.De
   }
   return dev_list, nil
 }
-
-func (self *FilesystemUtil) Mount(dev *types.Device, target string) error { return nil }
-func (self *FilesystemUtil) UMount(mount_path string) error { return nil }
 
 func (self *FilesystemUtil) ListBlockDevMounts() ([]*types.MountEntry, error) {
   var filter_mnts []*types.MountEntry
@@ -215,6 +214,39 @@ func (self *FilesystemUtil) ListBlockDevMounts() ([]*types.MountEntry, error) {
     filter_mnts = append(filter_mnts, mnt)
   }
   return filter_mnts, nil
+}
+
+func (self *FilesystemUtil) Mount(
+    ctx context.Context, fs_uuid string, target string) (*types.MountEntry, error) {
+  cmd := exec.CommandContext(ctx, "mount", fmt.Sprintf("UUID=%s", fs_uuid))
+  util.Debugf("Running: %s", cmd.String())
+  _, err_mnt := self.SysUtil.CombinedOutput(cmd)
+
+  mnt_list, err := self.ListBlockDevMounts()
+  if err != nil { return nil, err }
+
+  for _,mnt := range mnt_list {
+    if mnt.Device.FsUuid != fs_uuid || mnt.MountedPath != target { continue }
+    return mnt, nil
+  }
+  fstab_msg := fmt.Sprintf("You may need to configure /etc/fstab, example:\nUUID=%s %s auto noauto,user,noatime,nodiratime,noexec 0 2",
+                           fs_uuid, target)
+  return nil, fmt.Errorf("failed to mount: %w\n%s", err_mnt, fstab_msg)
+}
+
+func (self *FilesystemUtil) UMount(ctx context.Context, fs_uuid string) error {
+  cmd := exec.CommandContext(ctx, "umount", fmt.Sprintf("UUID=%s", fs_uuid))
+  util.Debugf("Running: %s", cmd.String())
+  _, err_mnt := self.SysUtil.CombinedOutput(cmd)
+
+  mnt_list, err := self.ListBlockDevMounts()
+  if err != nil { return err }
+
+  for _,mnt := range mnt_list {
+    if mnt.Device.FsUuid != fs_uuid { continue }
+    return fmt.Errorf("%s is still mounted at %s: %w", fs_uuid, mnt.MountedPath, err_mnt)
+  }
+  return nil
 }
 
 ///////////////// BTRFS ///////////////////////////////////////////////////////
@@ -310,15 +342,15 @@ func (self *FilesystemUtil) matchMountEntriesToFilesystem(
 // Looks at relevant info in /sys/fs/btrfs/<uuid>/devices
 func (self *FilesystemUtil) readSysFsBtrfsDir(path string) ([]*types.Device, error) {
   var dev_list []*types.Device
-  items, err := self.FsReader.ReadDir(path)
+  items, err := self.SysUtil.ReadDir(path)
   if err != nil { return nil, err }
 
   for _,item := range items {
     dev := &types.Device{ Name:item.Name(), }
     if item.IsDir() { return nil, fmt.Errorf("expecting only links under: '%s'", path) }
-    real_path, err := self.FsReader.EvalSymlinks(fpmod.Join(path, item.Name()))
+    real_path, err := self.SysUtil.EvalSymlinks(fpmod.Join(path, item.Name()))
     if err != nil { return nil, err }
-    majmin, err := self.FsReader.ReadAsciiFile(real_path, SYS_FS_DEVICE_FILE, false)
+    majmin, err := self.SysUtil.ReadAsciiFile(real_path, SYS_FS_DEVICE_FILE, false)
     if err != nil { return nil, err }
     dev.Major, dev.Minor, err = majminFromString(majmin)
     if err != nil { return nil, err }
@@ -329,7 +361,7 @@ func (self *FilesystemUtil) readSysFsBtrfsDir(path string) ([]*types.Device, err
 
 func (self *FilesystemUtil) btrfsFilesystemsFromSysFs() ([]*types.Filesystem, error) {
   var fs_list []*types.Filesystem
-  items, err := self.FsReader.ReadDir(SYS_FS_BTRFS)
+  items, err := self.SysUtil.ReadDir(SYS_FS_BTRFS)
   if err != nil { return nil, err }
 
   for _,item := range items {
@@ -337,17 +369,17 @@ func (self *FilesystemUtil) btrfsFilesystemsFromSysFs() ([]*types.Filesystem, er
     if item.Name() == SYS_FS_FEATURE_DIR { continue }
     fs_item := &types.Filesystem{ Uuid: item.Name(), }
     dir_path := fpmod.Join(SYS_FS_BTRFS, fs_item.Uuid)
-    items, err := self.FsReader.ReadDir(dir_path)
+    items, err := self.SysUtil.ReadDir(dir_path)
     if err != nil { return nil, err }
 
     for _,item := range items {
       switch name := item.Name(); name {
         case SYS_FS_UUID:
-          uuid, err := self.FsReader.ReadAsciiFile(dir_path, name, false)
+          uuid, err := self.SysUtil.ReadAsciiFile(dir_path, name, false)
           if err != nil { return nil, err }
           if uuid != fs_item.Uuid { return nil, fmt.Errorf("fs uuid mismatch: %s != %s", uuid, fs_item.Uuid) }
         case SYS_FS_LABEL:
-          label, err := self.FsReader.ReadAsciiFile(dir_path, name, false)
+          label, err := self.SysUtil.ReadAsciiFile(dir_path, name, false)
           if err != nil { return nil, err }
           if len(label) < 1 { return nil, fmt.Errorf("expect fs to have a non empty label") }
           fs_item.Label = label

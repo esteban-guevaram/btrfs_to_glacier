@@ -34,10 +34,14 @@ func (self *Linuxutil) GetRoot() (func(), error) { return func() {}, self.Err }
 func (self *Linuxutil) ListBtrfsFilesystems() ([]*types.Filesystem, error) {
   return self.Filesystems, self.Err
 }
-func (self *Linuxutil) Mount(dev *types.Device, target string) error {
-  return self.Err
+func (self *Linuxutil) Mount(ctx context.Context, fs_uuid string, target string) (*types.MountEntry, error) {
+  mnt := &types.MountEntry{
+    Device: &types.Device{ FsUuid: fs_uuid, },
+    MountedPath: target,
+  }
+  return mnt, self.Err
 }
-func (self *Linuxutil) UMount(mount_path string) error {
+func (self *Linuxutil) UMount(ctx context.Context, fs_uuid string) error {
   return self.Err
 }
 func (self *Linuxutil) ListBlockDevMounts() ([]*types.MountEntry, error) {

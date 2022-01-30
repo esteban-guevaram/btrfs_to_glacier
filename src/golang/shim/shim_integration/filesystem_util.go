@@ -1,6 +1,7 @@
 package main
 
 import (
+  "context"
   fpmod "path/filepath"
 
   "btrfs_to_glacier/shim"
@@ -12,6 +13,7 @@ type TestFilesystemUtil struct {
   linuxutil *shim.Linuxutil
   mnt_path_1 string
   mnt_path_2 string
+  mnt_path_3 string
 }
 
 func (self *TestFilesystemUtil) CheckBtrfsFs(fs *types.Filesystem, mnt_path string) bool {
@@ -67,14 +69,68 @@ func (self *TestFilesystemUtil) TestListBlockDevMounts() {
   if !found_mnt_1 || !found_mnt_2 { util.Fatalf("Did not find all expected mounts") }
 }
 
+func (self *TestFilesystemUtil) TestListMount_Noop() {
+  var noop_mnt *types.MountEntry
+  mnt_list, err := self.linuxutil.ListBlockDevMounts()
+  if err != nil { util.Fatalf("ListBlockDevMounts: %v", err) }
+
+  for _,mnt := range mnt_list {
+    if mnt.MountedPath != self.mnt_path_1 { continue }
+    noop_mnt = mnt
+  }
+  if noop_mnt == nil { util.Fatalf("Did not find %s", self.mnt_path_1) }
+
+  got_mnt, err := self.linuxutil.Mount(context.TODO(), noop_mnt.Device.FsUuid, self.mnt_path_1)
+  if err != nil { util.Fatalf("linuxutil.Mount: %v", err) }
+  util.Debugf("entry: %s", util.AsJson(got_mnt))
+  util.EqualsOrDie("Bad mount entry", got_mnt, noop_mnt)
+}
+
+func (self *TestFilesystemUtil) TestListMount_NoSuchDev() {
+  _, err := self.linuxutil.Mount(context.TODO(), "bad_uuid", "/some/path")
+  util.Debugf("no such dev err: %v", err)
+  if err == nil { util.Fatalf("linuxutil.Mount: expected error for unexisting device") }
+}
+
+func (self *TestFilesystemUtil) TestListUMount_NoSuchDev() {
+  err := self.linuxutil.UMount(context.TODO(), "bad_uuid")
+  if err != nil { util.Fatalf("linuxutil.UMount: %v", err) }
+}
+
+func (self *TestFilesystemUtil) TestListUMount_Mount_Cycle() {
+  var expect_mnt *types.MountEntry
+  mnt_list, err := self.linuxutil.ListBlockDevMounts()
+  if err != nil { util.Fatalf("ListBlockDevMounts: %v", err) }
+
+  for _,mnt := range mnt_list {
+    if mnt.MountedPath != self.mnt_path_3 { continue }
+    expect_mnt = mnt
+  }
+  if expect_mnt == nil { util.Fatalf("Did not find %s", self.mnt_path_3) }
+
+  err = self.linuxutil.UMount(context.TODO(), expect_mnt.Device.FsUuid)
+  if err != nil { util.Fatalf("linuxutil.UMount: %v", err) }
+
+  got_mnt, err := self.linuxutil.Mount(context.TODO(), expect_mnt.Device.FsUuid, self.mnt_path_3)
+  if err != nil { util.Fatalf("linuxutil.Mount: %v", err) }
+  util.Debugf("entry: %s", util.AsJson(got_mnt))
+  util.EqualsOrDie("Bad mount entry", got_mnt, expect_mnt)
+}
+
 func TestFilesystemUtil_AllFuncs(
     linuxutil types.Linuxutil, src_fs string, dest_fs string) {
   suite := &TestFilesystemUtil{
     linuxutil: linuxutil.(*shim.Linuxutil),
     mnt_path_1: src_fs,
     mnt_path_2: dest_fs,
+    mnt_path_3: "/tmp/ext4_test_partition_1",
   }
   suite.TestListBtrfsFilesystems()
   suite.TestListBlockDevMounts()
+  suite.TestListMount_Noop()
+  suite.TestListMount_NoSuchDev()
+  suite.TestListUMount_NoSuchDev()
+  // Special snowflake test, do not run automatically
+  //suite.TestListUMount_Mount_Cycle()
 }
 

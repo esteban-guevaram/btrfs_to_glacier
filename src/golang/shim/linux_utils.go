@@ -45,7 +45,7 @@ type Linuxutil struct {
 
 func NewLinuxutil(conf *pb.Config) (types.Linuxutil, error) {
   return &Linuxutil{ 
-    FilesystemUtil: &FilesystemUtil{ FsReader:new(FsReaderImpl), },
+    FilesystemUtil: &FilesystemUtil{ SysUtil:new(SysUtilImpl), },
   }, nil
 }
 

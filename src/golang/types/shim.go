@@ -52,10 +52,12 @@ type Linuxutil interface {
   // Returns a function that can be called to restore user permissions.
   GetRoot() (func(), error)
 
-  // Mounts the device into the target path.
-  // You may need root before calling this, unless that device is mountable by the user in /etc/fstab.
-  Mount(*Device, string) error
-  UMount(string) error
+  // Mounts the device and checks it got mounted at desired path.
+  // If device is already mounted at target, this is a noop.
+  // The device needs to be mountable by the user in /etc/fstab.
+  // CAP_SYS_ADMIN will not be acquired.
+  Mount(context.Context, string, string) (*MountEntry, error)
+  UMount(context.Context, string) error
   // Returns all mounts found on the host that are backed by a block device.
   // Caveats:
   // * Bind mounts are NOT deduplicated.
