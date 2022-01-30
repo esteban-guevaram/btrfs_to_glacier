@@ -48,22 +48,30 @@ func (self *S3MetadataAdmin) injectConstants() {
   self.rule_name_suffix = rule_name_suffix
 }
 
+func (self *S3MetadataAdmin) SetupMetadata_Only(
+    ctx context.Context) error {
+  bucket_name := self.Conf.Aws.S3.MetadataBucketName
+  exists, err := self.Common.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket_name)
+  if err != nil { return err }
+  if exists { return nil }
+
+  err = self.Common.CreateBucket(ctx, bucket_name)
+  if err != nil { return err }
+  err = self.enableVersioning(ctx, bucket_name)
+  if err != nil { return err }
+  err = self.createLifecycleRule(ctx, bucket_name)
+  return err
+}
+
 func (self *S3MetadataAdmin) SetupMetadata(
     ctx context.Context) (<-chan error) {
-  bucket_name := self.Conf.Aws.S3.MetadataBucketName
   done := make(chan error, 1)
   go func() {
     defer close(done)
-    exists, err := self.Common.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket_name)
+    err := self.SetupMetadata_Only(ctx)
     if err != nil { done <- err ; return }
-    if exists { return }
-
-    err = self.Common.CreateBucket(ctx, bucket_name)
-    if err != nil { done <- err ; return }
-    err = self.enableVersioning(ctx, bucket_name)
-    if err != nil { done <- err ; return }
-    err = self.createLifecycleRule(ctx, bucket_name)
-    if err != nil { done <- err ; return }
+    if self.State == nil { done <- self.LoadPreviousStateFromS3(ctx); return }
+    done <- nil
   }()
   return done
 }

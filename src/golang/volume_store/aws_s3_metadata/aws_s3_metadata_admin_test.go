@@ -6,23 +6,14 @@ import (
   "testing"
   "time"
 
-  pb "btrfs_to_glacier/messages"
-
   s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
   "btrfs_to_glacier/util"
 )
 
-func buildTestAdminMetadata(t *testing.T) (*S3MetadataAdmin, *s3_common.MockS3Client) {
+func buildTestAdminMetadata_WithNilState(t *testing.T) (*S3MetadataAdmin, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   metadata,client := buildTestMetadataWithConf(t, conf)
-  admin := &S3MetadataAdmin{ S3Metadata:metadata, }
-  admin.injectConstants()
-  return admin, client
-}
-
-func buildTestAdminMetadataWithState(
-    t *testing.T, state *pb.AllMetadata) (*S3MetadataAdmin, *s3_common.MockS3Client) {
-  metadata,client := buildTestMetadataWithState(t, state)
+  metadata.State = nil
   admin := &S3MetadataAdmin{ S3Metadata:metadata, }
   admin.injectConstants()
   return admin, client
@@ -31,7 +22,7 @@ func buildTestAdminMetadataWithState(
 func TestCreateLifecycleRule(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  meta_admin,client := buildTestAdminMetadata(t)
+  meta_admin,client := buildTestAdminMetadata_WithNilState(t)
   bucket := meta_admin.Conf.Aws.S3.MetadataBucketName
   client.Buckets[bucket] = true
   err := meta_admin.createLifecycleRule(ctx, bucket)
@@ -46,7 +37,7 @@ func TestCreateLifecycleRule(t *testing.T) {
 func TestSetupMetadata(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  meta_admin,client := buildTestAdminMetadata(t)
+  meta_admin,client := buildTestAdminMetadata_WithNilState(t)
   bucket := meta_admin.Conf.Aws.S3.MetadataBucketName
   done := meta_admin.SetupMetadata(ctx)
   select {
@@ -64,7 +55,7 @@ func TestSetupMetadata(t *testing.T) {
 func TestSetupMetadata_Fail(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  meta_admin,client := buildTestAdminMetadata(t)
+  meta_admin,client := buildTestAdminMetadata_WithNilState(t)
   client.Err = fmt.Errorf("an unfortunate error")
   done := meta_admin.SetupMetadata(ctx)
   select {
@@ -78,7 +69,7 @@ func TestSetupMetadata_Fail(t *testing.T) {
 func TestSetupMetadata_Idempotent(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
-  meta_admin,client := buildTestAdminMetadata(t)
+  meta_admin,client := buildTestAdminMetadata_WithNilState(t)
   bucket := meta_admin.Conf.Aws.S3.MetadataBucketName
   client.Buckets[bucket] = true
   done := meta_admin.SetupMetadata(ctx)

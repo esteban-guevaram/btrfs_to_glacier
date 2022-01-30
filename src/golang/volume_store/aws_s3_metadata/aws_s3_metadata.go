@@ -57,8 +57,7 @@ func NewMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) (ty
     Common: common,
   }
   metadata.injectConstants()
-  err = metadata.LoadPreviousStateFromS3(ctx)
-  return metadata, err
+  return metadata, nil
 }
 
 func (self *S3Metadata) injectConstants() {
