@@ -10,6 +10,7 @@ import (
   "io/fs"
   "os"
   "os/exec"
+  fpmod "path/filepath"
   "reflect"
   "unicode"
   "unicode/utf8"
@@ -185,7 +186,7 @@ func IsOnlyAsciiString(str string, allow_ctrl bool) error {
 }
 
 func IsDir(path string) bool {
-  f_info, err := os.Stat(path)
+  f_info, err := os.Lstat(path)
   if err != nil { return false }
   return f_info.IsDir()
 }
@@ -233,5 +234,13 @@ func MarshalGzProto(path string, msg proto.Message) error {
   _,err = writer.Write(data)
   if err != nil { writer.Close(); return err }
   return writer.Close()
+}
+
+func RemoveAll(path string) error {
+  tmpdir := os.TempDir()
+  if !fpmod.HasPrefix(path, tmpdir) {
+    return fmt.Errorf("HasPrefix('%s', '%s')", path, tmpdir)
+  }
+  return os.RemoveAll(path)
 }
 

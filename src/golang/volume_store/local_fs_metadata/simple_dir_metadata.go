@@ -30,10 +30,6 @@ type SimpleDirMetadata struct {
   KeepLast   int
 }
 
-type SimpleDirMetadataAdmin struct {
-  *SimpleDirMetadata
-}
-
 func MetaDir(dir_info *pb.LocalFs_Partition) string {
   return fpmod.Join(dir_info.MountRoot, dir_info.MetadataDir)
 }
@@ -41,9 +37,7 @@ func SymLink(dir_info *pb.LocalFs_Partition) string {
   return fpmod.Join(dir_info.MountRoot, dir_info.MetadataDir, "metadata.pb.gz")
 }
 
-// Does not load the state from disk.
-// Either call LoadPreviousStateFromDir or SetupMetadata.
-func NewMetadata(ctx context.Context, conf *pb.Config, fs_uuid string) (types.Metadata, error) {
+func NewSimpleDirMetadataAdmin(ctx context.Context, conf *pb.Config, fs_uuid string) (types.AdminMetadata, error) {
   var part *pb.LocalFs_Partition
   for _,g := range conf.LocalFs.Sinks {
   for _,p := range g.Partitions {
@@ -61,13 +55,8 @@ func NewMetadata(ctx context.Context, conf *pb.Config, fs_uuid string) (types.Me
   return metadata, nil
 }
 
-func NewMetadataAdmin(
-    ctx context.Context, conf *pb.Config, part_uuid string) (types.AdminMetadata, error) {
-  metadata, err := NewMetadata(ctx, conf, part_uuid)
-  if err != nil { return nil, err }
-
-  admin := &SimpleDirMetadataAdmin{ SimpleDirMetadata: metadata.(*SimpleDirMetadata), }
-  return admin, nil
+func NewSimpleDirMetadata(ctx context.Context, conf *pb.Config, part_uuid string) (types.Metadata, error) {
+  return NewSimpleDirMetadataAdmin(ctx, conf, part_uuid)
 }
 
 func (self *SimpleDirMetadata) LoadPreviousStateFromDir(ctx context.Context) error {
@@ -148,7 +137,7 @@ func (self *SimpleDirMetadata) PersistCurrentMetadataState(ctx context.Context) 
 }
 
 // Do not create anything, just check
-func (self *SimpleDirMetadataAdmin) SetupMetadata(ctx context.Context) (<-chan error) {
+func (self *SimpleDirMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
   done := make(chan error, 1)
   go func() {
     defer close(done)
@@ -180,7 +169,7 @@ func (self *SimpleDirMetadataAdmin) SetupMetadata(ctx context.Context) (<-chan e
 
 func TestOnlySetInnerState(metadata types.Metadata, state *pb.AllMetadata) {
   if metadata == nil { util.Fatalf("metadata == nil") }
-  impl,ok := metadata.(*SimpleDirMetadataAdmin)
+  impl,ok := metadata.(*SimpleDirMetadata)
   if !ok { util.Fatalf("called with the wrong impl") }
   impl.State = proto.Clone(state).(*pb.AllMetadata)
 }

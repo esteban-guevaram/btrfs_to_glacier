@@ -7,6 +7,8 @@ import (
   fpmod "path/filepath"
 
   pb "btrfs_to_glacier/messages"
+
+  "github.com/google/uuid"
 )
 
 var access_flag string
@@ -45,35 +47,45 @@ func overwriteWithFlags(conf *pb.Config) {
   if meta_bucket_flag  != "" { conf.Aws.S3.MetadataBucketName = meta_bucket_flag }
 }
 
-func TestSimpleDirLocalFs() (*pb.LocalFs, func()) {
-  local_fs_dir, err := os.MkdirTemp(os.TempDir(), "localfs_")
-  if err != nil { Fatalf("failed to create tmp dir: %v", err) }
-  err = os.Mkdir(fpmod.Join(local_fs_dir, "metadata"), fs.ModePerm)
-  if err != nil { Fatalf("failed to create dir: %v", err) }
-  err = os.Mkdir(fpmod.Join(local_fs_dir, "storage"), fs.ModePerm)
-  if err != nil { Fatalf("failed to create dir: %v", err) }
+func TestMultiSinkLocalFs(sink_cnt int, part_cnt int, create_dirs bool) (*pb.LocalFs, func()) {
+  sinks := make([]*pb.LocalFs_RoundRobin, sink_cnt)
+  for s_idx,_ := range sinks {
+    parts := make([]*pb.LocalFs_Partition, part_cnt)
+    for p_idx,_ := range parts {
+      local_fs_dir := fpmod.Join(os.TempDir(), uuid.NewString())
+      if create_dirs {
+        var err error
+        local_fs_dir, err = os.MkdirTemp(os.TempDir(), "localfs_")
+        if err != nil { Fatalf("failed to create tmp dir: %v", err) }
+        err = os.Mkdir(fpmod.Join(local_fs_dir, "metadata"), fs.ModePerm)
+        if err != nil { Fatalf("failed to create dir: %v", err) }
+        err = os.Mkdir(fpmod.Join(local_fs_dir, "storage"), fs.ModePerm)
+        if err != nil { Fatalf("failed to create dir: %v", err) }
+      }
 
-  part := &pb.LocalFs_Partition{
-    FsUuid: "fs_uuid",
-    MountRoot: local_fs_dir,
-    MetadataDir: "metadata",
-    StorageDir: "storage",
+      parts[p_idx] = &pb.LocalFs_Partition{
+        FsUuid: uuid.NewString(),
+        MountRoot: local_fs_dir,
+        MetadataDir: "metadata",
+        StorageDir: "storage",
+      }
+    }
+    sinks[s_idx] = &pb.LocalFs_RoundRobin{ 
+      Name: uuid.NewString(),
+      Partitions: parts,
+    }
   }
-  local_fs := &pb.LocalFs{
-    Sinks: []*pb.LocalFs_RoundRobin{
-      &pb.LocalFs_RoundRobin{ Partitions: []*pb.LocalFs_Partition{ part, }, },
-    },
-  }
+  local_fs := &pb.LocalFs{ Sinks: sinks, }
   return local_fs, func() { CleanLocalFs(local_fs) }
 }
 
+func TestSimpleDirLocalFs() (*pb.LocalFs, func()) {
+  return TestMultiSinkLocalFs(1,1,true)
+}
+
 func CleanLocalFs(local_fs *pb.LocalFs) {
-  tmp_root := os.TempDir()
   for _,g := range local_fs.Sinks {
-    for _,p := range g.Partitions {
-      if !fpmod.HasPrefix(p.MountRoot, tmp_root) { continue }
-      os.RemoveAll(p.MountRoot)
-    }
+    for _,p := range g.Partitions { RemoveAll(p.MountRoot) }
   }
 }
 

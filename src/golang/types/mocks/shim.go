@@ -4,7 +4,9 @@ import (
   "context"
   "fmt"
   "io"
+  "io/fs"
   fpmod "path/filepath"
+  "os"
   "strings"
 
   pb "btrfs_to_glacier/messages"
@@ -35,13 +37,23 @@ func (self *Linuxutil) ListBtrfsFilesystems() ([]*types.Filesystem, error) {
   return self.Filesystems, self.Err
 }
 func (self *Linuxutil) Mount(ctx context.Context, fs_uuid string, target string) (*types.MountEntry, error) {
+  if !fpmod.HasPrefix(target, os.TempDir()) {
+    return nil, fmt.Errorf("HasPrefix('%s', '%s')", target, os.TempDir())
+  }
+  if err := os.MkdirAll(target, fs.ModePerm); err != nil {
+    return nil, fmt.Errorf("failed to create meta dir: %v", err)
+  }
   mnt := &types.MountEntry{
     Device: &types.Device{ FsUuid: fs_uuid, },
     MountedPath: target,
   }
+  self.Mounts = append(self.Mounts, mnt)
   return mnt, self.Err
 }
 func (self *Linuxutil) UMount(ctx context.Context, fs_uuid string) error {
+  for i,m := range self.Mounts {
+    if m.Device.FsUuid == fs_uuid { self.Mounts = append(self.Mounts[:i], self.Mounts[i+1:]...); break }
+  }
   return self.Err
 }
 func (self *Linuxutil) ListBlockDevMounts() ([]*types.MountEntry, error) {

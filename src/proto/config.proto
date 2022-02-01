@@ -31,7 +31,8 @@ message LocalFs {
     string storage_dir = 4;
   }
   message RoundRobin {
-    repeated Partition partitions = 1;
+    string name = 1;
+    repeated Partition partitions = 2;
   }
   repeated RoundRobin sinks = 1;
 }
