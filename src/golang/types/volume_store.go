@@ -6,6 +6,7 @@ import "io"
 import pb "btrfs_to_glacier/messages"
 
 var ErrNotFound = errors.New("key_not_found_in_metadata")
+var ErrChunkFound = errors.New("chunk_not_found_in_storage")
 
 type ChunksOrError struct {
   Val *pb.SnapshotChunks
