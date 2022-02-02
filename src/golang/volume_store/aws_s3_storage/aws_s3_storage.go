@@ -308,6 +308,7 @@ func (self *s3Storage) readOneChunk(
     Key: aws.String(chunk.Uuid),
   }
   get_out, err := self.client.GetObject(ctx, get_in)
+  if s3_common.IsS3Error(new(s3_types.NoSuchKey), err) { return types.ErrChunkFound }
   if err != nil { return err }
   if get_out.ContentLength != int64(chunk.Size) {
     return fmt.Errorf("mismatched length with metadata: %d != %d", get_out.ContentLength, chunk.Size)

@@ -139,16 +139,16 @@ func TestOnlyChangeIterationSize(storage types.Storage, size int32) func() {
 }
 
 func (self *s3StorageAdmin) deleteBatch(
-    ctx context.Context, low_bound int, up_bound int, chunks []*pb.SnapshotChunks_Chunk) error {
+    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) error {
   del_in := &s3.DeleteObjectsInput{
     Bucket: &self.conf.Aws.S3.StorageBucketName,
     Delete: &s3_types.Delete{
-      Objects: make([]s3_types.ObjectIdentifier, up_bound-low_bound),
+      Objects: make([]s3_types.ObjectIdentifier, len(chunks)),
       Quiet: true,
     },
   }
-  for i:=low_bound; i<up_bound; i+=1 {
-    del_in.Delete.Objects[i-low_bound].Key = &chunks[i].Uuid
+  for i,c := range chunks {
+    del_in.Delete.Objects[i].Key = &c.Uuid
   }
   del_out,err := self.client.DeleteObjects(ctx, del_in)
   if err != nil { return err }
@@ -167,7 +167,7 @@ func (self *s3StorageAdmin) DeleteChunks(
     for low_bound:=0; low_bound<len(chunks); low_bound+=delete_objects_max {
       up_bound := low_bound + delete_objects_max
       if up_bound > len(chunks) { up_bound = len(chunks) }
-      err := self.deleteBatch(ctx, low_bound, up_bound, chunks)
+      err := self.deleteBatch(ctx, chunks[low_bound:up_bound])
       if err != nil { break }
     }
     util.Infof("Deleted %d keys: '%s'...'%s'",

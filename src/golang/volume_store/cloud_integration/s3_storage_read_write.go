@@ -157,6 +157,25 @@ func (self *s3StoreReadWriteTester) TestReadSingleChunkObject(ctx context.Contex
   self.testReadObject_Helper(ctx, sizes)
 }
 
+func (self *s3StoreReadWriteTester) TestReadUnexistingKey(ctx context.Context) {
+  chunk := &pb.SnapshotChunks_Chunk{ Uuid:uuid.NewString(), Start:0, Size:32, }
+  chunks := &pb.SnapshotChunks{
+    KeyFingerprint: "for_giggles",
+    Chunks: []*pb.SnapshotChunks_Chunk{ chunk, },
+  }
+
+  read_end,err := self.Storage.ReadChunksIntoStream(ctx, chunks)
+  if err != nil { util.Fatalf("Error should be sent via the channel: %v", err) }
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer read_end.Close()
+    written,_ := io.Copy(io.Discard, read_end)
+    if written > 0 { util.Fatalf("expecting no data, got %d bytes", written) }
+  }()
+  util.WaitForClosureOrDie(ctx, done)
+}
+
 func (self *s3StoreReadWriteTester) TestReadMultiChunkObject(ctx context.Context) {
   sizes := []uint64{4096, 1024, 666,}
   self.testReadObject_Helper(ctx, sizes)
@@ -288,6 +307,7 @@ func TestAllS3StoreReadWrite(ctx context.Context, conf *pb.Config, client *s3.Cl
   suite.TestWriteObjectMultipleChunkLen(ctx)
   suite.TestWriteEmptyObject(ctx)
   suite.TestReadSingleChunkObject(ctx)
+  suite.TestReadUnexistingKey(ctx)
   suite.TestListAllChunksSingleFill(ctx)
   suite.TestListAllChunksMultiFill(ctx)
   suite.TestReadMultiChunkObject(ctx)
