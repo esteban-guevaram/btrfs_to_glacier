@@ -11,6 +11,8 @@ import (
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
   store "btrfs_to_glacier/volume_store"
+
+  "github.com/google/uuid"
 )
 
 const (
@@ -29,13 +31,13 @@ type ChunkIoIf interface {
 type ChunkIoImpl struct {
   Chunks map[string][]byte
   Codec  types.Codec
+  ChunkLen  uint64
 }
 
 type Storage struct {
   ChunkIo   ChunkIoIf
   Conf      *pb.Config
   Codec     types.Codec
-  ChunkLen  uint32
 }
 
 type ObjectIterator struct {
@@ -52,10 +54,10 @@ func NewStorageAdmin(conf *pb.Config, codec types.Codec) (types.Storage, error) 
     ChunkIo: &ChunkIoImpl{
       Chunks: make(map[string][]byte),
       Codec: codec,
+      ChunkLen: ChunkLen,
     },
     Conf: conf,
     Codec: codec,
-    ChunkLen: ChunkLen,
   }
   return storage, nil
 }
@@ -64,7 +66,8 @@ func NewStorage(conf *pb.Config, codec types.Codec) (types.Storage, error) {
   return NewStorageAdmin(conf, codec)
 }
 
-func (self *ChunkIoImpl) ReadOneChunk(ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
+func (self *ChunkIoImpl) ReadOneChunk(
+    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
   data, found := self.Chunks[chunk.Uuid]
   if !found { return types.ErrChunkFound }
   if len(data) != int(chunk.Size) {
@@ -79,14 +82,46 @@ func (self *ChunkIoImpl) ReadOneChunk(ctx context.Context, key_fp types.Persista
   return nil
 }
 
-func (self *ChunkIoImpl) WriteOneChunk(ctx context.Context, start_offset uint64, encrypted_stream io.ReadCloser) (*pb.SnapshotChunks_Chunk, bool, error) {
-  return nil, false, nil
+func (self *ChunkIoImpl) WriteOneChunk(
+    ctx context.Context, start_offset uint64, encrypted_stream io.ReadCloser) (*pb.SnapshotChunks_Chunk, bool, error) {
+  key_str := uuid.NewString()
+
+  limit_reader := &io.LimitedReader{ R:encrypted_stream, N:int64(self.ChunkLen) }
+  data := make([]byte, self.ChunkLen)
+  write_cnt, err := limit_reader.Read(data)
+
+  util.Debugf("limit_reader.Read: %d/%d, %v", write_cnt, self.ChunkLen, err)
+  if err != nil && err != io.EOF { return nil, false, err }
+  if write_cnt == 0 { return nil, false, nil }
+
+  self.Chunks[key_str] = data[0:write_cnt]
+  chunk := &pb.SnapshotChunks_Chunk{
+    Uuid: key_str,
+    Start: start_offset,
+    Size: uint64(write_cnt),
+  }
+  return chunk, limit_reader.N == 0, nil
 }
+
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {
-  return types.ObjRestoreOrErr{}
+  _, found := self.Chunks[key]
+  if !found { return types.ObjRestoreOrErr{ Err:types.ErrChunkFound } }
+  return types.ObjRestoreOrErr{ Stx:types.Restored, }
 }
-func (self *ChunkIoImpl) ListChunks(ctx context.Context, continuation *string) ([]*pb.SnapshotChunks_Chunk, *string, error) {
-  return nil, nil, nil
+
+func (self *ChunkIoImpl) ListChunks(
+    ctx context.Context, continuation *string) ([]*pb.SnapshotChunks_Chunk, *string, error) {
+  if continuation != nil { return nil, nil, fmt.Errorf("implementation does not support continuation tokens") }
+  chunks := make([]*pb.SnapshotChunks_Chunk, 0, len(self.Chunks))
+  for k,v := range self.Chunks {
+    c := &pb.SnapshotChunks_Chunk{
+      Uuid: k,
+      Start: 0, //unknown
+      Size: uint64(len(v)),
+    }
+    chunks = append(chunks, c)
+  }
+  return chunks, nil, nil
 }
 
 func (self *Storage) WriteStream(
@@ -187,6 +222,7 @@ func (self *Storage) SetupStorage(ctx context.Context) (<-chan error) {
 
 func (self *Storage) DeleteChunks(
     ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error) {
+  if len(chunks) < 1 { return util.WrapInChan(fmt.Errorf("cannot delete 0 keys")) }
   if ctx.Err() != nil { return util.WrapInChan(ctx.Err()) }
   switch impl := self.ChunkIo.(type) {
     case *ChunkIoImpl:
