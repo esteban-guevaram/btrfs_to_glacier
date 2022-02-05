@@ -9,51 +9,26 @@ import (
   "btrfs_to_glacier/util"
 )
 
-// Dummy type to implement both pipe ends with a standard os.File
-type pipeFile struct {
-  *os.File
-  Common *Pipe
-}
-
-func (file *pipeFile) CloseWithError(err error) error {
-  if file.Common.Err == nil { file.Common.Err = err }
-  file.Close()
-  return nil
-}
-func (file *pipeFile) Read(data []byte) (n int, err error) {
-  if file.Common.Err != nil { return 0, file.Common.Err }
-  return file.File.Read(data)
-}
-func (file *pipeFile) ReadFrom(inner io.Reader) (n int64, err error) {
-  if file.Common.Err != nil { return 0, file.Common.Err }
-  return file.File.ReadFrom(inner)
-}
-
 type Pipe struct {
-  read_end  *pipeFile
-  write_end *pipeFile
-  Err error
+  read_end  io.ReadCloser
+  write_end io.WriteCloser
 }
 func NewPipe() *Pipe {
   read_end, write_end, err := os.Pipe()
-  pipe := &Pipe{}
   if err != nil { util.Fatalf("failed os.Pipe %v", err) }
-  pipe.read_end = &pipeFile{read_end,pipe}
-  pipe.write_end = &pipeFile{write_end,pipe}
+  pipe := &Pipe{
+    read_end:  read_end,
+    write_end: write_end,
+  }
   return pipe
 }
 func (self *Pipe) ReadEnd() io.ReadCloser { return self.read_end }
 func (self *Pipe) WriteEnd() io.WriteCloser { return self.write_end }
 
-
-type PreloadedPipe struct { Pipe }
-func NewPreloadedPipe(data []byte) *PreloadedPipe {
-  pipe := &PreloadedPipe{*NewPipe()}
-
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-  defer cancel()
-
+func NewPreloadedPipe(data []byte) *Pipe {
+  pipe := NewPipe()
   done := make(chan bool, 1)
+
   go func() {
     defer close(done)
     defer pipe.write_end.Close()
@@ -64,15 +39,16 @@ func NewPreloadedPipe(data []byte) *PreloadedPipe {
 
   select {
     case <-done:
-    case <-ctx.Done(): util.Fatalf("write to pipe took too long")
+    case <-time.After(1 * time.Millisecond):
+      util.Fatalf("write to pipe took too long")
   }
   return pipe
 }
 // Use when there is too much data for the pipe buffer
-func NewBigPreloadedPipe(ctx context.Context, data []byte) *PreloadedPipe {
-  pipe := &PreloadedPipe{*NewPipe()}
-
+func NewBigPreloadedPipe(ctx context.Context, data []byte) *Pipe {
+  pipe := NewPipe()
   done := make(chan bool, 1)
+
   go func() {
     defer close(done)
     cnt, err := pipe.write_end.Write(data)

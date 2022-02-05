@@ -3,7 +3,6 @@ package mem_only
 import (
   "bytes"
   "context"
-  "fmt"
   "io"
   "reflect"
   "runtime"
@@ -44,7 +43,7 @@ func (self *Fixture) TestWriteOneChunk_PipeError(t *testing.T) {
   _,chunkio := self.StorageCtor(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
   pipe := mocks.NewPreloadedPipe(data)
-  util.ClosePipeWithError(pipe, fmt.Errorf("oopsie"))
+  pipe.ReadEnd().Close()
 
   chunk_pb, more, err := chunkio.WriteOneChunk(self.Ctx, offset, pipe.ReadEnd())
   if err == nil { t.Fatalf("expected call to fail") }
@@ -59,7 +58,7 @@ func (self *Fixture) TestWriteStream_PipeError(t *testing.T) {
   storage,_ := self.StorageCtor(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
   pipe := mocks.NewPreloadedPipe(data)
-  util.ClosePipeWithError(pipe, fmt.Errorf("oopsie"))
+  pipe.ReadEnd().Close()
 
   done, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
   if err != nil { t.Fatalf("expected to fail but not right now: %v", err) }
