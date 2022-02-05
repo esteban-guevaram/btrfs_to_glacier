@@ -29,8 +29,8 @@ type ChunkIoIf interface {
 }
 
 type ChunkIoImpl struct {
-  Chunks map[string][]byte
-  Codec  types.Codec
+  Chunks    map[string][]byte
+  ParCodec  types.Codec
   ChunkLen  uint64
 }
 
@@ -53,7 +53,7 @@ func NewStorageAdmin(conf *pb.Config, codec types.Codec) (types.Storage, error) 
   storage := &Storage{
     ChunkIo: &ChunkIoImpl{
       Chunks: make(map[string][]byte),
-      Codec: codec,
+      ParCodec: codec,
       ChunkLen: ChunkLen,
     },
     Conf: conf,
@@ -74,7 +74,7 @@ func (self *ChunkIoImpl) ReadOneChunk(
     return fmt.Errorf("mismatched length with metadata: %d != %d", len(data), chunk.Size)
   }
   input := io.NopCloser(bytes.NewReader(data))
-  done := self.Codec.DecryptStreamInto(ctx, key_fp, input, output)
+  done := self.ParCodec.DecryptStreamInto(ctx, key_fp, input, output)
   select {
     case err := <-done: return err
     case <-ctx.Done():
