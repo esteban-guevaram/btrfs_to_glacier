@@ -2,6 +2,7 @@ package util
 
 import "context"
 import "io"
+import "math/rand"
 import "testing"
 import "time"
 import "btrfs_to_glacier/types"
@@ -76,6 +77,60 @@ func TestFileBasedPipeHasGoodImpl(t *testing.T) {
   if _,ok := pipe.WriteEnd().(types.HasFileDescriptorIf); !ok { t.Error("bad impl for write end") }
   if _,ok := pipe.WriteEnd().(io.ReaderFrom); !ok { t.Error("bad impl for write end") }
   //if _,ok := pipe.ReadEnd().(io.WriterTo); !ok { t.Error("bad impl for read end") }
+}
+
+func randomPipeImpl(t *testing.T, ctx context.Context) types.Pipe {
+  if rand.Int() % 2 == 0 {
+    t.Logf("NewInMemPipe")
+    return NewInMemPipe(ctx)
+  }
+  t.Logf("NewFileBasedPipe")
+  return NewFileBasedPipe(ctx)
+}
+func TestPipePropagateClosure_Fuzzer(t *testing.T) {
+  seed := time.Now().UnixNano()
+  rand.Seed(seed)
+  pipe_cnt := 1 + rand.Intn(7)
+  chan_cnt := pipe_cnt + 1
+  done := make(chan int)
+  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  expect_count := make([]int, chan_cnt)
+  pipes := make([]types.Pipe, pipe_cnt)
+  var pipe_last types.Pipe = randomPipeImpl(t, ctx)
+  message := GenerateRandomTextData(1024 + rand.Intn(3*4096))
+  t.Logf("seed=%d, pipe_cnt=%d, len(message)=%d", seed, pipe_cnt, len(message))
+
+  go func(pipe types.Pipe) {
+    defer pipe.WriteEnd().Close()
+    pipe.WriteEnd().Write(message)
+    done <- 0
+  }(pipe_last)
+
+  copy_f := func(idx int, write io.WriteCloser, read io.ReadCloser) {
+    defer write.Close()
+    defer read.Close()
+    io.Copy(write, read)
+    done <- idx
+  }
+  for i,_ := range pipes {
+    pipes[i] = randomPipeImpl(t, ctx)
+    go copy_f(i+1, pipes[i].WriteEnd(), pipe_last.ReadEnd())
+    pipe_last = pipes[i]
+    expect_count[i+1] = i+1
+  }
+
+  var data []byte
+  go func(pipe types.Pipe) {
+    defer pipe.ReadEnd().Close()
+    defer close(done)
+    data,_ = io.ReadAll(pipe.ReadEnd())
+  }(pipe_last)
+
+  count := []int{}
+  for i := range done { count = append(count, i) }
+  EqualsOrFailTest(t, "count", count, expect_count)
+  EqualsOrFailTest(t, "message bytes", data, message)
 }
 
 func TestStartCmdWithPipedOutput_Echo(t *testing.T) {
