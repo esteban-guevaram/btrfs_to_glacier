@@ -88,10 +88,14 @@ func (self *ChunkIoImpl) WriteOneChunk(
 
   limit_reader := &io.LimitedReader{ R:encrypted_stream, N:int64(self.ChunkLen) }
   data := make([]byte, self.ChunkLen)
-  write_cnt, err := limit_reader.Read(data)
-
-  util.Debugf("limit_reader.Read: %d/%d, %v", write_cnt, self.ChunkLen, err)
-  if err != nil && err != io.EOF { return nil, false, err }
+  write_cnt := 0
+  for {
+    cnt,err := limit_reader.Read(data[write_cnt:])
+    write_cnt += cnt
+    //util.Debugf("limit_reader.Read: %d/%d, %v", cnt, self.ChunkLen, err)
+    if err == io.EOF { break }
+    if err != nil { return nil, false, err }
+  }
   if write_cnt == 0 { return nil, false, nil }
 
   self.Chunks[key_str] = data[0:write_cnt]
