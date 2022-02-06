@@ -67,7 +67,7 @@ func (self *Fixture) TestWriteStream_PipeError(t *testing.T) {
       if chunk_or_err.Err == nil { t.Errorf("expected error") }
       if chunk_or_err.Val == nil { return }
       chunks := chunk_or_err.Val.Chunks
-      if len(chunks) > 0 { t.Errorf("no chunks should have been written") }
+      if len(chunks) > 1 { t.Errorf("At most only the IV should have been written") }
     case <-self.Ctx.Done(): t.Fatalf("timedout")
   }
 }

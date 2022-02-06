@@ -133,6 +133,37 @@ func TestPipePropagateClosure_Fuzzer(t *testing.T) {
   EqualsOrFailTest(t, "message bytes", data, message)
 }
 
+func TestClosedReadEndBehavior(t *testing.T) {
+  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  close_test_f := func(scope string, writer io.WriteCloser, reader io.ReadCloser) {
+    done := make(chan error)
+    reader.Close()
+    go func() { writer.Write([]byte("coucou")) }()
+    go func() {
+      defer close(done)
+      cnt,err := reader.Read(make([]byte,1))
+      if err == nil || err == io.EOF || cnt > 0 {
+        t.Fatalf("%s.ReadEnd().Read should fail on a closed read end", scope)
+      }
+    }()
+    WaitForClosure(t, ctx, done)
+  }
+  limit_wrap := func(reader io.ReadCloser) io.ReadCloser {
+    reader.Close()
+    return io.NopCloser(&io.LimitedReader{ R:reader, N:1, })
+  }
+
+  pipe_1 := NewInMemPipe(ctx)
+  close_test_f("pipe_1", pipe_1.WriteEnd(), pipe_1.ReadEnd())
+  pipe_2 := NewFileBasedPipe(ctx)
+  close_test_f("pipe_2", pipe_2.WriteEnd(), pipe_2.ReadEnd())
+  pipe_3 := NewInMemPipe(ctx)
+  close_test_f("pipe_3", pipe_3.WriteEnd(), limit_wrap(pipe_3.ReadEnd()))
+  pipe_4 := NewFileBasedPipe(ctx)
+  close_test_f("pipe_4", pipe_4.WriteEnd(), limit_wrap(pipe_4.ReadEnd()))
+}
+
 func TestStartCmdWithPipedOutput_Echo(t *testing.T) {
   args := []string{ "echo", "-n", "salut" }
   ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)

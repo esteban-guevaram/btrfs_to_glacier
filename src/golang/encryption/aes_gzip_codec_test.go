@@ -427,3 +427,67 @@ func TestCompression(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad decompression", msg, decomp_buf.Bytes())
 }
 
+func TODOTestEncryptStream_PrematurelyClosedInput(t *testing.T) {
+  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
+  //pipe := util.NewFileBasedPipe(ctx)
+  //pipe := util.NewInMemPipe(ctx)
+  pipe.ReadEnd().Close()
+  codec := buildTestCodec(t)
+
+  encoded_pipe, err := codec.EncryptStream(ctx, pipe.ReadEnd())
+  if err != nil { t.Fatalf("Could not encrypt: %v", err) }
+
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer encoded_pipe.Close()
+    data,err := io.ReadAll(encoded_pipe)
+    if err == nil { t.Errorf("Expected error propagation: %v", err) }
+    if len(data) > 0 { t.Errorf("Wrote %d bytes despite closed input", len(data)) }
+  }()
+  util.WaitForClosure(t, ctx, done)
+}
+
+func TODOTestDecryptStream_PrematurelyClosedInput(t *testing.T) {
+  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
+  pipe.ReadEnd().Close()
+  codec := buildTestCodec(t)
+
+  decoded_pipe, err := codec.DecryptStream(ctx, types.CurKeyFp, pipe.ReadEnd())
+  if err != nil { t.Fatalf("Could not decrypt: %v", err) }
+
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer decoded_pipe.Close()
+    data,err := io.ReadAll(decoded_pipe)
+    if err == nil { t.Errorf("Expected error propagation: %v", err) }
+    if len(data) > 0 { t.Errorf("Wrote %d bytes despite closed input", len(data)) }
+  }()
+  util.WaitForClosure(t, ctx, done)
+}
+
+func TestDecryptStreamInto_PrematurelyClosedInput(t *testing.T) {
+  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+
+  sink := new(bytes.Buffer)
+  pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
+  pipe.ReadEnd().Close()
+  codec := buildTestCodec(t)
+
+  done := codec.DecryptStreamInto(ctx, types.CurKeyFp, pipe.ReadEnd(), sink)
+  select {
+    case err := <-done:
+      if err == nil { t.Errorf("Expected error propagation: %v", err) }
+      if sink.Len() > 0 { t.Errorf("Wrote %d bytes despite closed input", sink.Len()) }
+    case <-ctx.Done(): t.Fatalf("TestDecryptStreamInto_PrematurelyClosedInput timeout")
+  }
+}
+

@@ -2,6 +2,7 @@ package mem_only
 
 import (
   "context"
+  "fmt"
   "io"
   "testing"
   "time"
@@ -137,5 +138,51 @@ func TestWriteReadWithRealCodec_ManyChunks(t *testing.T) {
   const chunk_len = 64
   const total_len = chunk_len * 3
   HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+}
+
+func TestWriteStream_ErrPropagation(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  storage,_ := buildTestStorageRealCodec(t, 64)
+  pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(32))
+  //pipe := util.NewFileBasedPipe(ctx)
+  pipe.ReadEnd().Close()
+
+  done_write,err := storage.WriteStream(ctx, /*offest*/0, pipe.ReadEnd())
+  if err != nil { t.Fatalf("failed: %v", err) }
+  select {
+    case chunk_or_err := <-done_write:
+      if chunk_or_err.Err == nil { t.Errorf("Expected error for premature closure") }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func TODOTestReadChunksIntoStream_ErrPropagation(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  defer cancel()
+  chunks := &pb.SnapshotChunks{
+    KeyFingerprint: "for_giggles",
+    Chunks: []*pb.SnapshotChunks_Chunk{
+      &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:24, },
+    },
+  }
+
+  storage,chunkio := buildTestStorageWithChunkLen(t, 64)
+  mock_codec := chunkio.ParCodec.(*mocks.Codec)
+  mock_codec.Err = fmt.Errorf("premature_closure")
+  chunkio.Set(chunks.Chunks[0].Uuid, util.GenerateRandomTextData(24))
+
+  read_end,err := storage.ReadChunksIntoStream(ctx, chunks)
+  if err != nil { t.Fatalf("failed: %v", err) }
+
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer read_end.Close()
+    got_data,err := io.ReadAll(read_end)
+    if err == nil { t.Errorf("Expected error for premature closure") }
+    if len(got_data) > 0 { t.Errorf("Expected no data for premature closure") }
+  }()
+  util.WaitForClosure(t, ctx, done)
 }
 
