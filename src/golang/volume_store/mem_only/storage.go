@@ -23,7 +23,7 @@ type ChunkIoIf interface {
   ReadOneChunk(
     ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error
   WriteOneChunk(
-    ctx context.Context, start_offset uint64, encrypted_stream io.ReadCloser) (*pb.SnapshotChunks_Chunk, bool, error)
+    ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error)
   RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr
   ListChunks(ctx context.Context, continuation *string) ([]*pb.SnapshotChunks_Chunk, *string, error)
 }
@@ -83,26 +83,23 @@ func (self *ChunkIoImpl) ReadOneChunk(
 }
 
 func (self *ChunkIoImpl) WriteOneChunk(
-    ctx context.Context, start_offset uint64, encrypted_stream io.ReadCloser) (*pb.SnapshotChunks_Chunk, bool, error) {
+    ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error) {
   key_str := uuid.NewString()
+  limit_reader := &io.LimitedReader{ R:clear_input, N:int64(self.ChunkLen) }
 
-  limit_reader := &io.LimitedReader{ R:encrypted_stream, N:int64(self.ChunkLen) }
-  data := make([]byte, self.ChunkLen)
-  write_cnt := 0
-  for {
-    cnt,err := limit_reader.Read(data[write_cnt:])
-    write_cnt += cnt
-    //util.Debugf("limit_reader.Read: %d/%d, %v", cnt, self.ChunkLen, err)
-    if err == io.EOF { break }
-    if err != nil { return nil, false, err }
-  }
-  if write_cnt == 0 { return nil, false, nil }
+  encrypted_reader, err := self.ParCodec.EncryptStream(ctx, io.NopCloser(limit_reader))
+  if err != nil { return nil, false, err }
+  defer encrypted_reader.Close()
 
-  self.Chunks[key_str] = data[0:write_cnt]
+  data, err := io.ReadAll(encrypted_reader)
+  if err != nil { return nil, false, err }
+  if len(data) == 0 { return nil, false, nil }
+
+  self.Chunks[key_str] = data
   chunk := &pb.SnapshotChunks_Chunk{
     Uuid: key_str,
     Start: start_offset,
-    Size: uint64(write_cnt),
+    Size: uint64(len(data)),
   }
   return chunk, limit_reader.N == 0, nil
 }
@@ -145,10 +142,6 @@ func (self *Storage) WriteStream(
       }
     }
 
-    encrypted_stream, err := self.Codec.EncryptStream(ctx, read_pipe)
-    if err != nil { done <- types.ChunksOrError{Err:err,}; return }
-    defer encrypted_stream.Close()
-
     more_data := true
     start_offset := uint64(offset)
     result := types.ChunksOrError{
@@ -156,8 +149,9 @@ func (self *Storage) WriteStream(
     }
 
     for more_data {
+      var err error
       var chunk *pb.SnapshotChunks_Chunk
-      chunk, more_data, err = self.ChunkIo.WriteOneChunk(ctx, start_offset, encrypted_stream)
+      chunk, more_data, err = self.ChunkIo.WriteOneChunk(ctx, start_offset, read_pipe)
       if err != nil { result.Err = err; break }
       if chunk != nil {
         result.Val.Chunks = append(result.Val.Chunks, chunk)

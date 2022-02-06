@@ -85,7 +85,7 @@ func TestAllMemOnlyStorage(t *testing.T) {
 }
 
 func HelperWriteReadWithRealCodec(t *testing.T, chunk_len uint64, total_len uint64) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Hour)
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
   defer cancel()
   storage,_ := buildTestStorageRealCodec(t, chunk_len)
   data := util.GenerateRandomTextData(int(total_len))
@@ -127,7 +127,13 @@ func TestWriteReadWithRealCodec_OneChunk(t *testing.T) {
   HelperWriteReadWithRealCodec(t, chunk_len, total_len)
 }
 
-func TODOTestWriteReadWithRealCodec_ManyChunks(t *testing.T) {
+func TestWriteReadWithRealCodec_2ChunksWithIv(t *testing.T) {
+  const chunk_len = 64
+  const total_len = chunk_len - 1
+  HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+}
+
+func TestWriteReadWithRealCodec_ManyChunks(t *testing.T) {
   const chunk_len = 64
   const total_len = chunk_len * 3
   HelperWriteReadWithRealCodec(t, chunk_len, total_len)
