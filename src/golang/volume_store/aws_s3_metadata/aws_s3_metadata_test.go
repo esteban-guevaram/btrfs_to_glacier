@@ -4,7 +4,6 @@ import (
   "context"
   "fmt"
   "testing"
-  "time"
 
   s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
   pb "btrfs_to_glacier/messages"
@@ -31,7 +30,7 @@ func buildTestMetadataWithConf(t *testing.T, conf *pb.Config) (*S3Metadata, *s3_
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
   common, err := s3_common.NewS3Common(conf, aws_conf, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }
-  common.BucketWait = 10 * time.Millisecond
+  common.BucketWait = util.TestTimeout
   common.AccountId = client.AccountId
 
   meta := &S3Metadata{
@@ -86,7 +85,7 @@ func TestLoadPreviousStateFromS3_PreviousState(t *testing.T) {
 }
 
 func TestSaveCurrentStateToS3_NoPrevState(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, expect_state := util.DummyAllMetadata()
   meta, client := buildTestMetadataWithState(t, proto.Clone(expect_state).(*pb.AllMetadata))
@@ -102,7 +101,7 @@ func TestSaveCurrentStateToS3_NoPrevState(t *testing.T) {
 }
 
 func TestSaveCurrentStateToS3_WithPrevState(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, prev_state := util.DummyAllMetadata()
   var expect_state pb.AllMetadata = *prev_state
@@ -123,7 +122,7 @@ func TestSaveCurrentStateToS3_WithPrevState(t *testing.T) {
 }
 
 func TestSaveCurrentStateToS3_Err(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, prev_state := util.DummyAllMetadata()
   meta, client := buildTestMetadataWithState(t, prev_state)

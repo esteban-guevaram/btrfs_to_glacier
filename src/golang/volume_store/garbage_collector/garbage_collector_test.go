@@ -3,7 +3,6 @@ package garbage_collector
 import (
   "context"
   "sort"
-  "time"
   "testing"
 
   pb "btrfs_to_glacier/messages"
@@ -71,7 +70,7 @@ func compareResult(t *testing.T, got types.DeletedObjectsOrErr, expect types.Del
 }
 
 func TestCleanUnreachableChunks_NoneFound(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, store, gc := buildTestGarbageCollector(t, 3)
   expect_store := len(store.Chunks)
@@ -90,7 +89,7 @@ func TestCleanUnreachableChunks_NoneFound(t *testing.T) {
 }
 
 func TestCleanUnreachableChunks_FromSingleSnap(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, store, gc := buildTestGarbageCollector(t, 3)
   snap := meta.Snaps[meta.SnapKeys()[0]]
@@ -113,7 +112,7 @@ func TestCleanUnreachableChunks_FromSingleSnap(t *testing.T) {
 }
 
 func TestCleanUnreachableChunks_DryRun(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, store, gc := buildTestGarbageCollector(t, 3)
   snap := meta.Snaps[meta.SnapKeys()[0]]
@@ -131,7 +130,7 @@ func TestCleanUnreachableChunks_DryRun(t *testing.T) {
 }
 
 func TestCleanUnreachableChunks_FromManySnaps(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, store, gc := buildTestGarbageCollector(t, 3)
   expect_result := types.DeletedObjectsOrErr{ }
@@ -155,7 +154,7 @@ func TestCleanUnreachableChunks_FromManySnaps(t *testing.T) {
 }
 
 func TestCleanUnreachableMetadata_NothingToClean(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
   expect_cnt := meta.ObjCounts()
@@ -174,7 +173,7 @@ func TestCleanUnreachableMetadata_NothingToClean(t *testing.T) {
 }
 
 func TestCleanUnreachableMetadata_CleanSnaps(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
   expect_cnt := meta.ObjCounts()
@@ -198,7 +197,7 @@ func TestCleanUnreachableMetadata_CleanSnaps(t *testing.T) {
 }
 
 func TestCleanUnreachableMetadata_DryRun(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
   delete(meta.Seqs, meta.SeqKeys()[0])
@@ -215,7 +214,7 @@ func TestCleanUnreachableMetadata_DryRun(t *testing.T) {
 }
 
 func TestCleanUnreachableMetadata_CleanSeqs(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
   expect_cnt := meta.ObjCounts()
@@ -243,7 +242,7 @@ func TestCleanUnreachableMetadata_CleanSeqs(t *testing.T) {
 }
 
 func TestCleanUnreachableMetadata_CleanAllHeadChildren(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
   expect_cnt := meta.ObjCounts()
@@ -263,7 +262,7 @@ func TestCleanUnreachableMetadata_CleanAllHeadChildren(t *testing.T) {
 }
 
 func TestDeleteSnapshotSeqHead_NotInMeta(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, store, gc := buildTestGarbageCollector(t, 3)
   expect_meta_cnt := meta.ObjCounts()
@@ -287,7 +286,7 @@ func TestDeleteSnapshotSeqHead_NotInMeta(t *testing.T) {
 }
 
 func TestDeleteSnapshotSeqHead_CurrentHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, store, gc := buildTestGarbageCollector(t, 3)
   expect_meta_cnt := meta.ObjCounts()
@@ -309,7 +308,7 @@ func TestDeleteSnapshotSeqHead_CurrentHead(t *testing.T) {
 }
 
 func TestDeleteSnapshotSeqHead_Simple(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, store, gc := buildTestGarbageCollector(t, 3)
   expect_meta_cnt := meta.ObjCounts()
@@ -349,7 +348,7 @@ func TestDeleteSnapshotSeqHead_Simple(t *testing.T) {
 }
 
 func TestDeleteSnapshotSeqHead_DryRun(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, store, gc := buildTestGarbageCollector(t, 3)
   expect_meta_cnt := meta.ObjCounts()

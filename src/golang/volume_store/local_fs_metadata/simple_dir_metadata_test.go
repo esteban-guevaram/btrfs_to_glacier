@@ -7,7 +7,6 @@ import (
   "io/fs"
   fpmod "path/filepath"
   "testing"
-  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
@@ -87,7 +86,7 @@ func buildTestSimpleDirMetadata_NilState(
 }
 
 func TestLoadPreviousStateFromDir_NoPartition(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   local_fs, clean_f := util.TestSimpleDirLocalFs()
   defer clean_f()
@@ -119,7 +118,7 @@ func TestLoadPreviousStateFromDir_PreviousState(t *testing.T) {
 }
 
 func TestSaveCurrentStateToDir_NoPrevState(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, expect_state := util.DummyAllMetadata()
   meta,client,clean_f := buildTestSimpleDirMetadataWithState(t, expect_state)
@@ -134,7 +133,7 @@ func TestSaveCurrentStateToDir_NoPrevState(t *testing.T) {
 }
 
 func TestSaveCurrentStateToDir_WithPrevState(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, prev_state := util.DummyAllMetadata()
   var expect_state pb.AllMetadata = *prev_state
@@ -155,7 +154,7 @@ func TestSaveCurrentStateToDir_WithPrevState(t *testing.T) {
 }
 
 func TestSaveCurrentStateToDir_Err(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, prev_state := util.DummyAllMetadata()
   meta,_,clean_f := buildTestSimpleDirMetadataWithState(t, prev_state)
@@ -167,7 +166,7 @@ func TestSaveCurrentStateToDir_Err(t *testing.T) {
 }
 
 func TestSetupSimpleDirMetadata_Simple(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin,_,clean_f := buildTestSimpleDirMetadata_NilState(t)
   defer clean_f()
@@ -182,7 +181,7 @@ func TestSetupSimpleDirMetadata_Simple(t *testing.T) {
 }
 
 func TestSetupSimpleDirMetadata_Fail(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin,_,clean_f := buildTestSimpleDirMetadata_NilState(t)
   defer clean_f()
@@ -197,7 +196,7 @@ func TestSetupSimpleDirMetadata_Fail(t *testing.T) {
 }
 
 func TestSetupSimpleDirMetadata_Idempotent(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin,client,clean_f := buildTestSimpleDirMetadata_NilState(t)
   defer clean_f()
@@ -217,7 +216,7 @@ func TestSetupSimpleDirMetadata_Idempotent(t *testing.T) {
 }
 
 func TestSetupSimpleDirMetadata_IdempotentNoState(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin,_,clean_f := buildTestSimpleDirMetadata_NilState(t)
   defer clean_f()

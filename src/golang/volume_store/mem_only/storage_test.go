@@ -5,7 +5,6 @@ import (
   "fmt"
   "io"
   "testing"
-  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/encryption"
@@ -59,7 +58,7 @@ func buildTestStorageRealCodec(t *testing.T, chunk_len uint64) (*Storage, *Chunk
 }
 
 func TestSetupStorage(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageWithChunkLen(t, 16)
   done := storage.SetupStorage(ctx)
@@ -86,7 +85,7 @@ func TestAllMemOnlyStorage(t *testing.T) {
 }
 
 func HelperWriteReadWithRealCodec(t *testing.T, chunk_len uint64, total_len uint64) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageRealCodec(t, chunk_len)
   data := util.GenerateRandomTextData(int(total_len))
@@ -141,7 +140,7 @@ func TestWriteReadWithRealCodec_ManyChunks(t *testing.T) {
 }
 
 func TestWriteStream_ErrPropagation(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageRealCodec(t, 64)
   pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(32))
@@ -158,7 +157,7 @@ func TestWriteStream_ErrPropagation(t *testing.T) {
 }
 
 func TODOTestReadChunksIntoStream_ErrPropagation(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   chunks := &pb.SnapshotChunks{
     KeyFingerprint: "for_giggles",

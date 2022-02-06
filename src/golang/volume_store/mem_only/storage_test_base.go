@@ -8,7 +8,6 @@ import (
   "runtime"
   "strings"
   "testing"
-  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -502,7 +501,7 @@ func RunAllTestStorage(t *testing.T, fixture *Fixture) {
   for _,i := range tests {
     if i.Func == nil { t.Fatalf("Bad test entry: %v", i) }
     run_f := func(t *testing.T) {
-      ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+      ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
       defer cancel()
       fixture.Ctx = ctx
       i.Func(fixture, t)

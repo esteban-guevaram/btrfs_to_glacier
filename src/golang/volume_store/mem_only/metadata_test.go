@@ -4,7 +4,6 @@ import (
   "context"
   "errors"
   "testing"
-  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -23,7 +22,7 @@ func buildTestMetadataWithState(t *testing.T, state *pb.AllMetadata) *Metadata {
 }
 
 func TestRecordSnapshotSeqHead_New(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta := buildTestMetadataWithState(t, &pb.AllMetadata{})
   new_seq := util.DummySnapshotSequence("vol", "seq")
@@ -34,7 +33,7 @@ func TestRecordSnapshotSeqHead_New(t *testing.T) {
 }
 
 func TestRecordSnapshotSeqHead_Add(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, expect_state := util.DummyAllMetadata()
   new_seq := util.DummySnapshotSequence(vol_uuid, "seq2")
@@ -50,7 +49,7 @@ func TestRecordSnapshotSeqHead_Add(t *testing.T) {
 }
 
 func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, expect_state := util.DummyAllMetadata()
 
@@ -64,7 +63,7 @@ func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
 }
 
 func TestAppendSnapshotToSeq_New(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, expect_state := util.DummyAllMetadata()
   var expect_seq pb.SnapshotSequence = *expect_state.Sequences[0]
@@ -79,7 +78,7 @@ func TestAppendSnapshotToSeq_New(t *testing.T) {
 }
 
 func TestAppendSnapshotToSeq_Noop(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, expect_state := util.DummyAllMetadata()
   var expect_seq pb.SnapshotSequence = *expect_state.Sequences[0]
@@ -93,7 +92,7 @@ func TestAppendSnapshotToSeq_Noop(t *testing.T) {
 }
 
 func TestAppendSnapshotToChunk_New(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, expect_state := util.DummyAllMetadata()
   expect_state.Snapshots = append(expect_state.Snapshots,
@@ -112,7 +111,7 @@ func TestAppendSnapshotToChunk_New(t *testing.T) {
 }
 
 func TestAppendSnapshotToChunk_Append(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, expect_state := util.DummyAllMetadata()
   chunk := util.DummyChunks("chunk_uuid2")
@@ -132,7 +131,7 @@ func TestAppendSnapshotToChunk_Append(t *testing.T) {
 }
 
 func TestAppendSnapshotToChunk_Noop(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, expect_state := util.DummyAllMetadata()
   chunk := util.DummyChunks("chunk_uuid")
@@ -149,7 +148,7 @@ func TestAppendSnapshotToChunk_Noop(t *testing.T) {
 }
 
 func TestAppendSnapshotToChunk_Errors(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, expect_state := util.DummyAllMetadata()
   chunk := util.DummyChunks("chunk_uuid")
@@ -185,7 +184,7 @@ func TestAppendSnapshotToChunk_Errors(t *testing.T) {
 }
 
 func TestReadSnapshotSeqHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   vol_uuid, expect_state := util.DummyAllMetadata()
@@ -198,7 +197,7 @@ func TestReadSnapshotSeqHead(t *testing.T) {
 }
 
 func TestReadSnapshotSeqHead_NoHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata := buildTestMetadataWithState(t, &pb.AllMetadata{})
 
@@ -208,7 +207,7 @@ func TestReadSnapshotSeqHead_NoHead(t *testing.T) {
 }
 
 func TestReadSnapshotSeq(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   _, expect_state := util.DummyAllMetadata()
@@ -221,7 +220,7 @@ func TestReadSnapshotSeq(t *testing.T) {
 }
 
 func TestReadSnapshotSeq_NoSequence(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata := buildTestMetadataWithState(t, &pb.AllMetadata{})
 
@@ -231,7 +230,7 @@ func TestReadSnapshotSeq_NoSequence(t *testing.T) {
 }
 
 func TestReadSnapshot(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   _, expect_state := util.DummyAllMetadata()
@@ -245,7 +244,7 @@ func TestReadSnapshot(t *testing.T) {
 }
 
 func TestReadSnapshotSeq_NoSnap(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata := buildTestMetadataWithState(t, &pb.AllMetadata{})
 
@@ -257,7 +256,7 @@ func TestReadSnapshotSeq_NoSnap(t *testing.T) {
 type create_pb_f = func(*pb.AllMetadata) (string, proto.Message)
 type iterate_f = func(context.Context, *Metadata) (map[string]proto.Message, error)
 func testMetadataListAll_Helper(t *testing.T, total int, pb_f create_pb_f, iter_f iterate_f) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   state := &pb.AllMetadata{}
   expect_objs := make(map[string]proto.Message)
@@ -297,7 +296,7 @@ func TestListAllSnapshotSeqHeads(t *testing.T) {
   testMetadataListAll_Helper(t, total, head_pb_f, head_iter_f)
 }
 func TestListAllSnapshotSeqHeads_NoObjects(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata := buildTestMetadataWithState(t, &pb.AllMetadata{})
   got_objs, err := head_iter_f(ctx, metadata)
@@ -324,7 +323,7 @@ func TestListAllSnapshotSeqs(t *testing.T) {
   testMetadataListAll_Helper(t, total, seq_pb_f, seq_iter_f)
 }
 func TestListAllSnapshotSeqs_NoObjects(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata := buildTestMetadataWithState(t, &pb.AllMetadata{})
   got_objs, err := seq_iter_f(ctx, metadata)
@@ -351,7 +350,7 @@ func TestListAllSnapshots(t *testing.T) {
   testMetadataListAll_Helper(t, total, snap_pb_f, snap_iter_f)
 }
 func TestListAllSnapshots_NoObjects(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata := buildTestMetadataWithState(t, &pb.AllMetadata{})
   got_objs, err := snap_iter_f(ctx, metadata)
@@ -360,7 +359,7 @@ func TestListAllSnapshots_NoObjects(t *testing.T) {
 }
 
 func TestDeleteMetadataUuids(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, expect_state := util.DummyAllMetadata()
   ini_state := proto.Clone(expect_state).(*pb.AllMetadata)
@@ -384,7 +383,7 @@ func TestDeleteMetadataUuids(t *testing.T) {
 }
 
 func TestDeleteMetadataUuids_Empty(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin := buildTestMetadataWithState(t, &pb.AllMetadata{})
 
@@ -402,7 +401,7 @@ func TestDeleteMetadataUuids_Empty(t *testing.T) {
 }
 
 func TestDeleteMetadataUuids_UuidNotFound(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   _, expect_state := util.DummyAllMetadata()
   ini_state := proto.Clone(expect_state).(*pb.AllMetadata)
@@ -422,7 +421,7 @@ func TestDeleteMetadataUuids_UuidNotFound(t *testing.T) {
 }
 
 func TestReplaceSnapshotSeqHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, expect_state := util.DummyAllMetadata()
   ini_state := proto.Clone(expect_state).(*pb.AllMetadata)
@@ -441,7 +440,7 @@ func TestReplaceSnapshotSeqHead(t *testing.T) {
 }
 
 func TestReplaceSnapshotSeqHead_NoOldHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin := buildTestMetadataWithState(t, &pb.AllMetadata{})
   new_head := util.DummySnapshotSeqHead(util.DummySnapshotSequence("vol", "seq_new"))

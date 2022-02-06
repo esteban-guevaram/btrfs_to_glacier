@@ -10,8 +10,9 @@ BTRFS_LIB     := /usr/lib
 BTRFS_INCLUDE := /usr/include
 BTRFS_LDLIB   := -lbtrfsutil -lbtrfs
 
-GOENV    := $(STAGE_PATH)/go_env
-MYGOSRC  := src/golang
+GOENV             := $(STAGE_PATH)/go_env
+GO_TEST_FLAGS     :=
+MYGOSRC           := src/golang
 GO_PROTOC_INSTALL := $(STAGE_PATH)/gobin/protoc-gen-go
 # Chose NOT to store generated proto sources in git
 # Can be problematic for some languages like C++ (see groups.google.com/g/protobuf/c/Qz5Aj7zK03Y)
@@ -79,27 +80,27 @@ go_unittest: go_code
 	# add --test.v to get verbose tests
 	# add --test.count=1 to not cache results
 	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "_integration$$|/types"` )
-	GOENV="$(GOENV)" go test "$${pkg_to_test[@]}"
+	GOENV="$(GOENV)" go test $(GO_TEST_FLAGS) "$${pkg_to_test[@]}"
 
 go_deflake: go_code
 	# example call:
 	# make go_deflake DEFLAKE_TEST=TestDecryptStream_TimeoutContinousReads DEFLAKE_PKG=btrfs_to_glacier/encryption
 	pushd "$(MYGOSRC)"
 	while true; do
-	  GOENV="$(GOENV)" go test --test.count=1 --run "$(DEFLAKE_TEST)" "$(DEFLAKE_PKG)" || break
+	  GOENV="$(GOENV)" go test $(GO_TEST_FLAGS) --test.count=1 --run "$(DEFLAKE_TEST)" "$(DEFLAKE_PKG)" || break
 	done
 
 go_debug: go_code
 	pushd "$(MYGOSRC)"
 	echo '
-	#break btrfs_to_glacier/volume_store/garbage_collector.(*garbageCollector).deleteMetaItems_ForwardsArgsInReturn
-	break shim/linux_utils.go:340
+	#break btrfs_to_glacier/encryption.(*aesGzipCodec).EncryptStream
+	break encryption/aes_gzip_codec.go:226
 	continue
 	' > "$(MYDLVINIT)"
 	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
-	  dlv test "btrfs_to_glacier/shim" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
-		  -- --test.run='TestListBtrfsFilesystems$$' --test.v
+	  dlv test "btrfs_to_glacier/volume_store/mem_only" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
+		  -- --test.run='TestWriteReadWithRealCodec$$' --test.v
 
 # Fails with a linker error if missing `c_code`
 go_upgrade_mods: $(GOENV) c_code

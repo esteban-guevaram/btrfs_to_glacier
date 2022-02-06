@@ -6,7 +6,6 @@ import (
   "fmt"
   "io"
   "testing"
-  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -46,7 +45,7 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *s3_co
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
   common, err := s3_common.NewS3Common(conf, aws_conf, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }
-  common.BucketWait = 10 * time.Millisecond
+  common.BucketWait = util.TestTimeout
   common.AccountId = client.AccountId
 
   storage := &s3Storage{
@@ -65,7 +64,7 @@ func TestWriteOneChunk_PipeError(t *testing.T) {
   const offset = 0
   const chunk_len = 32
   const total_len = 48
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
@@ -82,7 +81,7 @@ func TestWriteStream_PipeError(t *testing.T) {
   const offset = 0
   const chunk_len = 32
   const total_len = 48
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
@@ -105,7 +104,7 @@ func TestWriteStream_OffsetTooBig(t *testing.T) {
   const offset = 159
   const chunk_len = 32
   const total_len = 48
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(total_len)
@@ -122,7 +121,7 @@ func TestWriteStream_OffsetTooBig(t *testing.T) {
 }
 
 func helper_TestWriteOneChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   expect_more := total_len-offset >= chunk_len
   expect_size := chunk_len
@@ -156,7 +155,7 @@ func helper_TestWriteOneChunk(t *testing.T, offset uint64, chunk_len uint64, tot
 }
 
 func helper_TestWriteEmptyChunk(t *testing.T, offset uint64, chunk_len uint64) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
   read_end := io.NopCloser(&bytes.Buffer{})
@@ -198,7 +197,7 @@ func TestWriteOneChunk_WithOffset_EmptyContent(t *testing.T) {
 
 func helper_TestWriteStream_SingleChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
   const expect_fp = "coco_fp"
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
   storage.codec.(*mocks.Codec).Fingerprint = types.PersistableString{expect_fp}
@@ -231,7 +230,7 @@ func helper_TestWriteStream_SingleChunk(t *testing.T, offset uint64, chunk_len u
 }
 
 func helper_TestWriteStream_EmptyChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
   data := util.GenerateRandomTextData(int(total_len))
@@ -270,7 +269,7 @@ func TestWriteStream_WithOffset_Empty(t *testing.T) {
 func helper_TestWriteStream_MultiChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
   var chunk_cnt uint64 = (total_len - offset + chunk_len - 1) / chunk_len
   const expect_fp = "loco_fp"
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
   storage.codec.(*mocks.Codec).Fingerprint = types.PersistableString{expect_fp}
@@ -401,7 +400,7 @@ func TestWriteStream_WithOffset_MultipleChunkLen(t *testing.T) {
 // (no output) # extend restore lifetime
 func testQueueRestoreObjects_Helper(
     t *testing.T, keys []string, class s3_types.StorageClass, ongoing bool, expect_obj types.ObjRestoreOrErr, restore_err error) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestStorage(t)
   expect := make(map[string]types.ObjRestoreOrErr)
@@ -455,7 +454,7 @@ func TestQueueRestoreObjects_NoSuchObject(t *testing.T) {
 }
 
 func TestQueueRestoreObjects_HeadFail(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorage(t)
   keys := []string{"k1", "k2"}
@@ -472,7 +471,7 @@ func TestQueueRestoreObjects_HeadFail(t *testing.T) {
 }
 
 func testReadChunksIntoStream_Helper(t *testing.T, chunks *pb.SnapshotChunks, datas [][]byte) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   var expect_data bytes.Buffer
   storage,client := buildTestStorage(t)
@@ -526,7 +525,7 @@ func TestReadChunksIntoStream_Multiple(t *testing.T) {
 }
 
 func TestReadChunksIntoStream_Missing(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorage(t)
   chunks := &pb.SnapshotChunks{
@@ -551,7 +550,7 @@ func TestReadChunksIntoStream_Missing(t *testing.T) {
 
 func testStorageListAll_Helper(t *testing.T, total int, fill_size int32) {
   const blob_len = 32
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage, client := buildTestStorage(t)
   storage.iter_buf_len = fill_size
@@ -599,7 +598,7 @@ func TestListAllChunks_EmptyNonFinalFill(t *testing.T) {
   const fill_size = 3
   const total = 2 * fill_size
   const blob_len = 32
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   got_objs := make(map[string]*pb.SnapshotChunks_Chunk)
   storage, client := buildTestStorage(t)
@@ -621,7 +620,7 @@ func TestListAllChunks_EmptyNonFinalFill(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad len", len(got_objs), total)
 }
 func TestListAllChunks_ErrDuringIteration(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage, client := buildTestStorage(t)
   client.Err = fmt.Errorf("iteration fail")

@@ -103,13 +103,13 @@ func WaitForNoError(t *testing.T, ctx context.Context, done <-chan error) {
   }
 }
 
-func WaitMillisForNoError(t *testing.T, millis int, done <-chan error) {
+func WaitDurationForNoError(t *testing.T, duration time.Duration, done <-chan error) {
   if done == nil { t.Error("channel is nil"); return }
   select {
     case err,ok := <-done:
       if !ok { Infof("channel closed") }
       if err != nil { t.Errorf("Error in channel: %v", err) }
-    case <-time.After(time.Duration(millis)*time.Millisecond):
+    case <-time.After(duration):
       t.Errorf("WaitForNoError timeout."); return
   }
 }
@@ -138,13 +138,13 @@ func WaitForClosureOrDie(ctx context.Context, done <-chan error) error {
   return nil
 }
 
-func WaitMillisForClosure(t *testing.T, millis int, done <-chan error) error {
+func WaitDurationForClosure(t *testing.T, duration time.Duration, done <-chan error) error {
   if done == nil { t.Error("channel is nil"); return nil }
   for { select {
     case err,ok := <-done:
       if !ok { Infof("channel closed") }
       return err
-    case <-time.After(time.Duration(millis)*time.Millisecond):
+    case <-time.After(duration):
       t.Errorf("WaitForClosure timeout."); return nil
   }}
   return nil

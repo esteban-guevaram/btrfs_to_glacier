@@ -3,7 +3,6 @@ package local_fs_metadata
 import (
   "context"
   "fmt"
-  "time"
   "testing"
 
   pb "btrfs_to_glacier/messages"
@@ -33,7 +32,7 @@ func buildTestRoundRobinMetadataWithState(
 }
 
 func callSetupMetadataSync(t *testing.T, meta *RoundRobinMetadata) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   done := meta.SetupMetadata(ctx)
   select {
@@ -117,7 +116,7 @@ func TestSetupRoundRobinMetadata_ExistingPartitionsWithoutState(t *testing.T) {
 }
 
 func TestSetupRoundRobinMetadata_MountFail(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta,clean_f := buildTestRoundRobinMetadataWithState(t, nil)
   defer clean_f()
@@ -143,7 +142,7 @@ func TestSetupRoundRobinMetadata_Idempotent(t *testing.T) {
 }
 
 func TestUMountAllSinkPartitions(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta,clean_f := buildTestRoundRobinMetadataWithState(t, &pb.AllMetadata{})
   defer clean_f()
@@ -157,7 +156,7 @@ func TestUMountAllSinkPartitions(t *testing.T) {
 }
 
 func TestReadWriteSaveCycle(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   vol_uuid, expect_state := util.DummyAllMetadata()
   meta,clean_f := buildTestRoundRobinMetadataWithState(t, expect_state)

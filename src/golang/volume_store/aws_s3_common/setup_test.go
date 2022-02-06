@@ -3,7 +3,6 @@ package aws_s3_common
 import (
   "context"
   "testing"
-  "time"
 
   "btrfs_to_glacier/util"
 
@@ -25,7 +24,7 @@ func buildTestAdminsetup(t *testing.T) (*S3Common, *MockS3Client) {
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
   common, err := NewS3Common(conf, aws_conf, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }
-  common.BucketWait = 10 * time.Millisecond
+  common.BucketWait = util.TestTimeout
   common.AccountId = client.AccountId
 
   return common, client
@@ -33,7 +32,7 @@ func buildTestAdminsetup(t *testing.T) (*S3Common, *MockS3Client) {
 
 func TestBucketCreation_Immediate(t *testing.T) {
   const bucket = "bucket_name"
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
   err := setup.CreateBucket(ctx, bucket)
@@ -47,7 +46,7 @@ func TestBucketCreation_Immediate(t *testing.T) {
 
 func TestBucketCreation_Timeout(t *testing.T) {
   const bucket = "bucket_name"
-  ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
   client.HeadAlwaysEmpty = true
@@ -56,7 +55,7 @@ func TestBucketCreation_Timeout(t *testing.T) {
 }
 
 func TestCheckBucketExistsAndIsOwnedByMyAccount_NoBucket(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   setup,_ := buildTestAdminsetup(t)
   bucket := setup.Conf.Aws.S3.StorageBucketName
@@ -67,7 +66,7 @@ func TestCheckBucketExistsAndIsOwnedByMyAccount_NoBucket(t *testing.T) {
 
 func TestCheckBucketExistsAndIsOwnedByMyAccount_BadOwner(t *testing.T) {
   const bucket = "bucket_name"
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
   client.HeadAlwaysAccessDenied = true
@@ -77,7 +76,7 @@ func TestCheckBucketExistsAndIsOwnedByMyAccount_BadOwner(t *testing.T) {
 }
 
 func TestCheckBucketExistsAndIsOwnedByMyAccount_Exists(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
   bucket := setup.Conf.Aws.S3.MetadataBucketName

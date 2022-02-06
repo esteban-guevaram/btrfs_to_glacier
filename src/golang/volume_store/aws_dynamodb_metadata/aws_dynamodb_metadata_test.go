@@ -6,7 +6,6 @@ import (
   "fmt"
   "sort"
   "testing"
-  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -235,13 +234,13 @@ func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {
     uuid_col: Uuid_col,
     type_col: Type_col,
     blob_col: Blob_col,
-    describe_retry: 2 * time.Millisecond,
+    describe_retry: util.SmallTimeout,
   }
   return meta, client
 }
 
 func TestRecordSnapshotSeqHead_New(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, _ := buildTestMetadata(t)
   new_seq := util.DummySnapshotSequence("vol", "seq")
@@ -252,7 +251,7 @@ func TestRecordSnapshotSeqHead_New(t *testing.T) {
 }
 
 func TestRecordSnapshotSeqHead_Add(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   old_seq := util.DummySnapshotSequence("vol", "seq1")
@@ -268,7 +267,7 @@ func TestRecordSnapshotSeqHead_Add(t *testing.T) {
 }
 
 func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   new_seq := util.DummySnapshotSequence("vol", "seq")
@@ -281,7 +280,7 @@ func TestRecordSnapshotSeqHead_Noop(t *testing.T) {
 }
 
 func TestAppendSnapshotToSeq_New(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   seq := util.DummySnapshotSequence("vol", "seq")
@@ -296,7 +295,7 @@ func TestAppendSnapshotToSeq_New(t *testing.T) {
 }
 
 func TestAppendSnapshotToSeq_Noop(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   client.Err = fmt.Errorf("No methods on the client should have been called")
@@ -309,7 +308,7 @@ func TestAppendSnapshotToSeq_Noop(t *testing.T) {
 func TestAppendSnapshotToChunk_New(t *testing.T) {
   snap := util.DummySnapshot("snap_uuid", "par_uuid")
   chunk := util.DummyChunks("chunk_uuid")
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   metadata, client := buildTestMetadata(t)
@@ -325,7 +324,7 @@ func TestAppendSnapshotToChunk_New(t *testing.T) {
 func TestAppendSnapshotToChunk_Append(t *testing.T) {
   snap := util.DummySnapshot("snap_uuid", "par_uuid")
   snap.Data = util.DummyChunks("chunk_uuid1")
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   chunk := util.DummyChunks("chunk_uuid2")
@@ -347,7 +346,7 @@ func TestAppendSnapshotToChunk_Noop(t *testing.T) {
   snap := util.DummySnapshot("snap_uuid", "par_uuid")
   chunk := util.DummyChunks("chunk_uuid")
   snap.Data = chunk
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   metadata, client := buildTestMetadata(t)
@@ -361,7 +360,7 @@ func TestAppendSnapshotToChunk_Errors(t *testing.T) {
   var err error
   snap := util.DummySnapshot("snap_uuid", "par_uuid")
   snap.Data = util.DummyChunks("chunk_uuid")
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   metadata, _ := buildTestMetadata(t)
@@ -388,7 +387,7 @@ func TestAppendSnapshotToChunk_Errors(t *testing.T) {
 }
 
 func TestReadSnapshotSeqHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   seq := util.DummySnapshotSequence("vol", "seq1")
@@ -401,7 +400,7 @@ func TestReadSnapshotSeqHead(t *testing.T) {
 }
 
 func TestReadSnapshotSeqHead_NoHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, _ := buildTestMetadata(t)
 
@@ -411,7 +410,7 @@ func TestReadSnapshotSeqHead_NoHead(t *testing.T) {
 }
 
 func TestReadSnapshotSeq(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   expect_seq := util.DummySnapshotSequence("vol", "seq1")
@@ -423,7 +422,7 @@ func TestReadSnapshotSeq(t *testing.T) {
 }
 
 func TestReadSnapshotSeq_NoSequence(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, _ := buildTestMetadata(t)
 
@@ -433,7 +432,7 @@ func TestReadSnapshotSeq_NoSequence(t *testing.T) {
 }
 
 func TestReadSnapshot(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   expect_snap := util.DummySnapshot("snap_uuid", "vol_uuid")
@@ -446,7 +445,7 @@ func TestReadSnapshot(t *testing.T) {
 }
 
 func TestReadSnapshotSeq_NoSnap(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, _ := buildTestMetadata(t)
 
@@ -458,7 +457,7 @@ func TestReadSnapshotSeq_NoSnap(t *testing.T) {
 type create_pb_f = func() (string, proto.Message)
 type iterate_f = func(context.Context, types.Metadata) (map[string]proto.Message, error)
 func testMetadataListAll_Helper(t *testing.T, total int, fill_size int32, pb_f create_pb_f, iter_f iterate_f) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   metadata.iter_buf_len = fill_size
@@ -503,7 +502,7 @@ func TestListAllSnapshotSeqHeads_MultipleFill(t *testing.T) {
   testMetadataListAll_Helper(t, total, fill_size, head_pb_f, head_iter_f)
 }
 func TestListAllSnapshotSeqHeads_NoObjects(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata,_ := buildTestMetadata(t)
   got_objs, err := head_iter_f(ctx, metadata)
@@ -513,7 +512,7 @@ func TestListAllSnapshotSeqHeads_NoObjects(t *testing.T) {
 func TestListAllSnapshotSeqHeads_EmptyNonFinalFill(t *testing.T) {
   const fill_size = 3
   const total = fill_size * 2
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestMetadata(t)
   metadata.iter_buf_len = fill_size
@@ -529,7 +528,7 @@ func TestListAllSnapshotSeqHeads_EmptyNonFinalFill(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad len", len(got_objs), total)
 }
 func TestListAllSnapshotSeqHeads_ErrDuringIteration(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata,client := buildTestMetadata(t)
   key,obj := head_pb_f()

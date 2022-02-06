@@ -4,7 +4,6 @@ import (
   "context"
   "fmt"
   "testing"
-  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
@@ -23,7 +22,7 @@ func buildTestAdminMetadata(t *testing.T) (*dynamoAdminMetadata, *mockDynamoDbCl
 }
 
 func TestTableCreation_Immediate(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
   client.CreateTableOutput = dyn_types.TableDescription{
@@ -39,7 +38,7 @@ func TestTableCreation_Immediate(t *testing.T) {
 }
 
 func TestTableCreation_Wait(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
   client.CreateTableOutput = dyn_types.TableDescription{
@@ -58,7 +57,7 @@ func TestTableCreation_Wait(t *testing.T) {
 }
 
 func TestTableCreation_Idempotent(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
   client.Err = &dyn_types.ResourceInUseException{}
@@ -72,7 +71,7 @@ func TestTableCreation_Idempotent(t *testing.T) {
 }
 
 func testDeleteMetadataUuids_Helper(t *testing.T, seq_cnt int, snap_cnt int, batch_size int) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
   metadata.delete_batch = batch_size
@@ -125,7 +124,7 @@ func TestDeleteMetadataUuids_NoItemNoError(t *testing.T) {
 }
 
 func TestDeleteMetadataUuids_DynamoError(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
   client.Err = fmt.Errorf("fiasco")
@@ -137,7 +136,7 @@ func TestDeleteMetadataUuids_DynamoError(t *testing.T) {
 }
 
 func TestReplaceSnapshotSeqHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
   old_head := util.DummySnapshotSeqHead(util.DummySnapshotSequence("vol", "seq_old"))
@@ -153,7 +152,7 @@ func TestReplaceSnapshotSeqHead(t *testing.T) {
 }
 
 func TestReplaceSnapshotSeqHead_NoOldHead(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   metadata,_ := buildTestAdminMetadata(t)
   new_head := util.DummySnapshotSeqHead(util.DummySnapshotSequence("vol", "seq_new"))

@@ -172,7 +172,7 @@ func (self *source_t) Close() error { self.closed = true; return nil }
 func TestEncryptStream_ClosesStreams(t *testing.T) {
   codec := buildTestCodec(t)
   read_pipe := &source_t{ Reader:bytes.NewReader([]byte("coucou")), }
-  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   encoded_pipe, err := codec.EncryptStream(ctx, read_pipe)
@@ -194,7 +194,7 @@ type decrypt_f = func(types.Codec, context.Context, types.PersistableString, io.
 func testEncryptDecryptStream_Helper(
     t *testing.T, read_pipe io.ReadCloser, decrypt_lambda decrypt_f) []byte {
   codec := buildTestCodec(t)
-  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   var err error
@@ -244,7 +244,7 @@ func TestEncryptStreamInto_SmallMsg(t *testing.T) {
     return reader, nil
   }
   data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
-  util.WaitMillisForNoError(t, 5, done)
+  util.WaitDurationForNoError(t, util.MedTimeout, done)
   util.EqualsOrFailTest(t, "Bad encryption", data, expect_msg)
 }
 
@@ -270,7 +270,7 @@ func TestEncryptStreamInto_MoreData(t *testing.T) {
   }
   data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
   util.EqualsOrFailTest(t, "Bad encryption len", len(data), 4096*32)
-  util.WaitMillisForNoError(t, 5, done)
+  util.WaitDurationForNoError(t, util.MedTimeout, done)
 }
 
 func TestDecryptStreamInto_OutputRemainsOpen(t *testing.T) {
@@ -283,14 +283,14 @@ func TestDecryptStreamInto_OutputRemainsOpen(t *testing.T) {
     return reader, nil
   }
   testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
-  select { case <-time.After(2*time.Millisecond): }
+  select { case <-time.After(util.SmallTimeout): }
   _, err := pipe.WriteEnd().Write([]byte("coucou"))
   if err != nil { t.Errorf("could not write after decryption: %v", err) }
 }
 
 func testStream_TimeoutContinousReads_Helper(
     t *testing.T, stream_f func(context.Context, io.ReadCloser) (io.ReadCloser, error)) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
 
@@ -299,7 +299,7 @@ func testStream_TimeoutContinousReads_Helper(
   go func() {
     select {
       case <-timely_close: return
-      case <-time.After(17*time.Millisecond): close(timedout)
+      case <-time.After(util.LargeTimeout): close(timedout)
     }
   }()
 
@@ -324,7 +324,7 @@ func testStream_TimeoutContinousReads_Helper(
 
 func testStream_TimeoutReadAfterClose_Helper(
     t *testing.T, stream_f func(context.Context, io.ReadCloser) (io.ReadCloser, error)) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
 
@@ -333,7 +333,7 @@ func testStream_TimeoutReadAfterClose_Helper(
   go func() {
     select {
       case <-timely_close: return
-      case <-time.After(17*time.Millisecond): close(timedout)
+      case <-time.After(util.LargeTimeout): close(timedout)
     }
   }()
 
@@ -344,7 +344,7 @@ func testStream_TimeoutReadAfterClose_Helper(
     defer out.Close()
     defer close(timely_close)
     select { case <-ctx.Done(): }
-    select { case <-time.After(2*time.Millisecond): out.Read(buf) }
+    select { case <-time.After(util.SmallTimeout): out.Read(buf) }
   }()
 
   select {
@@ -379,7 +379,7 @@ func TestDecryptStreamInto_TimeoutContinousReads(t *testing.T) {
     return pipe.ReadEnd(), nil
   }
   testStream_TimeoutContinousReads_Helper(t, stream_f)
-  util.WaitMillisForClosure(t, 5, done)
+  util.WaitDurationForClosure(t, util.MedTimeout, done)
 }
 
 func TestEncryptStream_TimeoutReadAfterClose(t *testing.T) {
@@ -407,7 +407,7 @@ func TestDecryptStreamInto_TimeoutReadAfterClose(t *testing.T) {
     return pipe.ReadEnd(), nil
   }
   testStream_TimeoutReadAfterClose_Helper(t, stream_f)
-  util.WaitMillisForClosure(t, 5, done)
+  util.WaitDurationForClosure(t, util.MedTimeout, done)
 }
 
 func TestCompression(t *testing.T) {
@@ -428,7 +428,7 @@ func TestCompression(t *testing.T) {
 }
 
 func TODOTestEncryptStream_PrematurelyClosedInput(t *testing.T) {
-  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
@@ -452,7 +452,7 @@ func TODOTestEncryptStream_PrematurelyClosedInput(t *testing.T) {
 }
 
 func TODOTestDecryptStream_PrematurelyClosedInput(t *testing.T) {
-  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
@@ -474,7 +474,7 @@ func TODOTestDecryptStream_PrematurelyClosedInput(t *testing.T) {
 }
 
 func TestDecryptStreamInto_PrematurelyClosedInput(t *testing.T) {
-  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   sink := new(bytes.Buffer)

@@ -32,13 +32,13 @@ func testInMemPipeCtxCancel_Helper(t *testing.T, pipe types.Pipe, pipe_f func([]
   }()
   select {
     case <-done: return
-    case <-time.After(17*time.Millisecond):
+    case <-time.After(LargeTimeout):
       t.Fatalf("context timeout was not taken into account")
   }
 }
 
 func TestInMemPipeCtxCancel_WhileWriting(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), TestTimeout)
   defer cancel()
   pipe := NewInMemPipe(ctx)
   pipe_f := func(buf []byte) { pipe.WriteEnd().Write(buf) }
@@ -46,7 +46,7 @@ func TestInMemPipeCtxCancel_WhileWriting(t *testing.T) {
 }
 
 func TestFileBasedPipeCtxCancel_WhileWriting(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), TestTimeout)
   defer cancel()
   pipe := NewFileBasedPipe(ctx)
   pipe_f := func(buf []byte) { pipe.WriteEnd().Write(buf) }
@@ -54,7 +54,7 @@ func TestFileBasedPipeCtxCancel_WhileWriting(t *testing.T) {
 }
 
 func TestInMemPipeCtxCancel_WhileReading(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), TestTimeout)
   defer cancel()
   pipe := NewInMemPipe(ctx)
   pipe_f := func(buf []byte) { pipe.ReadEnd().Read(buf) }
@@ -62,7 +62,7 @@ func TestInMemPipeCtxCancel_WhileReading(t *testing.T) {
 }
 
 func TestFileBasedPipeCtxCancel_WhileReading(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), TestTimeout)
   defer cancel()
   pipe := NewFileBasedPipe(ctx)
   pipe_f := func(buf []byte) { pipe.ReadEnd().Read(buf) }
@@ -93,7 +93,7 @@ func TestPipePropagateClosure_Fuzzer(t *testing.T) {
   pipe_cnt := 1 + rand.Intn(7)
   chan_cnt := pipe_cnt + 1
   done := make(chan int)
-  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx,cancel := context.WithTimeout(context.Background(), TestTimeout)
   defer cancel()
   expect_count := make([]int, chan_cnt)
   pipes := make([]types.Pipe, pipe_cnt)
@@ -134,7 +134,7 @@ func TestPipePropagateClosure_Fuzzer(t *testing.T) {
 }
 
 func TestClosedReadEndBehavior(t *testing.T) {
-  ctx,cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx,cancel := context.WithTimeout(context.Background(), TestTimeout)
   defer cancel()
   close_test_f := func(scope string, writer io.WriteCloser, reader io.ReadCloser) {
     done := make(chan error)
@@ -166,7 +166,7 @@ func TestClosedReadEndBehavior(t *testing.T) {
 
 func TestStartCmdWithPipedOutput_Echo(t *testing.T) {
   args := []string{ "echo", "-n", "salut" }
-  ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), 2*TestTimeout)
   defer cancel()
 
   done := runCmdGetOutputOrDie(ctx, t, args)
@@ -189,7 +189,7 @@ func TestStartCmdWithPipedOutput_Timeout(t *testing.T) {
 
   select {
     case <-done:
-    case <-time.After(10 * time.Millisecond):
+    case <-time.After(TestTimeout):
       t.Fatalf("%v did NOT timeout", args)
   }
 }

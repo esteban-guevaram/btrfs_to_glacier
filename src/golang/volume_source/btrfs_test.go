@@ -174,7 +174,7 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
       },
     },
   }
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
 	defer cancel()
   ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
   if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
@@ -191,7 +191,7 @@ func TestGetSnapshotStream(t *testing.T) {
   expect_stream := []byte("somedata")
   btrfsutil.SendStream = mocks.NewPreloadedPipe(expect_stream)
 
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   read_pipe, err := volmgr.GetSnapshotStream(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
   if err != nil { t.Fatalf("GetSnapshotStream: %v", err) }
@@ -215,7 +215,7 @@ func TestGetSnapshotStream(t *testing.T) {
 func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
   btrfsutil.Err = fmt.Errorf("problemo")
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
   if err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
@@ -225,7 +225,7 @@ func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
 func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
   btrfsutil.DumpErr = fmt.Errorf("problemo")
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
   if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
@@ -270,7 +270,7 @@ func TestDeleteSnapshot(t *testing.T) {
 func TestReceiveSendStream(t *testing.T) {
   volmgr, btrfsutil, juggler := buildTestManager()
   read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   recv_path := juggler.UuidToMnt[btrfsutil.Snaps[1].Uuid].MountedPath
@@ -292,7 +292,7 @@ func TestReceiveSendStream(t *testing.T) {
 func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
   volmgr, _, _ := buildTestManager()
   read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   ch, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)

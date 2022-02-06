@@ -4,7 +4,6 @@ import (
   "context"
   "fmt"
   "testing"
-  "time"
 
   s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
   pb "btrfs_to_glacier/messages"
@@ -24,7 +23,7 @@ func buildTestAdminStorage(t *testing.T) (*s3StorageAdmin, *s3_common.MockS3Clie
 }
 
 func TestCreateLifecycleRule(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestAdminStorage(t)
   bucket := storage.conf.Aws.S3.StorageBucketName
@@ -36,7 +35,7 @@ func TestCreateLifecycleRule(t *testing.T) {
 }
 
 func TestSetupStorage(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestAdminStorage(t)
   bucket := storage.conf.Aws.S3.StorageBucketName
@@ -53,7 +52,7 @@ func TestSetupStorage(t *testing.T) {
 }
 
 func TestSetupStorage_Fail(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestAdminStorage(t)
   client.Err = fmt.Errorf("an unfortunate error")
@@ -67,7 +66,7 @@ func TestSetupStorage_Fail(t *testing.T) {
 }
 
 func testDeleteChunks_Helper(t *testing.T, obj_count int) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   storage, client := buildTestAdminStorage(t)
@@ -98,7 +97,7 @@ func TestDeleteChunks_MultiBatch(t *testing.T) {
 }
 
 func TestDeleteChunks_NoKeysErr(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   storage,_ := buildTestAdminStorage(t)
