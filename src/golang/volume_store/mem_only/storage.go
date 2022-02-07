@@ -101,7 +101,10 @@ func (self *ChunkIoImpl) WriteOneChunk(
     Start: start_offset,
     Size: uint64(len(data)),
   }
-  return chunk, limit_reader.N == 0, nil
+  more := chunk.Size == self.ChunkLen + uint64(self.ParCodec.EncryptionHeaderLen())
+  // Race detector does not recognize the ordering event (close pipe write end, EOF on read end)
+  if !util.RaceDetectorOn { more = limit_reader.N == 0 }
+  return chunk, more, nil
 }
 
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {

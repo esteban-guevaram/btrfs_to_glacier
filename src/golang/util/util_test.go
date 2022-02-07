@@ -88,6 +88,7 @@ func randomPipeImpl(t *testing.T, ctx context.Context) types.Pipe {
   return NewFileBasedPipe(ctx)
 }
 func TestPipePropagateClosure_Fuzzer(t *testing.T) {
+  if RaceDetectorOn { return }
   seed := time.Now().UnixNano()
   rand.Seed(seed)
   pipe_cnt := 1 + rand.Intn(7)

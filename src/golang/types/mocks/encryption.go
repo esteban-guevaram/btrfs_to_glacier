@@ -16,6 +16,8 @@ type Codec struct {
   GenKeyPersistable types.PersistableKey
 }
 
+func (self *Codec) EncryptionHeaderLen() int { return 0 }
+
 func (self *Codec) CreateNewEncryptionKey() (types.PersistableKey, error) {
   return self.GenKeyPersistable, self.Err
 }

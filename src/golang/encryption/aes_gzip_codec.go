@@ -99,6 +99,8 @@ func (self *aesGzipCodec) encodeEncryptionKey(enc_key types.SecretKey) types.Per
   return types.PersistableKey{ base64.StdEncoding.EncodeToString(enc_bytes) }
 }
 
+func (self *aesGzipCodec) EncryptionHeaderLen() int { return aes.BlockSize }
+
 func (self *aesGzipCodec) CreateNewEncryptionKey() (types.PersistableKey, error) {
   const AES_256_KEY_LEN = 32
   null_key := types.PersistableKey{""}
@@ -115,6 +117,7 @@ func (self *aesGzipCodec) CreateNewEncryptionKey() (types.PersistableKey, error)
   self.keyring[fp] = secret
   self.block, err = aes.NewCipher(self.keyring[fp].B)
   if err != nil { return null_key, err }
+  if self.block.BlockSize() != aes.BlockSize { util.Fatalf("BlockSize !- aes.BlockSize") }
   self.cur_fp = fp
   return persistable, nil
 }

@@ -21,6 +21,9 @@ var CurKeyFp = PersistableString{""}
 // * The passphrase to decrypt the keys used to encrypt the backup data
 // The encryption keys will be stored encrypted in the configuration and they will go to github.
 type Codec interface {
+  // Returns the header (aka IV) added to the beginning of encrypted streams.
+  // Depending on the block chaining type it may be 0.
+  EncryptionHeaderLen() int
   // Generates a random encryption key of a suitable length for the encryption algo.
   // The new key is stored in the keyring so that subsequent encrypts will use that key.
   // Returns a derived key that can be persisted.
