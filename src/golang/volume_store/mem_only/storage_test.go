@@ -84,7 +84,8 @@ func TestAllMemOnlyStorage(t *testing.T) {
   RunAllTestStorage(t, fixture)
 }
 
-func HelperWriteReadWithRealCodec(t *testing.T, chunk_len uint64, total_len uint64) {
+func HelperWriteReadWithRealCodec(
+    t *testing.T, chunk_len uint64, total_len uint64) *pb.SnapshotChunks {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageRealCodec(t, chunk_len)
@@ -119,24 +120,57 @@ func HelperWriteReadWithRealCodec(t *testing.T, chunk_len uint64, total_len uint
 
   if len(got_data) < 1 { t.Fatalf("no data read") }
   util.EqualsOrFailTest(t, "Mismatched data", got_data, expect_data)
+  return chunks_written
 }
 
 func TestWriteReadWithRealCodec_OneChunk(t *testing.T) {
   const chunk_len = 128
   const total_len = 64
-  HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+  written := HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+  util.EqualsOrFailTest(t, "Bad chunk count", len(written.Chunks), 1)
+}
+
+func TestWriteReadWithRealCodec_NoData(t *testing.T) {
+  const chunk_len = 128
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  storage,_ := buildTestStorageRealCodec(t, chunk_len)
+  pipe := mocks.NewPreloadedPipe([]byte{})
+
+  done_write,err := storage.WriteStream(ctx, /*offest*/0, pipe.ReadEnd())
+  if err != nil { t.Fatalf("failed: %v", err) }
+  select {
+    case chunk_or_err := <-done_write:
+      if chunk_or_err.Err == nil { t.Errorf("Expected error") }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
 }
 
 func TestWriteReadWithRealCodec_2ChunksWithIv(t *testing.T) {
   const chunk_len = 64
-  const total_len = chunk_len - 1
-  HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+  const total_len = chunk_len + 1
+  codec := buildTestCodec(t)
+  expect_size := 1 + codec.EncryptionHeaderLen()
+  written := HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+  util.EqualsOrFailTest(t, "Bad chunk count", len(written.Chunks), 2)
+  util.EqualsOrFailTest(t, "Bad 2nd chunk", written.Chunks[1].Size, expect_size)
+}
+
+func TestWriteReadWithRealCodec_IVandDataExactChunk(t *testing.T) {
+  const chunk_len = 64
+  const total_len = chunk_len
+  codec := buildTestCodec(t)
+  expect_size := chunk_len + codec.EncryptionHeaderLen()
+  written := HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+  util.EqualsOrFailTest(t, "Bad chunk count", len(written.Chunks), 1)
+  util.EqualsOrFailTest(t, "Bad 1st chunk", written.Chunks[0].Size, expect_size)
 }
 
 func TestWriteReadWithRealCodec_ManyChunks(t *testing.T) {
   const chunk_len = 64
   const total_len = chunk_len * 3
-  HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+  written := HelperWriteReadWithRealCodec(t, chunk_len, total_len)
+  util.EqualsOrFailTest(t, "Bad chunk count", len(written.Chunks), 3)
 }
 
 func TestWriteStream_ErrPropagation(t *testing.T) {

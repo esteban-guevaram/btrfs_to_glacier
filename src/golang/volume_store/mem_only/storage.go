@@ -16,7 +16,7 @@ import (
 )
 
 const (
-  ChunkLen = 4 * 1024
+  ChunkLen = 4 * 1024 * 1024
 )
 
 type ChunkIoIf interface {
@@ -82,6 +82,16 @@ func (self *ChunkIoImpl) ReadOneChunk(
   return nil
 }
 
+// Race detector does not recognize the ordering event (close pipe write end, EOF on read end)
+func HasMoreData(chunk_len uint64, codec_hdr int, data_len uint64, source *io.LimitedReader) bool {
+  if !util.RaceDetectorOn { return source.N == 0 }
+  return data_len == chunk_len + uint64(codec_hdr)
+}
+func IsChunkEmpty(chunk_len uint64, codec_hdr int, data_len uint64, source *io.LimitedReader) bool {
+  if !util.RaceDetectorOn { return source.N == int64(chunk_len) }
+  return data_len == uint64(codec_hdr)
+}
+
 func (self *ChunkIoImpl) WriteOneChunk(
     ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error) {
   key_str := uuid.NewString()
@@ -93,18 +103,17 @@ func (self *ChunkIoImpl) WriteOneChunk(
 
   data, err := io.ReadAll(encrypted_reader)
   if err != nil { return nil, false, err }
-  if len(data) == 0 { return nil, false, nil }
 
-  self.Chunks[key_str] = data
   chunk := &pb.SnapshotChunks_Chunk{
     Uuid: key_str,
     Start: start_offset,
     Size: uint64(len(data)),
   }
-  more := chunk.Size == self.ChunkLen + uint64(self.ParCodec.EncryptionHeaderLen())
-  // Race detector does not recognize the ordering event (close pipe write end, EOF on read end)
-  if !util.RaceDetectorOn { more = limit_reader.N == 0 }
-  return chunk, more, nil
+
+  codec_hdr := self.ParCodec.EncryptionHeaderLen()
+  if IsChunkEmpty(self.ChunkLen, codec_hdr, chunk.Size, limit_reader) { return nil, false, nil }
+  self.Chunks[key_str] = data
+  return chunk, HasMoreData(self.ChunkLen, codec_hdr, chunk.Size, limit_reader), nil
 }
 
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {
