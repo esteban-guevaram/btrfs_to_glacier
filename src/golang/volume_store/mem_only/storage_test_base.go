@@ -130,7 +130,7 @@ func (self *Fixture) HelperTestWriteEmptyChunk(t *testing.T, offset uint64, chun
   if err != nil { t.Errorf("empty write should return no more data and a nul chunk") }
   if more { t.Errorf("empty write not signal more data") }
   if chunk_pb != nil { t.Errorf("no chunks should have been returned") }
-  if chunkio.Len() > 0 { t.Errorf("nothing should have been written to S3") }
+  if chunkio.Len() > 0 { t.Errorf("nothing should have been written to storage") }
 }
 
 func (self *Fixture) TestWriteOneChunk_LessThanFullContent(t *testing.T) {
@@ -187,7 +187,7 @@ func (self *Fixture) HelperTestWriteStream_SingleChunk(t *testing.T, offset uint
       util.EqualsOrFailTest(t, "Bad SnapshotChunks", chunk_or_err.Val, expect_chunks)
 
       data,found := chunkio.Get(chunks[0].Uuid)
-      if !found { t.Errorf("nothing written to S3") }
+      if !found { t.Errorf("nothing written to storage") }
       util.EqualsOrFailTest(t, "Bad object data", data, expect_data)
     case <-self.Ctx.Done(): t.Fatalf("timedout")
   }
@@ -207,7 +207,7 @@ func (self *Fixture) HelperTestWriteStream_EmptyChunk(t *testing.T, offset uint6
         chunks := chunk_or_err.Val.Chunks
         if len(chunks) > 0 { t.Errorf("no chunks should have been returned") }
       }
-      if chunkio.Len() > 0 { t.Errorf("nothing should have been written to S3") }
+      if chunkio.Len() > 0 { t.Errorf("nothing should have been written to storage") }
     case <-self.Ctx.Done(): t.Fatalf("timedout")
   }
 }
