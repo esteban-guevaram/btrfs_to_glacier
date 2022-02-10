@@ -28,10 +28,12 @@ type ChunkIoForTest interface {
 
 type StorageCtor = func(*testing.T, uint64) (types.Storage, ChunkIoForTest)
 type AdminCtor   = func(*testing.T, uint64) (types.AdminStorage, ChunkIoForTest)
+type TearDown    = func(*testing.T)
 type Fixture struct {
   Ctx         context.Context
   StorageCtor StorageCtor
   AdminCtor   AdminCtor
+  TearDown    TearDown
 }
 type TestF = func(*Fixture, *testing.T)
 
@@ -505,6 +507,7 @@ func RunAllTestStorage(t *testing.T, fixture *Fixture) {
       defer cancel()
       fixture.Ctx = ctx
       i.Func(fixture, t)
+      if (fixture.TearDown != nil) { fixture.TearDown(t) }
     }
     t.Run(i.Name, run_f)
   }

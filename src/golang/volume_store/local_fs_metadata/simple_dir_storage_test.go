@@ -17,6 +17,11 @@ import (
 
 type ChunkIoForTestImpl struct { *ChunkIoImpl }
 
+type Fixture struct {
+  *mem_only.Fixture
+  CleanF func()
+}
+
 func (self *ChunkIoForTestImpl) Get(key string) ([]byte, bool) {
   data, err := os.ReadFile(ChunkFile(self.ChunkDir, key))
   if util.IsNotExist(err) { return nil, false }
@@ -41,19 +46,19 @@ func (self *ChunkIoForTestImpl) SetCodecFp(fp string) {
 }
 
 func buildTestSimpleDirStorage(
-    t *testing.T, chunk_len uint64, codec types.Codec) (*SimpleDirStorage, *ChunkIoForTestImpl) {
-  local_fs, _ := util.TestSimpleDirLocalFs()
+    t *testing.T, chunk_len uint64, codec types.Codec) (*SimpleDirStorage, *ChunkIoForTestImpl, func()) {
+  local_fs, clean_f := util.TestSimpleDirLocalFs()
   conf := util.LoadTestConfWithLocalFs(local_fs)
   gen_store,err := NewSimpleDirStorageAdmin(conf, codec, local_fs.Sinks[0].Partitions[0].FsUuid)
   if err != nil { util.Fatalf("NewStorage: %v", err) }
   storage := gen_store.(*SimpleDirStorage)
   chunkio := &ChunkIoForTestImpl{ storage.ChunkIo.(*ChunkIoImpl) }
   chunkio.ChunkLen = chunk_len
-  return storage, chunkio
+  return storage, chunkio, clean_f
 }
 
 func buildTestSimpleDirStorageWithChunkLen(
-    t *testing.T, chunk_len uint64) (*SimpleDirStorage, *ChunkIoForTestImpl) {
+    t *testing.T, chunk_len uint64) (*SimpleDirStorage, *ChunkIoForTestImpl, func()) {
   codec := new(mocks.Codec)
   return buildTestSimpleDirStorage(t, chunk_len, codec)
 }
@@ -61,7 +66,8 @@ func buildTestSimpleDirStorageWithChunkLen(
 func HelperSetupStorage(t *testing.T, chunk_cnt int) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
-  storage,chunkio := buildTestSimpleDirStorageWithChunkLen(t, 16)
+  storage,chunkio,clean_f := buildTestSimpleDirStorageWithChunkLen(t, 16)
+  defer clean_f()
   for i:=0; i<chunk_cnt; i+=1 {
     data := util.GenerateRandomTextData(i*32)
     key := uuid.NewString()
@@ -92,16 +98,19 @@ func TestSetupStorage_Idempotent(t *testing.T) {
 }
 
 func TestAllSimpleDirStorage(t *testing.T) {
-  storage_ctor := func(t *testing.T, chunk_len uint64) (types.Storage, mem_only.ChunkIoForTest) {
-    return buildTestSimpleDirStorageWithChunkLen(t, chunk_len)
+  fixture := &Fixture{
+    Fixture: &mem_only.Fixture{},
+    CleanF: func() {},
   }
-  admin_ctor := func(t *testing.T, chunk_len uint64) (types.AdminStorage, mem_only.ChunkIoForTest) {
-    return buildTestSimpleDirStorageWithChunkLen(t, chunk_len)
+  fixture.StorageCtor = func(t *testing.T, chunk_len uint64) (types.Storage, mem_only.ChunkIoForTest) {
+    return fixture.AdminCtor(t, chunk_len)
   }
-  fixture := &mem_only.Fixture{
-    StorageCtor: storage_ctor,
-    AdminCtor:   admin_ctor,
+  fixture.AdminCtor = func(t *testing.T, chunk_len uint64) (types.AdminStorage, mem_only.ChunkIoForTest) {
+    storage, chunkio, clean_f := buildTestSimpleDirStorageWithChunkLen(t, chunk_len)
+    fixture.CleanF = clean_f
+    return storage, chunkio
   }
-  mem_only.RunAllTestStorage(t, fixture)
+  fixture.TearDown = func(t *testing.T) { fixture.CleanF() }
+  mem_only.RunAllTestStorage(t, fixture.Fixture)
 }
 
