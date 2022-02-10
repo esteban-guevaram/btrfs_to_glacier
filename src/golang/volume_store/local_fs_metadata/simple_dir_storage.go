@@ -32,7 +32,7 @@ type ChunkIoImpl struct {
 }
 
 type SimpleDirStorage struct {
-  *mem_only.Storage
+  *mem_only.BaseStorage
 }
 
 func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string) (types.Storage, error) {
@@ -44,7 +44,7 @@ func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string
   }}
   if part == nil { return nil, fmt.Errorf("Partition '%s' not found", fs_uuid) }
 
-  inner_storage := &mem_only.Storage{
+  inner_storage := &mem_only.BaseStorage{
     ChunkIo: &ChunkIoImpl{
       ChunkIndex: make(map[string]bool),
       ParCodec:   codec,

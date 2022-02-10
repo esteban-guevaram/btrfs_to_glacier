@@ -34,14 +34,15 @@ type ChunkIoImpl struct {
   ChunkLen  uint64
 }
 
-type Storage struct {
+type BaseStorage struct {
   ChunkIo   ChunkIoIf
   Conf      *pb.Config
   Codec     types.Codec
 }
+type Storage struct { *BaseStorage }
 
 type ObjectIterator struct {
-  Parent   *Storage
+  Parent   *BaseStorage
   Buffer   []*pb.SnapshotChunks_Chunk
   Token    *string
   BufNext  int
@@ -50,7 +51,7 @@ type ObjectIterator struct {
 }
 
 func NewStorageAdmin(conf *pb.Config, codec types.Codec) (types.Storage, error) {
-  storage := &Storage{
+  base := &BaseStorage{
     ChunkIo: &ChunkIoImpl{
       Chunks: make(map[string][]byte),
       ParCodec: codec,
@@ -59,7 +60,7 @@ func NewStorageAdmin(conf *pb.Config, codec types.Codec) (types.Storage, error) 
     Conf: conf,
     Codec: codec,
   }
-  return storage, nil
+  return &Storage{base}, nil
 }
 
 func NewStorage(conf *pb.Config, codec types.Codec) (types.Storage, error) {
@@ -137,7 +138,7 @@ func (self *ChunkIoImpl) ListChunks(
   return chunks, nil, nil
 }
 
-func (self *Storage) WriteStream(
+func (self *BaseStorage) WriteStream(
     ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan types.ChunksOrError, error) {
   done := make(chan types.ChunksOrError, 1)
 
@@ -178,7 +179,7 @@ func (self *Storage) WriteStream(
   return done, nil
 }
 
-func (self *Storage) UploadSummary(result types.ChunksOrError) string {
+func (self *BaseStorage) UploadSummary(result types.ChunksOrError) string {
   var total_size uint64 = 0
   var uuids strings.Builder
   for _,c := range result.Val.Chunks {
@@ -194,7 +195,7 @@ func (self *Storage) UploadSummary(result types.ChunksOrError) string {
                      total_size, len(result.Val.Chunks), uuids.String(), result.Err)
 }
 
-func (self *Storage) QueueRestoreObjects(
+func (self *BaseStorage) QueueRestoreObjects(
     ctx context.Context, uuids []string) (<-chan types.RestoreResult, error) {
   done := make(chan types.RestoreResult, 1)
   result := make(types.RestoreResult)
@@ -207,7 +208,7 @@ func (self *Storage) QueueRestoreObjects(
   return done, nil
 }
 
-func (self *Storage) ReadChunksIntoStream(
+func (self *BaseStorage) ReadChunksIntoStream(
     ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error) {
   err := store.ValidateSnapshotChunks(store.CheckChunkFromStart, chunks)
   if err != nil { return nil, err }
@@ -242,7 +243,7 @@ func (self *Storage) DeleteChunks(
   return util.WrapInChan(nil)
 }
 
-func (self *Storage) ListAllChunks(
+func (self *BaseStorage) ListAllChunks(
     ctx context.Context) (types.SnapshotChunksIterator, error) {
   it := &ObjectIterator{ Parent:self, }
   return it, nil
