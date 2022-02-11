@@ -35,7 +35,20 @@ type SimpleDirStorage struct {
   *mem_only.BaseStorage
 }
 
-func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string) (types.Storage, error) {
+func StoreDir(part *pb.LocalFs_Partition) string {
+  return fpmod.Join(part.MountRoot, part.StorageDir)
+}
+
+func NewChunkIoImpl(part *pb.LocalFs_Partition, codec types.Codec) *ChunkIoImpl {
+  return &ChunkIoImpl{
+    ChunkIndex: make(map[string]bool),
+    ParCodec:   codec,
+    ChunkLen:   ChunkLen,
+    ChunkDir:   StoreDir(part),
+  }
+}
+
+func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string) (types.AdminStorage, error) {
   var part *pb.LocalFs_Partition
   for _,g := range conf.LocalFs.Sinks {
   for _,p := range g.Partitions {
@@ -45,12 +58,7 @@ func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string
   if part == nil { return nil, fmt.Errorf("Partition '%s' not found", fs_uuid) }
 
   inner_storage := &mem_only.BaseStorage{
-    ChunkIo: &ChunkIoImpl{
-      ChunkIndex: make(map[string]bool),
-      ParCodec:   codec,
-      ChunkLen:   ChunkLen,
-      ChunkDir:   fpmod.Join(part.MountRoot, part.StorageDir),
-    },
+    ChunkIo: NewChunkIoImpl(part, codec),
     Conf: conf,
     Codec: codec,
   }

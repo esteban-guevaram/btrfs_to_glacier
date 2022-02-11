@@ -3,12 +3,17 @@ package local_fs_metadata
 import (
   "context"
   "fmt"
+  "io"
+  "strings"
   "testing"
 
   pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
   "btrfs_to_glacier/volume_store/mem_only"
+
+  "github.com/google/uuid"
 )
 
 func buildTestRoundRobinMetadataWithState(
@@ -27,6 +32,7 @@ func buildTestRoundRobinMetadataWithState(
     Sink: local_fs.Sinks[0],
     Conf: conf,
     Linuxutil: &mocks.Linuxutil{},
+    PairStorage: nil,
   }
   return meta, clean_f
 }
@@ -40,6 +46,26 @@ func callSetupMetadataSync(t *testing.T, meta *RoundRobinMetadata) {
       if err != nil { t.Fatalf("SetupMetadata err: %v", err) }
     case <-ctx.Done(): t.Fatalf("timedout")
   }
+}
+
+func getPairStorageAndSetup(t *testing.T, meta *RoundRobinMetadata) (types.AdminStorage, *ChunkIoForTestImpl) {
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  codec := new(mocks.Codec)
+  codec.Fingerprint = types.PersistableString{"some_fp"}
+  storage, err := meta.GetPairStorage(codec)
+  if err != nil { t.Fatalf("meta.GetPairStorage: %v", err) }
+  done := storage.SetupStorage(ctx)
+  select {
+    case err := <-done:
+      if err != nil { t.Fatalf("SetupStorage err: %v", err) }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+  chunkio := GetChunkIoForTest(storage)
+  if !strings.HasPrefix(chunkio.ChunkDir, meta.DirInfo.MountRoot) {
+    t.Fatalf("Different fs between metadata and storage: '%s', '%s'", chunkio.ChunkDir, meta.DirInfo.MountRoot)
+  }
+  return storage, chunkio
 }
 
 func checkStateAfterSetup(t *testing.T, meta *RoundRobinMetadata, expect_state *pb.AllMetadata) {
@@ -78,6 +104,18 @@ func TestSetupRoundRobinMetadata_AllPartitionsNew(t *testing.T) {
   checkStateAfterSetup(t, meta, &pb.AllMetadata{})
 }
 
+func TestGetPairStorage_AllPartitionsNew(t *testing.T) {
+  meta,clean_f := buildTestRoundRobinMetadataWithState(t, nil)
+  defer clean_f()
+
+  callSetupMetadataSync(t, meta)
+  storage,_ := getPairStorageAndSetup(t, meta)
+  it, err := storage.ListAllChunks(context.TODO())
+  if err != nil { t.Errorf("storage.ListChunks: %v", err) }
+  var chunk pb.SnapshotChunks_Chunk
+  if it.Next(context.TODO(), &chunk) { t.Errorf("Expected no chunks") }
+}
+
 func TestSetupRoundRobinMetadata_OneNewPartition(t *testing.T) {
   const part_idx = 1
   _, state := util.DummyAllMetadata()
@@ -99,6 +137,25 @@ func TestSetupRoundRobinMetadata_ExistingPartitions(t *testing.T) {
 
   callSetupMetadataSync(t, meta)
   checkStateAfterSetup(t, meta, expect_state)
+}
+
+func TestGetPairStorage_ExistingPartitions(t *testing.T) {
+  _, expect_state := util.DummyAllMetadata()
+  meta,clean_f := buildTestRoundRobinMetadataWithState(t, expect_state)
+  defer clean_f()
+
+  callSetupMetadataSync(t, meta)
+  chunkio := &ChunkIoForTestImpl{ NewChunkIoImpl(meta.DirInfo, new(mocks.Codec)) }
+  expect_key := uuid.NewString()
+  chunkio.Set(expect_key, util.GenerateRandomTextData(39))
+  storage,_ := getPairStorageAndSetup(t, meta)
+
+  it, err := storage.ListAllChunks(context.TODO())
+  if err != nil { t.Errorf("storage.ListChunks: %v", err) }
+  var chunk pb.SnapshotChunks_Chunk
+  if !it.Next(context.TODO(), &chunk) { t.Errorf("Expected at least 1 chunk") }
+  util.EqualsOrFailTest(t, "Bad listed key", chunk.Uuid, expect_key)
+  if it.Next(context.TODO(), &chunk) { t.Errorf("Expected only 1 chunk") }
 }
 
 func TestSetupRoundRobinMetadata_ExistingPartitionsWithoutState(t *testing.T) {
@@ -173,5 +230,45 @@ func TestReadWriteSaveCycle(t *testing.T) {
   client := SimpleDirRw{ meta.DirInfo }
   persisted_state := client.GetState()
   mem_only.CompareStates(t, "Bad persisted state", persisted_state, expect_state)
+}
+
+func TestStorageReadWriteCycle(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  meta,clean_f := buildTestRoundRobinMetadataWithState(t, &pb.AllMetadata{})
+  defer clean_f()
+
+  callSetupMetadataSync(t, meta)
+  storage,chunkio := getPairStorageAndSetup(t, meta)
+
+  expect_data := util.GenerateRandomTextData(32)
+  pipe := mocks.NewPreloadedPipe(expect_data)
+  done, err := storage.WriteStream(ctx, 0, pipe.ReadEnd())
+  if err != nil { t.Errorf("storage.WriteStream: %v", err) }
+
+  var val *pb.SnapshotChunks
+  select {
+    case val_or_err := <-done:
+      if val_or_err.Err != nil { t.Fatalf("ChunksOrError: %v", val_or_err.Err) }
+      util.EqualsOrFailTest(t, "Bad len", len(val_or_err.Val.Chunks), 1)
+      val = val_or_err.Val
+    case <-ctx.Done(): t.Fatalf("storage.WriteStream timedout")
+  }
+
+  reader, err := storage.ReadChunksIntoStream(ctx, val)
+  if err != nil { t.Fatalf("storage.ReadChunksIntoStream: %v", err) }
+  var got_data []byte
+  done_r := make(chan error)
+  go func() {
+    defer close(done_r)
+    defer reader.Close()
+    got_data, err = io.ReadAll(reader)
+    if err != nil { t.Fatalf("io.ReadAll: %v", err) }
+  }()
+  util.WaitForClosure(t, ctx, done_r)
+
+  util.EqualsOrFailTest(t, "Bad chunk", got_data, expect_data)
+  persisted_data, _ := chunkio.Get(val.Chunks[0].Uuid)
+  util.EqualsOrFailTest(t, "Bad persisted chunk", persisted_data, expect_data)
 }
 

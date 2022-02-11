@@ -13,9 +13,10 @@ import (
 
 type RoundRobinMetadata struct {
   *SimpleDirMetadata
-  Sink *pb.LocalFs_RoundRobin
-  Conf *pb.Config
-  Linuxutil types.Linuxutil
+  Sink        *pb.LocalFs_RoundRobin
+  Conf        *pb.Config
+  Linuxutil   types.Linuxutil
+  PairStorage types.AdminStorage
 }
 
 // Does not initialize inner SimpleDirMetadata because filesystem may not be mounted yet.
@@ -38,6 +39,7 @@ func NewRoundRobinMetadataAdmin(
     Sink: sink,
     Conf: conf, // shadows the Conf field on the base object
     Linuxutil: lu,
+    PairStorage: nil,
   }
   return metadata, nil
 }
@@ -54,6 +56,8 @@ func (self *RoundRobinMetadata) MountAllSinkPartitions(ctx context.Context) erro
     _, err = self.Linuxutil.Mount(ctx, part.FsUuid, part.MountRoot)
     if err != nil { return err }
     err = os.MkdirAll(MetaDir(part), 0755)
+    if err != nil { return err }
+    err = os.MkdirAll(StoreDir(part), 0755)
     if err != nil { return err }
   }
   return nil
@@ -118,5 +122,16 @@ func (self *RoundRobinMetadata) SetupMetadata(ctx context.Context) (<-chan error
     done <- nil
   }()
   return done
+}
+
+// Storage should always be tied to the same metadata partition.
+// Caller should call `SetupStorage` afterwards.
+func (self *RoundRobinMetadata) GetPairStorage(codec types.Codec) (types.AdminStorage, error) {
+  if self.SimpleDirMetadata == nil { util.Fatalf("Call SetupMetadata first") }
+  if self.PairStorage != nil { return self.PairStorage, nil }
+  fs_uuid := self.DirInfo.FsUuid
+  var err error
+  self.PairStorage, err = NewSimpleDirStorageAdmin(self.Conf, codec, fs_uuid)
+  return self.PairStorage, err
 }
 

@@ -63,6 +63,10 @@ func buildTestSimpleDirStorageWithChunkLen(
   return buildTestSimpleDirStorage(t, chunk_len, codec)
 }
 
+func GetChunkIoForTest(storage types.Storage) *ChunkIoForTestImpl {
+  return &ChunkIoForTestImpl{ storage.(*SimpleDirStorage).ChunkIo.(*ChunkIoImpl) }
+}
+
 func HelperSetupStorage(t *testing.T, chunk_cnt int) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
