@@ -1,4 +1,4 @@
-package local_fs_metadata
+package local_fs
 
 import (
   "context"
