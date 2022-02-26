@@ -51,7 +51,7 @@ type ObjectIterator struct {
   InnerErr error
 }
 
-func NewStorageAdmin(conf *pb.Config, codec types.Codec) (types.Storage, error) {
+func NewStorageAdmin(conf *pb.Config, codec types.Codec) (types.AdminStorage, error) {
   base := &BaseStorage{
     ChunkIo: &ChunkIoImpl{
       Chunks: make(map[string][]byte),
