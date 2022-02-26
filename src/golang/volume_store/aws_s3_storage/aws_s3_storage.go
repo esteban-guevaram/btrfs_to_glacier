@@ -199,6 +199,9 @@ func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) ty
   if s3_common.IsS3Error(new(s3_types.InvalidObjectState), err) {
     return types.ObjRestoreOrErr{ Stx:types.Unknown, }
   }
+  if s3_common.IsS3Error(new(s3_types.NoSuchKey), err) {
+    return types.ObjRestoreOrErr{ Err: types.ErrChunkFound, }
+  }
   if err != nil {
     return types.ObjRestoreOrErr{ Err:err, }
   }

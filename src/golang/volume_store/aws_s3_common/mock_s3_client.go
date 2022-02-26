@@ -36,7 +36,12 @@ type MockS3Client struct {
   LastPutBucketVersioning *s3.PutBucketVersioningInput
 }
 
-func (self *MockS3Client) SetObject(key string, data []byte, class s3_types.StorageClass, ongoing bool) {
+func (self *MockS3Client) GetData(key string) ([]byte, bool) {
+  data,found := self.Data[key];
+  return data,found
+}
+
+func (self *MockS3Client) SetData(key string, data []byte, class s3_types.StorageClass, ongoing bool) {
   self.Data[key] = make([]byte, len(data))
   copy(self.Data[key], data)
   //self.Data[key] =  data
@@ -46,7 +51,7 @@ func (self *MockS3Client) SetObject(key string, data []byte, class s3_types.Stor
   }
 }
 
-func (self *MockS3Client) DelObject(key string) {
+func (self *MockS3Client) DelData(key string) {
   delete(self.Data, key)
   delete(self.Class, key)
   delete(self.RestoreStx, key)
@@ -190,6 +195,10 @@ func (self *MockS3Client) PutPublicAccessBlock(
 
 func (self *MockS3Client) RestoreObject(
   ctx context.Context, in *s3.RestoreObjectInput, opts ...func(*s3.Options)) (*s3.RestoreObjectOutput, error) {
+  key := *(in.Key)
+  if _,found := self.Data[key]; !found {
+    return nil, new(s3_types.NoSuchKey)
+  }
   return &s3.RestoreObjectOutput{}, self.RestoreObjectErr
 }
 

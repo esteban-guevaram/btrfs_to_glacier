@@ -70,7 +70,7 @@ func TestLoadPreviousStateFromS3_NoBucket(t *testing.T) {
 func TestLoadPreviousStateFromS3_NoKey(t *testing.T) {
   meta, client := buildTestMetadataWithState(t, &pb.AllMetadata{})
   meta.State = nil
-  client.DelObject(meta.Key)
+  client.DelData(meta.Key)
   meta.LoadPreviousStateFromS3(context.TODO())
   util.EqualsOrFailTest(t, "Bad object", client.Data[meta.Key], nil)
   mem_only.CompareStates(t, "expected empty state", meta.State, &pb.AllMetadata{})
@@ -89,7 +89,7 @@ func TestSaveCurrentStateToS3_NoPrevState(t *testing.T) {
   defer cancel()
   _, expect_state := util.DummyAllMetadata()
   meta, client := buildTestMetadataWithState(t, proto.Clone(expect_state).(*pb.AllMetadata))
-  client.DelObject(meta.Key)
+  client.DelData(meta.Key)
 
   version, err := meta.SaveCurrentStateToS3(ctx)
   if err != nil { t.Errorf("Returned error: %v", err) }

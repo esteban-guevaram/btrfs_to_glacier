@@ -20,6 +20,7 @@ const (
 )
 
 type ChunkIoIf interface {
+  // Reading an object which does not exist should return `ErrChunkFound`.
   ReadOneChunk(
     ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error
   WriteOneChunk(

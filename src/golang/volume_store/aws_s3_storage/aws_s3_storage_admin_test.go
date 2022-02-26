@@ -5,7 +5,6 @@ import (
   "fmt"
   "testing"
 
-  s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
 
@@ -13,14 +12,6 @@ import (
 
   "github.com/google/uuid"
 )
-
-func buildTestAdminStorage(t *testing.T) (*s3StorageAdmin, *s3_common.MockS3Client) {
-  conf := util.LoadTestConf()
-  storage,client := buildTestStorageWithConf(t, conf)
-  del_storage := &s3StorageAdmin{ s3Storage:storage, }
-  del_storage.injectConstants()
-  return del_storage, client
-}
 
 func TestCreateLifecycleRule(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
@@ -75,7 +66,7 @@ func testDeleteChunks_Helper(t *testing.T, obj_count int) {
     chunks[i] = &pb.SnapshotChunks_Chunk{
       Uuid: uuid.NewString(),
     }
-    client.SetObject(chunks[i].Uuid, []byte("value"), s3_types.StorageClassStandard, false)
+    client.SetData(chunks[i].Uuid, []byte("value"), s3_types.StorageClassStandard, false)
   }
 
   done := storage.DeleteChunks(ctx, chunks)

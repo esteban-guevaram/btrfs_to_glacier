@@ -20,18 +20,47 @@ import (
   "github.com/google/uuid"
 )
 
-func buildTestStorage(t *testing.T) (*s3Storage, *s3_common.MockS3Client) {
+type ChunkIoForTestImpl struct { *ChunkIoImpl }
+
+func (self *ChunkIoForTestImpl) MockClient() *s3_common.MockS3Client { return self.Parent.Client.(*s3_common.MockS3Client) }
+func (self *ChunkIoForTestImpl) Get(uuid string) ([]byte, bool) { return self.MockClient().GetData(uuid) }
+func (self *ChunkIoForTestImpl) Set(uuid string, data []byte) {
+  self.MockClient().SetData(uuid, data, s3_types.StorageClassStandard, false)
+}
+func (self *ChunkIoForTestImpl) Len() int { return len(self.MockClient().Data) }
+func (self *ChunkIoForTestImpl) SetCodecFp(fp string) {
+  self.Parent.Codec.(*mocks.Codec).Fingerprint = types.PersistableString{fp}
+}
+func (self *ChunkIoForTestImpl) GetCodecFp() types.PersistableString {
+  return self.Parent.Codec.(*mocks.Codec).CurrentKeyFingerprint()
+}
+func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.Storage, err error) {
+  base_storage := storage.(*s3Storage).BaseStorage
+  base_storage.ChunkIo = mocks.AlwaysErrChunkIo(storage, err)
+}
+
+func buildTestAdminStorage(t *testing.T) (*s3StorageAdmin, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   return buildTestStorageWithConf(t, conf)
 }
 
-func buildTestStorageWithChunkLen(t *testing.T, chunk_len uint64) (*s3Storage, *s3_common.MockS3Client) {
+func buildTestStorage(t *testing.T) (*s3Storage, *s3_common.MockS3Client) {
+  del_storage, client := buildTestAdminStorage(t)
+  return del_storage.s3Storage, client
+}
+
+func buildTestAdminStorageWithChunkLen(t *testing.T, chunk_len uint64) (*s3StorageAdmin, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   conf.Aws.S3.ChunkLen = chunk_len
   return buildTestStorageWithConf(t, conf)
 }
 
-func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *s3_common.MockS3Client) {
+func buildTestStorageWithChunkLen(t *testing.T, chunk_len uint64) (*s3Storage, *s3_common.MockS3Client) {
+  del_storage, client := buildTestAdminStorageWithChunkLen(t, chunk_len)
+  return del_storage.s3Storage, client
+}
+
+func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3StorageAdmin, *s3_common.MockS3Client) {
   client := &s3_common.MockS3Client {
     AccountId: "some_random_string",
     Data: make(map[string][]byte),
@@ -62,8 +91,30 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *s3_co
   }
   storage.ChunkIo = &ChunkIoImpl{ Parent:storage, }
   storage.injectConstants()
-  return storage, client
+  del_storage := &s3StorageAdmin{ s3Storage:storage, }
+  del_storage.injectConstants()
+  return del_storage, client
 }
+
+func TestAllS3Storage(t *testing.T) {
+  admin_ctor := func(t *testing.T, chunk_len uint64) (types.AdminStorage, mem_only.ChunkIoForTest) {
+    storage,_ := buildTestAdminStorageWithChunkLen(t, chunk_len)
+    for_test := &ChunkIoForTestImpl{ ChunkIoImpl: storage.ChunkIo.(*ChunkIoImpl) }
+    return storage, for_test
+  }
+  storage_ctor := func(t *testing.T, chunk_len uint64) (types.Storage, mem_only.ChunkIoForTest) {
+    del_storage,_ := buildTestAdminStorageWithChunkLen(t, chunk_len)
+    for_test := &ChunkIoForTestImpl{ ChunkIoImpl: del_storage.ChunkIo.(*ChunkIoImpl) }
+    return del_storage.s3Storage, for_test
+  }
+  fixture := &mem_only.Fixture{
+    StorageCtor: storage_ctor,
+    AdminCtor:   admin_ctor,
+  }
+  mem_only.RunAllTestStorage(t, fixture)
+}
+
+//////////////////////////////////// Tests tailored to implementation /////////////////////////
 
 func TestWriteOneChunk_PipeError(t *testing.T) {
   const offset = 0
@@ -409,7 +460,7 @@ func testQueueRestoreObjects_Helper(
   storage,client := buildTestStorage(t)
   expect := make(map[string]types.ObjRestoreOrErr)
   for _,k := range keys {
-    client.SetObject(k, []byte{}, class, ongoing)
+    client.SetData(k, []byte{}, class, ongoing)
     expect[k] = expect_obj
   }
   client.RestoreObjectErr = restore_err
@@ -453,7 +504,7 @@ func TestQueueRestoreObjects_NotArchived(t *testing.T) {
 func TestQueueRestoreObjects_NoSuchObject(t *testing.T) {
   keys := []string{"k1", "k2"}
   restore_err := new(s3_types.NoSuchKey)
-  expect_obj := types.ObjRestoreOrErr{ Err:new(s3_types.NoSuchKey), }
+  expect_obj := types.ObjRestoreOrErr{ Err:types.ErrChunkFound, }
   testQueueRestoreObjects_Helper(t, keys, s3_types.StorageClassStandard, false, expect_obj, restore_err)
 }
 
@@ -481,7 +532,7 @@ func testReadChunksIntoStream_Helper(t *testing.T, chunks *pb.SnapshotChunks, da
   storage,client := buildTestStorage(t)
   for i,chunk := range chunks.Chunks {
     expect_data.Write(datas[i])
-    client.SetObject(chunk.Uuid, datas[i], s3_types.StorageClassStandard, false)
+    client.SetData(chunk.Uuid, datas[i], s3_types.StorageClassStandard, false)
   }
 
   read_end,err := storage.ReadChunksIntoStream(ctx, chunks)
@@ -564,7 +615,7 @@ func testStorageListAll_Helper(t *testing.T, total int, fill_size int32) {
   for i:=0; i<total; i+=1 {
     key := uuid.NewString()
     obj := &pb.SnapshotChunks_Chunk{ Uuid:key, Size:blob_len, }
-    client.SetObject(key, util.GenerateRandomTextData(blob_len),
+    client.SetData(key, util.GenerateRandomTextData(blob_len),
                      s3_types.StorageClassStandard, false)
     expect_objs[key] = obj
   }
@@ -610,7 +661,7 @@ func TestListAllChunks_EmptyNonFinalFill(t *testing.T) {
 
   for i:=0; i<total; i+=1 {
     key := uuid.NewString()
-    client.SetObject(key, util.GenerateRandomTextData(blob_len),
+    client.SetData(key, util.GenerateRandomTextData(blob_len),
                      s3_types.StorageClassStandard, false)
   }
 

@@ -137,6 +137,7 @@ type Storage interface {
   // have been sent.
   // Restoring an already restored object is a noop (or it can extend the restored lifetime).
   // Restoring an object which is not archived is a noop.
+  // Restoring an object which does not exist should return `ErrChunkFound`.
   // Clients can use this method to poll and get the status of their pending restores.
   // Returns a result per object, for some the restore may have failed.
   QueueRestoreObjects(ctx context.Context, uuids []string) (<-chan RestoreResult, error)
