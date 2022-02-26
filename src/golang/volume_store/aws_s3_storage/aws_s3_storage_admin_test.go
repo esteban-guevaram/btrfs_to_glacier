@@ -87,18 +87,3 @@ func TestDeleteChunks_MultiBatch(t *testing.T) {
   testDeleteChunks_Helper(t, 2*delete_objects_max)
 }
 
-func TestDeleteChunks_NoKeysErr(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
-  defer cancel()
-
-  storage,_ := buildTestAdminStorage(t)
-  chunks := make([]*pb.SnapshotChunks_Chunk, 0, 1)
-  done := storage.DeleteChunks(ctx, chunks)
-
-  select {
-    case err := <-done:
-      if err == nil { t.Errorf("expecting error for empty chunks") }
-    case <-ctx.Done(): t.Fatalf("timeout")
-  }
-}
-
