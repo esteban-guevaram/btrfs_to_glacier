@@ -261,6 +261,7 @@ func (self *ObjectIterator) Next(ctx context.Context, chunk *pb.SnapshotChunks_C
   if self.Started && self.Token == nil { return false }
   self.Started = true
   self.Buffer, self.Token, self.InnerErr = self.Parent.ChunkIo.ListChunks(ctx, self.Token)
+  self.BufNext = 0
   return self.Next(ctx, chunk)
 }
 

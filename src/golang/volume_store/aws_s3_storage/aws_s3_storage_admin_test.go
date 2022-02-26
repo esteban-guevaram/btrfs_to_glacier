@@ -26,7 +26,7 @@ func TestCreateLifecycleRule(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestAdminStorage(t)
-  bucket := storage.conf.Aws.S3.StorageBucketName
+  bucket := storage.Conf.Aws.S3.StorageBucketName
   client.Buckets[bucket] = true
   err := storage.createLifecycleRule(ctx, bucket)
   if err != nil { t.Fatalf("Failed lifecycle creation: %v", err) }
@@ -38,7 +38,7 @@ func TestSetupStorage(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestAdminStorage(t)
-  bucket := storage.conf.Aws.S3.StorageBucketName
+  bucket := storage.Conf.Aws.S3.StorageBucketName
   done := storage.SetupStorage(ctx)
   select {
     case err := <-done:

@@ -46,10 +46,11 @@ func (self *s3StorageAdmin) injectConstants() {
 }
 
 func (self *s3StorageAdmin) getTransitionType() s3_types.TransitionStorageClass {
+  archive_storage_class := self.ChunkIo.(*ChunkIoImpl).ArchiveStorageClass
   for _,t := range s3_types.TransitionStorageClassDeepArchive.Values() {
-    if string(self.archive_storage_class) == string(t) { return t }
+    if string(archive_storage_class) == string(t) { return t }
   }
-  util.Fatalf("No transition types corresponding to %v", self.archive_storage_class)
+  util.Fatalf("No transition types corresponding to %v", archive_storage_class)
   return s3_types.TransitionStorageClassDeepArchive
 }
 
@@ -85,7 +86,7 @@ func (self *s3StorageAdmin) createLifecycleRule(
       Rules: []s3_types.LifecycleRule{ rule },
     },
   }
-  _, err := self.client.PutBucketLifecycleConfiguration(ctx, lifecycle_in)
+  _, err := self.Client.PutBucketLifecycleConfiguration(ctx, lifecycle_in)
   if err != nil { return err }
   return nil
 }
@@ -93,7 +94,7 @@ func (self *s3StorageAdmin) createLifecycleRule(
 // object standard tier
 // object no tags no metadata (that way we only need a simple kv store)
 func (self *s3StorageAdmin) SetupStorage(ctx context.Context) (<-chan error) {
-  bucket_name := self.conf.Aws.S3.StorageBucketName
+  bucket_name := self.Conf.Aws.S3.StorageBucketName
   done := make(chan error, 1)
   go func() {
     defer close(done)
@@ -116,7 +117,7 @@ func (self *s3StorageAdmin) SetupStorage(ctx context.Context) (<-chan error) {
 func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Client {
   s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl") }
-  client,ok := s3_impl.client.(*s3.Client)
+  client,ok := s3_impl.Client.(*s3.Client)
   if !ok { util.Fatalf("storage does not contain a real aws client") }
   return client
 }
@@ -124,24 +125,25 @@ func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Cl
 func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
   s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
-  old_conf := s3_impl.conf
-  s3_impl.conf = conf
+  old_conf := s3_impl.Conf
+  s3_impl.Conf = conf
   common_restore := s3_impl.common.TestOnlySwapConf(conf)
-  return func() { common_restore(); s3_impl.conf = old_conf }
+  return func() { common_restore(); s3_impl.Conf = old_conf }
 }
 
 func TestOnlyChangeIterationSize(storage types.Storage, size int32) func() {
   s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
-  old_size := s3_impl.iter_buf_len
-  s3_impl.iter_buf_len = size
-  return func() { s3_impl.iter_buf_len = old_size }
+  chunkio := s3_impl.ChunkIo.(*ChunkIoImpl)
+  old_size := chunkio.IterBufLen
+  chunkio.IterBufLen = size
+  return func() { chunkio.IterBufLen = old_size }
 }
 
 func (self *s3StorageAdmin) deleteBatch(
     ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) error {
   del_in := &s3.DeleteObjectsInput{
-    Bucket: &self.conf.Aws.S3.StorageBucketName,
+    Bucket: &self.Conf.Aws.S3.StorageBucketName,
     Delete: &s3_types.Delete{
       Objects: make([]s3_types.ObjectIdentifier, len(chunks)),
       Quiet: true,
@@ -150,7 +152,7 @@ func (self *s3StorageAdmin) deleteBatch(
   for i,c := range chunks {
     del_in.Delete.Objects[i].Key = &c.Uuid
   }
-  del_out,err := self.client.DeleteObjects(ctx, del_in)
+  del_out,err := self.Client.DeleteObjects(ctx, del_in)
   if err != nil { return err }
   if len(del_out.Errors) > 0 { return fmt.Errorf("failed to delete %d keys", len(del_out.Errors)) }
   return nil

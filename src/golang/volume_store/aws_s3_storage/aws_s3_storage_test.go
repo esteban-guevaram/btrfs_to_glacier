@@ -11,6 +11,7 @@ import (
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
+  "btrfs_to_glacier/volume_store/mem_only"
   s3_common "btrfs_to_glacier/volume_store/aws_s3_common"
 
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -48,14 +49,18 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3Storage, *s3_co
   common.BucketWait = util.TestTimeout
   common.AccountId = client.AccountId
 
-  storage := &s3Storage{
-    conf: conf,
-    codec: codec,
-    aws_conf: aws_conf,
-    client: client,
-    common: common,
-    uploader: client,
+  inner_storage := &mem_only.BaseStorage{
+    Conf: conf,
+    Codec: codec,
   }
+  storage := &s3Storage{
+    BaseStorage: inner_storage,
+    Client: client,
+    Uploader: client,
+    aws_conf: aws_conf,
+    common: common,
+  }
+  storage.ChunkIo = &ChunkIoImpl{ Parent:storage, }
   storage.injectConstants()
   return storage, client
 }
@@ -71,8 +76,7 @@ func TestWriteOneChunk_PipeError(t *testing.T) {
   pipe := mocks.NewPreloadedPipe(data)
   pipe.ReadEnd().Close()
 
-  chunk_pb, more, err := storage.writeOneChunk(ctx, offset, pipe.ReadEnd())
-  if err == nil { t.Fatalf("expected call to fail") }
+  chunk_pb, more, _ := storage.ChunkIo.WriteOneChunk(ctx, offset, pipe.ReadEnd())
   if more { t.Fatalf("should not signal more data") }
   if chunk_pb != nil { t.Fatalf("no chunk should be returned") }
 }
@@ -139,7 +143,7 @@ func helper_TestWriteOneChunk(t *testing.T, offset uint64, chunk_len uint64, tot
   copy(expect_rest, data[expect_size:])
   pipe := mocks.NewPreloadedPipe(data)
 
-  chunk_pb, more, err := storage.writeOneChunk(ctx, offset, pipe.ReadEnd())
+  chunk_pb, more, err := storage.ChunkIo.WriteOneChunk(ctx, offset, pipe.ReadEnd())
   if err != nil { t.Fatalf("writeOneChunk err: %v", err) }
   if more != expect_more { t.Fatalf("more data is wrong") }
   if len(chunk_pb.Uuid) < 1 { t.Fatalf("empty key written") }
@@ -160,7 +164,7 @@ func helper_TestWriteEmptyChunk(t *testing.T, offset uint64, chunk_len uint64) {
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
   read_end := io.NopCloser(&bytes.Buffer{})
 
-  chunk_pb, more, err := storage.writeOneChunk(ctx, offset, read_end)
+  chunk_pb, more, err := storage.ChunkIo.WriteOneChunk(ctx, offset, read_end)
   if err != nil { t.Errorf("empty write should return no more data and a nul chunk") }
   if more { t.Errorf("empty write not signal more data") }
   if chunk_pb != nil { t.Errorf("no chunks should have been returned") }
@@ -200,7 +204,7 @@ func helper_TestWriteStream_SingleChunk(t *testing.T, offset uint64, chunk_len u
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
-  storage.codec.(*mocks.Codec).Fingerprint = types.PersistableString{expect_fp}
+  storage.Codec.(*mocks.Codec).Fingerprint = types.PersistableString{expect_fp}
   data := util.GenerateRandomTextData(int(total_len))
   expect_data := make([]byte, total_len - offset)
   copy(expect_data, data[offset:])
@@ -272,7 +276,7 @@ func helper_TestWriteStream_MultiChunk(t *testing.T, offset uint64, chunk_len ui
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,client := buildTestStorageWithChunkLen(t, chunk_len)
-  storage.codec.(*mocks.Codec).Fingerprint = types.PersistableString{expect_fp}
+  storage.Codec.(*mocks.Codec).Fingerprint = types.PersistableString{expect_fp}
   data := util.GenerateRandomTextData(int(total_len))
   expect_data := make([]byte, total_len)
   copy(expect_data, data)
@@ -553,7 +557,7 @@ func testStorageListAll_Helper(t *testing.T, total int, fill_size int32) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage, client := buildTestStorage(t)
-  storage.iter_buf_len = fill_size
+  storage.ChunkIo.(*ChunkIoImpl).IterBufLen = fill_size
   expect_objs := make(map[string]*pb.SnapshotChunks_Chunk)
   got_objs := make(map[string]*pb.SnapshotChunks_Chunk)
 
@@ -602,7 +606,7 @@ func TestListAllChunks_EmptyNonFinalFill(t *testing.T) {
   defer cancel()
   got_objs := make(map[string]*pb.SnapshotChunks_Chunk)
   storage, client := buildTestStorage(t)
-  storage.iter_buf_len = fill_size
+  storage.ChunkIo.(*ChunkIoImpl).IterBufLen = fill_size
 
   for i:=0; i<total; i+=1 {
     key := uuid.NewString()
