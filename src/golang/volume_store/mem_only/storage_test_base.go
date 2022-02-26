@@ -3,6 +3,7 @@ package mem_only
 import (
   "bytes"
   "context"
+  "errors"
   "io"
   "reflect"
   "runtime"
@@ -22,8 +23,10 @@ type ChunkIoForTest interface {
   ChunkIoIf
   Get(uuid string) ([]byte, bool)
   Set(uuid string, data []byte)
+  AlwaysReturnErr(storage types.Storage, err error)
   Len() int
   SetCodecFp(string)
+  GetCodecFp() types.PersistableString
 }
 
 type StorageCtor = func(*testing.T, uint64) (types.Storage, ChunkIoForTest)
@@ -37,7 +40,7 @@ type Fixture struct {
 }
 type TestF = func(*Fixture, *testing.T)
 
-func (self *Fixture) TestWriteOneChunk_PipeError(t *testing.T) {
+func (self *Fixture) TestWriteOneChunk_PipeClosed(t *testing.T) {
   const offset = 0
   const chunk_len = 32
   const total_len = 48
@@ -51,7 +54,19 @@ func (self *Fixture) TestWriteOneChunk_PipeError(t *testing.T) {
   if chunk_pb != nil { t.Fatalf("no chunk should be returned") }
 }
 
-func (self *Fixture) TestWriteStream_PipeError(t *testing.T) {
+func (self *Fixture) TODOTestWriteOneChunk_ErrPropagation(t *testing.T) {
+  const offset = 0
+  const chunk_len = 32
+  _,chunkio := self.StorageCtor(t, chunk_len)
+  pipe := mocks.NewErrorPipe()
+
+  chunk_pb, more, err := chunkio.WriteOneChunk(self.Ctx, offset, pipe.ReadEnd())
+  if err == nil { t.Errorf("chunkio.WriteOneChunk: expected error") }
+  if more { t.Fatalf("should not signal more data") }
+  if chunk_pb != nil { t.Fatalf("no chunk should be returned") }
+}
+
+func (self *Fixture) TestWriteStream_PipeClosed(t *testing.T) {
   const offset = 0
   const chunk_len = 32
   const total_len = 48
@@ -68,6 +83,23 @@ func (self *Fixture) TestWriteStream_PipeError(t *testing.T) {
       if chunk_or_err.Val == nil { return }
       chunks := chunk_or_err.Val.Chunks
       if len(chunks) > 1 { t.Errorf("At most only the IV should have been written") }
+    case <-self.Ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func (self *Fixture) TODOTestWriteStream_ErrPropagation(t *testing.T) {
+  const offset = 0
+  const chunk_len = 32
+  storage,_ := self.StorageCtor(t, chunk_len)
+  pipe := mocks.NewErrorPipe()
+
+  done, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
+  if err != nil { t.Fatalf("expected to fail but not right now: %v", err) }
+  select {
+    case chunk_or_err := <-done:
+      got_err := chunk_or_err.Err
+      if got_err == nil { t.Errorf("storage.WriteStream: expected error") }
+      if !errors.Is(got_err, mocks.ErrIoPipe) { t.Errorf("storage.WriteStream bad error: %v", got_err) }
     case <-self.Ctx.Done(): t.Fatalf("timedout")
   }
 }
@@ -324,6 +356,84 @@ func (self *Fixture) TestQueueRestoreObjects_NoSuchObject(t *testing.T) {
   }
 }
 
+func (self *Fixture) TestReadOneChunk_Ok(t *testing.T) {
+  const chunk_len = 32
+  _,chunkio := self.StorageCtor(t, chunk_len)
+  pipe := mocks.NewPipe()
+  defer pipe.ReadEnd().Close()
+  chunk := &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:chunk_len, }
+  data := util.GenerateRandomTextData(chunk_len)
+  chunkio.Set(chunk.Uuid, data)
+
+  key_fp := chunkio.GetCodecFp()
+  err := chunkio.ReadOneChunk(self.Ctx, key_fp, chunk, pipe.WriteEnd())
+  pipe.WriteEnd().Close()
+  if err != nil { t.Fatalf("chunkio.ReadOneChunk: %v", err) }
+  got_data, err := io.ReadAll(pipe.ReadEnd())
+  if err != nil { t.Errorf("io.ReadAll: %v", err) }
+  util.EqualsOrFailTest(t, "bad data", got_data, data)
+}
+
+func (self *Fixture) TestReadOneChunk_PipeClosed(t *testing.T) {
+  const chunk_len = 32
+  _,chunkio := self.StorageCtor(t, chunk_len)
+  pipe := mocks.NewPipe()
+  defer pipe.ReadEnd().Close()
+  pipe.WriteEnd().Close()
+  chunk := &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:chunk_len, }
+  data := util.GenerateRandomTextData(chunk_len)
+  chunkio.Set(chunk.Uuid, data)
+
+  key_fp := chunkio.GetCodecFp()
+  err := chunkio.ReadOneChunk(self.Ctx, key_fp, chunk, pipe.WriteEnd())
+  if err == nil { t.Fatalf("chunkio.ReadOneChunk: expected to fail") }
+  got_data, err := io.ReadAll(pipe.ReadEnd())
+  if err != nil { t.Errorf("io.ReadAll: %v", err) }
+  if len(got_data) > 0 { t.Errorf("no data should have been read: %v", len(got_data)) }
+}
+
+func (self *Fixture) TestReadOneChunk_ErrPropagation(t *testing.T) {
+  const chunk_len = 32
+  _,chunkio := self.StorageCtor(t, chunk_len)
+  pipe := mocks.NewErrorPipe()
+  chunk := &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:chunk_len, }
+  data := util.GenerateRandomTextData(chunk_len)
+  chunkio.Set(chunk.Uuid, data)
+
+  key_fp := chunkio.GetCodecFp()
+  err := chunkio.ReadOneChunk(self.Ctx, key_fp, chunk, pipe.WriteEnd())
+  if err == nil { t.Errorf("chunkio.ReadOneChunk: expected to fail") }
+  if !errors.Is(err, mocks.ErrIoPipe) { t.Errorf("chunkio.ReadOneChunk wrong error: %v", err) }
+}
+
+func (self *Fixture) TODOTestReadChunksIntoStream_ErrPropagation(t *testing.T) {
+  const chunk_len = 32
+  expect_err := errors.New("artificial_err")
+  storage,chunkio := self.StorageCtor(t, chunk_len)
+  chunkio.AlwaysReturnErr(storage, expect_err)
+
+  chunkio.SetCodecFp("some_fp")
+  chunks := &pb.SnapshotChunks{
+    KeyFingerprint: chunkio.GetCodecFp().S,
+    Chunks: []*pb.SnapshotChunks_Chunk{
+      &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:chunk_len, },
+    },
+  }
+
+  read_end,err := storage.ReadChunksIntoStream(self.Ctx, chunks)
+  if err != nil { t.Fatalf("premature failure: %v", err) }
+
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer read_end.Close()
+    _, err = io.ReadAll(read_end)
+    if err == nil { t.Errorf("io.ReadAll: expected error") }
+    if !errors.Is(err, expect_err) { t.Errorf("io.ReadAll wrong error: %v", err) }
+  }()
+  util.WaitForClosure(t, self.Ctx, done)
+}
+
 func (self *Fixture) HelperReadChunksIntoStream(t *testing.T, chunks *pb.SnapshotChunks, datas [][]byte) {
   var expect_data bytes.Buffer
   storage,chunkio := self.StorageCtor(t, 32)
@@ -497,8 +607,6 @@ func GetAllTests() []*NameAndTest {
 
 func RunAllTestStorage(t *testing.T, fixture *Fixture) {
   tests := GetAllTests()
-  if len(tests) != 28 { t.Fatalf("Wrong number of tests: %d", len(tests)) }
-
   for _,i := range tests {
     if i.Func == nil { t.Fatalf("Bad test entry: %v", i) }
     run_f := func(t *testing.T) {

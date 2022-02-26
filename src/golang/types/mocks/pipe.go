@@ -2,12 +2,23 @@ package mocks
 
 import (
   "context"
+  "errors"
   "io"
   "os"
   "time"
 
   "btrfs_to_glacier/util"
 )
+
+var ErrIoPipe = errors.New("pipe_err_io")
+
+type ErrorIo struct {
+  IoErr error
+  CloseErr error
+}
+func (self *ErrorIo) Read(p []byte) (n int, err error) { return 0, self.IoErr }
+func (self *ErrorIo) Write(p []byte) (n int, err error) { return 0, self.IoErr }
+func (self *ErrorIo) Close() error { return self.CloseErr }
 
 type Pipe struct {
   read_end  io.ReadCloser
@@ -19,6 +30,14 @@ func NewPipe() *Pipe {
   pipe := &Pipe{
     read_end:  read_end,
     write_end: write_end,
+  }
+  return pipe
+}
+func NewErrorPipe() *Pipe {
+  end := &ErrorIo{ IoErr: ErrIoPipe }
+  pipe := &Pipe{
+    read_end:  end,
+    write_end: end,
   }
   return pipe
 }

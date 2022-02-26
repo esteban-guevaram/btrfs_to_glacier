@@ -460,3 +460,25 @@ func DummyMetaAndStorage(
   return metadata, storage
 }
 
+type ChunkIoImpl struct {
+  Parent types.Storage
+  Err error
+}
+
+func AlwaysErrChunkIo(par types.Storage, err error) *ChunkIoImpl {
+  return &ChunkIoImpl{ Parent:par, Err: err, }
+}
+func (self *ChunkIoImpl) ReadOneChunk(
+    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
+  return self.Err
+}
+func (self *ChunkIoImpl) WriteOneChunk(
+    ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error) {
+  return nil, false, self.Err
+}
+func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {
+  return types.ObjRestoreOrErr{ Err: self.Err }
+}
+func (self *ChunkIoImpl) ListChunks(ctx context.Context, continuation *string) ([]*pb.SnapshotChunks_Chunk, *string, error) {
+  return nil, nil, self.Err
+}

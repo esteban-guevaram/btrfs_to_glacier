@@ -145,7 +145,7 @@ func TestGetPairStorage_ExistingPartitions(t *testing.T) {
   defer clean_f()
 
   callSetupMetadataSync(t, meta)
-  chunkio := &ChunkIoForTestImpl{ NewChunkIoImpl(meta.DirInfo, new(mocks.Codec)) }
+  chunkio := &ChunkIoForTestImpl{ ChunkIoImpl: NewChunkIoImpl(meta.DirInfo, new(mocks.Codec)) }
   expect_key := uuid.NewString()
   chunkio.Set(expect_key, util.GenerateRandomTextData(39))
   storage,_ := getPairStorageAndSetup(t, meta)

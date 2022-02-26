@@ -44,6 +44,13 @@ func (self *ChunkIoForTestImpl) Len() int {
 func (self *ChunkIoForTestImpl) SetCodecFp(fp string) {
   self.ParCodec.(*mocks.Codec).Fingerprint = types.PersistableString{fp}
 }
+func (self *ChunkIoForTestImpl) GetCodecFp() types.PersistableString {
+  return self.ParCodec.(*mocks.Codec).CurrentKeyFingerprint()
+}
+func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.Storage, err error) {
+  base_storage := storage.(*SimpleDirStorage).BaseStorage
+  base_storage.ChunkIo = mocks.AlwaysErrChunkIo(storage, err)
+}
 
 func buildTestSimpleDirStorage(
     t *testing.T, chunk_len uint64, codec types.Codec) (*SimpleDirStorage, *ChunkIoForTestImpl, func()) {
@@ -52,7 +59,7 @@ func buildTestSimpleDirStorage(
   gen_store,err := NewSimpleDirStorageAdmin(conf, codec, local_fs.Sinks[0].Partitions[0].FsUuid)
   if err != nil { util.Fatalf("NewStorage: %v", err) }
   storage := gen_store.(*SimpleDirStorage)
-  chunkio := &ChunkIoForTestImpl{ storage.ChunkIo.(*ChunkIoImpl) }
+  chunkio := &ChunkIoForTestImpl{ ChunkIoImpl: storage.ChunkIo.(*ChunkIoImpl) }
   chunkio.ChunkLen = chunk_len
   return storage, chunkio, clean_f
 }
@@ -64,7 +71,7 @@ func buildTestSimpleDirStorageWithChunkLen(
 }
 
 func GetChunkIoForTest(storage types.Storage) *ChunkIoForTestImpl {
-  return &ChunkIoForTestImpl{ storage.(*SimpleDirStorage).ChunkIo.(*ChunkIoImpl) }
+  return &ChunkIoForTestImpl{ ChunkIoImpl: storage.(*SimpleDirStorage).ChunkIo.(*ChunkIoImpl) }
 }
 
 func HelperSetupStorage(t *testing.T, chunk_cnt int) {

@@ -21,6 +21,13 @@ func (self *ChunkIoForTestImpl) Len() int { return len(self.Chunks) }
 func (self *ChunkIoForTestImpl) SetCodecFp(fp string) {
   self.ParCodec.(*mocks.Codec).Fingerprint = types.PersistableString{fp}
 }
+func (self *ChunkIoForTestImpl) GetCodecFp() types.PersistableString {
+  return self.ParCodec.(*mocks.Codec).CurrentKeyFingerprint()
+}
+func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.Storage, err error) {
+  base_storage := storage.(*Storage).BaseStorage
+  base_storage.ChunkIo = mocks.AlwaysErrChunkIo(storage, err)
+}
 
 func buildTestStorage(
     t *testing.T, chunk_len uint64, codec types.Codec) (*Storage, *ChunkIoForTestImpl) {
@@ -28,7 +35,7 @@ func buildTestStorage(
   gen_store,err := NewStorage(conf, codec)
   if err != nil { util.Fatalf("NewStorage: %v", err) }
   storage := gen_store.(*Storage)
-  chunkio := &ChunkIoForTestImpl{ storage.ChunkIo.(*ChunkIoImpl) }
+  chunkio := &ChunkIoForTestImpl{ ChunkIoImpl: storage.ChunkIo.(*ChunkIoImpl) }
   chunkio.ChunkLen = chunk_len
   return storage, chunkio
 }
