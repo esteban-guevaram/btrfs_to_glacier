@@ -12,6 +12,7 @@ import (
   "os/exec"
   fpmod "path/filepath"
   "reflect"
+  "sync"
   "unicode"
   "unicode/utf8"
 
@@ -21,21 +22,74 @@ import (
   "golang.org/x/sys/unix"
 )
 
+type WriteEndImpl struct {
+  io.WriteCloser
+  parent *PipeImpl
+}
+type WriteEndFile struct {
+  *os.File
+  parent *PipeImpl
+}
+func (self *WriteEndImpl) SetErr(err error) {
+  if err == nil { return }
+  self.parent.mutex.Lock()
+  defer self.parent.mutex.Unlock()
+  self.parent.err = err
+}
+func (self *WriteEndImpl) CloseWithError(err error) error {
+  self.SetErr(err)
+  return CloseWithError(self.WriteCloser, err)
+}
+func (self *WriteEndFile) SetErr(err error) {
+  if err == nil { return }
+  self.parent.mutex.Lock()
+  defer self.parent.mutex.Unlock()
+  self.parent.err = err
+}
+func (self *WriteEndFile) CloseWithError(err error) error {
+  self.SetErr(err)
+  return CloseWithError(self.File, err)
+}
+
+type ReadEndImpl struct {
+  io.ReadCloser
+  parent *PipeImpl
+}
+type ReadEndFile struct {
+  *os.File
+  parent *PipeImpl
+}
+func (self *ReadEndImpl) GetErr() error {
+  self.parent.mutex.Lock()
+  defer self.parent.mutex.Unlock()
+  return self.parent.err
+}
+func (self *ReadEndFile) GetErr() error {
+  self.parent.mutex.Lock()
+  defer self.parent.mutex.Unlock()
+  return self.parent.err
+}
+
+
 type PipeImpl struct {
-  read_end  io.ReadCloser
-  write_end io.WriteCloser
+  read_end  types.ReadEndIf
+  write_end types.WriteEndIf
+  mutex     sync.Mutex
+  err       error
 }
 
 func NewInMemPipe(ctx context.Context) *PipeImpl {
   read_end, write_end := io.Pipe()
   pipe := &PipeImpl{
-    read_end: read_end,
-    write_end: write_end,
+    mutex: sync.Mutex{},
+    err: nil,
   }
+  pipe.read_end =  &ReadEndImpl { ReadCloser:read_end, parent:pipe, }
+  pipe.write_end = &WriteEndImpl{ WriteCloser:write_end, parent:pipe, }
   go func() {
     select {
       case <-ctx.Done():
-        //Infof("pipe ctx closing")
+        //Infof("NewInMemPipe ctx closing")
         read_end.Close()
         write_end.Close()
     }
@@ -47,15 +101,17 @@ func NewFileBasedPipe(ctx context.Context) *PipeImpl {
   read_end, write_end, err := os.Pipe()
   if err != nil { Fatalf("failed os.Pipe %v", err) }
   pipe := &PipeImpl{
-    read_end: read_end,
-    write_end: write_end,
+    mutex: sync.Mutex{},
+    err: nil,
   }
+  pipe.read_end =  &ReadEndFile { File:read_end, parent:pipe, }
+  pipe.write_end = &WriteEndFile{ File:write_end, parent:pipe, }
   // Looking at posix pipes, it is not clear whether closing like this is bullet proof
   // see https://man7.org/linux/man-pages/man2/close.2.html
   go func() {
     select {
       case <-ctx.Done():
-        //Infof("pipe ctx closing")
+        //Infof("NewFileBasedPipe ctx closing")
         read_end.Close()
         write_end.Close()
     }
@@ -63,8 +119,8 @@ func NewFileBasedPipe(ctx context.Context) *PipeImpl {
   return pipe
 }
 
-func (self *PipeImpl) ReadEnd()  io.ReadCloser { return self.read_end }
-func (self *PipeImpl) WriteEnd() io.WriteCloser { return self.write_end }
+func (self *PipeImpl) ReadEnd()  types.ReadEndIf  { return self.read_end }
+func (self *PipeImpl) WriteEnd() types.WriteEndIf { return self.write_end }
 
 
 // Synchronous, waits for the command to finish
@@ -126,15 +182,14 @@ func ClosePipeWithError(pipe types.Pipe, err error) {
   CloseWithError(obj, err)
 }
 
-func CloseWithError(obj io.Closer, err error) {
+func CloseWithError(obj io.Closer, err error) error {
   if err != nil {
     defer Warnf("CloseWithError: %v", err)
     if adv_obj,ok := obj.(types.CloseWithErrIf); ok {
-      adv_obj.CloseWithError(err)
-      return
+      return adv_obj.CloseWithError(err)
     }
   }
-  obj.Close()
+  return obj.Close()
 }
 
 func OnlyClosePipeWhenError(pipe types.Pipe, err error) {

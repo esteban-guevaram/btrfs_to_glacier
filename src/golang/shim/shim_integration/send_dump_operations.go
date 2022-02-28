@@ -181,7 +181,7 @@ func TestSendDumpAll(btrfsutil types.Btrfsutil) {
   TestSendDump(btrfsutil, "complexmv", complexmv_dump)
 }
 
-func LoadPipeFromBase64SendData(dump_base64 string) *mocks.Pipe {
+func LoadPipeFromBase64SendData(dump_base64 string) types.Pipe {
   dump_bytes, err := base64.StdEncoding.DecodeString(dump_base64)
   if err != nil { panic(fmt.Sprintf("failed base64.StdEncoding.DecodeString %v", err)) }
   // Dump should be small enough not to block pipe

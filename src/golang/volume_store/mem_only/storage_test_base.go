@@ -359,25 +359,31 @@ func (self *Fixture) TestQueueRestoreObjects_NoSuchObject(t *testing.T) {
 func (self *Fixture) TestReadOneChunk_Ok(t *testing.T) {
   const chunk_len = 32
   _,chunkio := self.StorageCtor(t, chunk_len)
-  pipe := mocks.NewPipe()
+  pipe := util.NewInMemPipe(self.Ctx)
   defer pipe.ReadEnd().Close()
   chunk := &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:chunk_len, }
   data := util.GenerateRandomTextData(chunk_len)
   chunkio.Set(chunk.Uuid, data)
+ 
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    got_data, err := io.ReadAll(pipe.ReadEnd())
+    if err != nil { t.Errorf("io.ReadAll: %v", err) }
+    util.EqualsOrFailTest(t, "bad data", got_data, data)
+  }()
 
   key_fp := chunkio.GetCodecFp()
   err := chunkio.ReadOneChunk(self.Ctx, key_fp, chunk, pipe.WriteEnd())
   pipe.WriteEnd().Close()
   if err != nil { t.Fatalf("chunkio.ReadOneChunk: %v", err) }
-  got_data, err := io.ReadAll(pipe.ReadEnd())
-  if err != nil { t.Errorf("io.ReadAll: %v", err) }
-  util.EqualsOrFailTest(t, "bad data", got_data, data)
+  util.WaitForClosure(t, self.Ctx, done)
 }
 
 func (self *Fixture) TestReadOneChunk_PipeClosed(t *testing.T) {
   const chunk_len = 32
   _,chunkio := self.StorageCtor(t, chunk_len)
-  pipe := mocks.NewPipe()
+  pipe := util.NewFileBasedPipe(self.Ctx)
   defer pipe.ReadEnd().Close()
   pipe.WriteEnd().Close()
   chunk := &pb.SnapshotChunks_Chunk{ Uuid:"uuid0", Start:0, Size:chunk_len, }

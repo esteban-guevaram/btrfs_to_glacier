@@ -41,7 +41,7 @@ func (self *Codec) DecryptString(
 
 func (self *Codec) EncryptStream(ctx context.Context, input io.ReadCloser) (io.ReadCloser, error) {
   if self.Err != nil { return nil, self.Err }
-  pipe := NewPipe()
+  pipe := util.NewFileBasedPipe(ctx)
   go func() {
     var err error
     defer func() { util.ClosePipeWithError(pipe, err) }()
