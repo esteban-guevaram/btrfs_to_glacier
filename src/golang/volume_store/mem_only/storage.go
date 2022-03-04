@@ -114,7 +114,8 @@ func (self *ChunkIoImpl) WriteOneChunk(
   codec_hdr := self.ParCodec.EncryptionHeaderLen()
   if IsChunkEmpty(self.ChunkLen, codec_hdr, chunk.Size, limit_reader.N) { return nil, false, nil }
   self.Chunks[key_str] = data
-  return chunk, HasMoreData(self.ChunkLen, codec_hdr, chunk.Size, limit_reader.N), nil
+  more := HasMoreData(self.ChunkLen, codec_hdr, chunk.Size, limit_reader.N)
+  return chunk, more, encrypted_reader.GetErr()
 }
 
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {
@@ -143,40 +144,44 @@ func (self *BaseStorage) WriteStream(
   done := make(chan types.ChunksOrError, 1)
 
   go func() {
-    defer close(done)
+    var err error
+    result := types.ChunksOrError{
+      Val: &pb.SnapshotChunks{ KeyFingerprint: self.Codec.CurrentKeyFingerprint().S, },
+    }
+
+    defer func() {
+      result.Err = util.Coalesce(read_pipe.GetErr(), err)
+      done <- result
+      close(done)
+    }()
     defer read_pipe.Close()
+
     if offset > 0 {
-      cnt, err := io.CopyN(io.Discard, read_pipe, int64(offset))
-      if err != nil { done <- types.ChunksOrError{Err:err,}; return }
+      var cnt int64
+      cnt, err = io.CopyN(io.Discard, read_pipe, int64(offset))
+      if err != nil { return }
       if cnt != int64(offset) {
-        err := fmt.Errorf("Discarded less bytes than expected.")
-        done <- types.ChunksOrError{Err:err,}
+        err = fmt.Errorf("Discarded less bytes than expected.")
         return
       }
     }
 
     more_data := true
     start_offset := uint64(offset)
-    result := types.ChunksOrError{
-      Val: &pb.SnapshotChunks{ KeyFingerprint: self.Codec.CurrentKeyFingerprint().S, },
-    }
-
     for more_data {
-      var err error
       var chunk *pb.SnapshotChunks_Chunk
       chunk, more_data, err = self.ChunkIo.WriteOneChunk(ctx, start_offset, read_pipe)
-      if err != nil { result.Err = err; break }
+      if err != nil { return }
       if chunk != nil {
         result.Val.Chunks = append(result.Val.Chunks, chunk)
         start_offset += chunk.Size
       }
     }
 
-    if len(result.Val.Chunks) < 1 { result.Err = fmt.Errorf("stream contained no data") }
+    if len(result.Val.Chunks) < 1 { err = fmt.Errorf("stream contained no data") }
     util.Infof(self.UploadSummary(result))
-    done <- result
   }()
-  return done, nil
+  return done, read_pipe.GetErr()
 }
 
 func (self *BaseStorage) UploadSummary(result types.ChunksOrError) string {
@@ -217,14 +222,14 @@ func (self *BaseStorage) ReadChunksIntoStream(
 
   go func() {
     var err error
-    defer func() { util.CloseWriteEndWithError(pipe, err) }()
+    defer func() { util.CloseWriteEndWithError(pipe,util.Coalesce(pipe.ReadEnd().GetErr(), err)) }()
     for _,chunk := range chunks.Chunks {
       err = self.ChunkIo.ReadOneChunk(ctx, key_fp, chunk, pipe.WriteEnd())
       if err != nil { return }
     }
     util.Infof("Read chunks: %v", chunks.Chunks)
   }()
-  return pipe.ReadEnd(), nil
+  return pipe.ReadEnd(), pipe.ReadEnd().GetErr()
 }
 
 func (self *Storage) SetupStorage(ctx context.Context) (<-chan error) {

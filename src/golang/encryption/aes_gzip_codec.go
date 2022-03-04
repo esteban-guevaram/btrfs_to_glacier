@@ -251,7 +251,7 @@ func (self *aesGzipCodec) EncryptStream(
       //util.Debugf("encrypt count=%d done=%v bytes=%x", count, done, block_buffer[:count])
     }
   }()
-  return pipe.ReadEnd(), nil
+  return pipe.ReadEnd(), input.GetErr()
 }
 
 func (self *aesGzipCodec) decryptBlock_Helper(buffer []byte, stream cipher.Stream, input io.Reader, output io.Writer) (bool, int, error) {
@@ -307,14 +307,14 @@ func (self *aesGzipCodec) DecryptStream(
     defer func() { util.CloseWithError(input, err) }()
     err = self.decryptStream_BlockIterator(ctx, stream, block.BlockSize(), input, pipe.WriteEnd())
   }()
-  return pipe.ReadEnd(), nil
+  return pipe.ReadEnd(), input.GetErr()
 }
 
 func (self *aesGzipCodec) DecryptStreamInto(
     ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) (<-chan error) {
   var err error
   done := make(chan error, 1)
-  defer func() { util.OnlyCloseWhenError(input, err) }()
+  defer func() { util.OnlyCloseWhenError(input, util.Coalesce(input.GetErr(), err)) }()
   defer func() { util.OnlyCloseChanWhenError(done, err) }()
 
   block, stream, err := self.getStreamDecrypter(key_fp)

@@ -4,6 +4,7 @@ import (
   "bytes"
   "compress/gzip"
   "context"
+  "fmt"
   "io"
   "testing"
   "time"
@@ -427,67 +428,104 @@ func TestCompression(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad decompression", msg, decomp_buf.Bytes())
 }
 
-func TODOTestEncryptStream_PrematurelyClosedInput(t *testing.T) {
+func HelperEncryptStream_ErrPropagation(t *testing.T, err_injector func(types.Pipe)) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
-  pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
-  //pipe := util.NewFileBasedPipe(ctx)
-  //pipe := util.NewInMemPipe(ctx)
-  pipe.ReadEnd().Close()
   codec := buildTestCodec(t)
+  pipes := []types.Pipe{
+    mocks.NewPreloadedPipe(util.GenerateRandomTextData(24)),
+    util.NewFileBasedPipe(ctx),
+    util.NewInMemPipe(ctx),
+  }
+  for _,pipe := range pipes {
+    err_injector(pipe)
+    encoded_pipe, err := codec.EncryptStream(ctx, pipe.ReadEnd())
+    if err != nil { t.Logf("Could not encrypt: %v", err) }
 
-  encoded_pipe, err := codec.EncryptStream(ctx, pipe.ReadEnd())
-  if err != nil { t.Fatalf("Could not encrypt: %v", err) }
-
-  done := make(chan error)
-  go func() {
-    defer close(done)
-    defer encoded_pipe.Close()
-    data,err := io.ReadAll(encoded_pipe)
-    if err == nil { t.Errorf("Expected error propagation: %v", err) }
-    if len(data) > 0 { t.Errorf("Wrote %d bytes despite closed input", len(data)) }
-  }()
-  util.WaitForClosure(t, ctx, done)
+    done := make(chan error)
+    go func() {
+      defer close(done)
+      defer encoded_pipe.Close()
+      data,_ := io.ReadAll(encoded_pipe)
+      if encoded_pipe.GetErr() == nil { t.Errorf("Expected error propagation") }
+      // Cannot guarantee an error will prevent garbage to be written
+      if len(data) > codec.EncryptionHeaderLen() {
+        t.Logf("Wrote %d bytes despite error input", len(data))
+      }
+    }()
+    util.WaitForClosure(t, ctx, done)
+  }
+}
+func TestEncryptStream_PrematurelyClosedInput(t *testing.T) {
+  err_injector := func(p types.Pipe) { p.ReadEnd().Close() }
+  HelperEncryptStream_ErrPropagation(t, err_injector)
+}
+func TestEncryptStream_WriteEndError(t *testing.T) {
+  err_injector := func(p types.Pipe) { p.WriteEnd().SetErr(fmt.Errorf("inject_err")) }
+  HelperEncryptStream_ErrPropagation(t, err_injector)
 }
 
-func TODOTestDecryptStream_PrematurelyClosedInput(t *testing.T) {
+func HelperDecryptStream_ErrPropagation(t *testing.T, err_injector func(types.Pipe)) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
-  pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
-  pipe.ReadEnd().Close()
   codec := buildTestCodec(t)
+  pipes := []types.Pipe{
+    mocks.NewPreloadedPipe(util.GenerateRandomTextData(99)),
+    util.NewFileBasedPipe(ctx),
+    util.NewInMemPipe(ctx),
+  }
+  for _,pipe := range pipes {
+    err_injector(pipe)
+    decoded_pipe, err := codec.DecryptStream(ctx, types.CurKeyFp, pipe.ReadEnd())
+    if err != nil { t.Logf("Could not decrypt: %v", err) }
 
-  decoded_pipe, err := codec.DecryptStream(ctx, types.CurKeyFp, pipe.ReadEnd())
-  if err != nil { t.Fatalf("Could not decrypt: %v", err) }
-
-  done := make(chan error)
-  go func() {
-    defer close(done)
-    defer decoded_pipe.Close()
-    data,err := io.ReadAll(decoded_pipe)
-    if err == nil { t.Errorf("Expected error propagation: %v", err) }
-    if len(data) > 0 { t.Errorf("Wrote %d bytes despite closed input", len(data)) }
-  }()
-  util.WaitForClosure(t, ctx, done)
+    done := make(chan error)
+    go func() {
+      defer close(done)
+      defer decoded_pipe.Close()
+      data,_ := io.ReadAll(decoded_pipe)
+      if decoded_pipe.GetErr() == nil { t.Errorf("Expected error propagation") }
+      // Cannot guarantee an error will prevent garbage to be written
+      if len(data) > 0 { t.Logf("Wrote %d bytes despite closed input", len(data)) }
+    }()
+    util.WaitForClosure(t, ctx, done)
+  }
+}
+func TestDecryptStream_PrematurelyClosedInput(t *testing.T) {
+  err_injector := func(p types.Pipe) { p.ReadEnd().Close() }
+  HelperDecryptStream_ErrPropagation(t, err_injector)
+}
+func TestDecryptStream_WriteEndError(t *testing.T) {
+  err_injector := func(p types.Pipe) { p.WriteEnd().SetErr(fmt.Errorf("inject_err")) }
+  HelperDecryptStream_ErrPropagation(t, err_injector)
 }
 
-func TestDecryptStreamInto_PrematurelyClosedInput(t *testing.T) {
+func HelperDecryptStreamInto_ErrPropagation(t *testing.T, err_injector func(types.Pipe)) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   sink := util.NewBufferWriteEnd()
   pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
-  pipe.ReadEnd().Close()
+  err_injector(pipe)
   codec := buildTestCodec(t)
 
   done := codec.DecryptStreamInto(ctx, types.CurKeyFp, pipe.ReadEnd(), sink)
   select {
     case err := <-done:
       if err == nil { t.Errorf("Expected error propagation: %v", err) }
-      if sink.Len() > 0 { t.Errorf("Wrote %d bytes despite closed input", sink.Len()) }
+      // Cannot guarantee an error will prevent garbage to be written
+      if sink.Len() > 0 { t.Logf("Wrote %d bytes despite closed input", sink.Len()) }
     case <-ctx.Done(): t.Fatalf("TestDecryptStreamInto_PrematurelyClosedInput timeout")
   }
+}
+func TestDecryptStreamInto_PrematurelyClosedInput(t *testing.T) {
+  err_injector := func(p types.Pipe) { p.ReadEnd().Close() }
+  HelperDecryptStreamInto_ErrPropagation(t, err_injector)
+}
+func TestDecryptStreamInto_WriteEndError(t *testing.T) {
+  err_injector := func(p types.Pipe) { p.WriteEnd().SetErr(fmt.Errorf("inject_err")) }
+  HelperDecryptStreamInto_ErrPropagation(t, err_injector)
 }
 

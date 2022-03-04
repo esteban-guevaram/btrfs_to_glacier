@@ -180,16 +180,15 @@ func TestWriteReadWithRealCodec_ManyChunks(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad chunk count", len(written.Chunks), 3)
 }
 
-func TestWriteStream_ErrPropagation(t *testing.T) {
+func TestWriteStream_PrematureClosure(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageRealCodec(t, 64)
   pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(32))
-  //pipe := util.NewFileBasedPipe(ctx)
   pipe.ReadEnd().Close()
 
   done_write,err := storage.WriteStream(ctx, /*offest*/0, pipe.ReadEnd())
-  if err != nil { t.Fatalf("failed: %v", err) }
+  if err != nil { t.Logf("storage.WriteStream: %v", err) }
   select {
     case chunk_or_err := <-done_write:
       if chunk_or_err.Err == nil { t.Errorf("Expected error for premature closure") }
@@ -197,7 +196,26 @@ func TestWriteStream_ErrPropagation(t *testing.T) {
   }
 }
 
-func TODOTestReadChunksIntoStream_ErrPropagation(t *testing.T) {
+func TestWriteStream_ErrPropagation(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  expect_err := fmt.Errorf("some_fake_error")
+  storage,_ := buildTestStorageRealCodec(t, 64)
+  pipe := util.NewInMemPipe(ctx)
+  pipe.WriteEnd().SetErr(expect_err)
+
+  done_write,err := storage.WriteStream(ctx, /*offest*/0, pipe.ReadEnd())
+  if err != nil { t.Logf("storage.WriteStream: %v", err) }
+  select {
+    case chunk_or_err := <-done_write:
+      if chunk_or_err.Err != expect_err {
+        t.Errorf("Expected error for premature closure: %v", chunk_or_err.Err)
+      }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func TestReadChunksIntoStream_ErrPropagation(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   chunks := &pb.SnapshotChunks{
@@ -220,8 +238,9 @@ func TODOTestReadChunksIntoStream_ErrPropagation(t *testing.T) {
     defer close(done)
     defer read_end.Close()
     got_data,err := io.ReadAll(read_end)
-    if err == nil { t.Errorf("Expected error for premature closure") }
-    if len(got_data) > 0 { t.Errorf("Expected no data for premature closure") }
+    if err == nil { t.Logf("io.ReadAll returned no error") }
+    if read_end.GetErr() == nil { t.Errorf("Expected error for premature closure") }
+    if len(got_data) > 0 { t.Logf("Garbage data was written") }
   }()
   util.WaitForClosure(t, ctx, done)
 }
