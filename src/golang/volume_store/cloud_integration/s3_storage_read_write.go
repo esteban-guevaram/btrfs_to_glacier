@@ -3,6 +3,7 @@ package main
 import (
   "bytes"
   "context"
+  "errors"
   "io"
   "math/rand"
 
@@ -110,7 +111,7 @@ func (self *s3StoreReadWriteTester) TestWriteObjectMultipleChunkLen(ctx context.
 
 func (self *s3StoreReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
   const offset = 0
-  read_end := io.NopCloser(&bytes.Buffer{})
+  read_end := util.ReadEndFromBytes(nil)
   done, err := self.Storage.WriteStream(ctx, offset, read_end)
   if err != nil { util.Fatalf("failed: %v", err) }
   select {
@@ -212,7 +213,7 @@ func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx con
   select {
     case res := <-done:
       got_err := res[keys[0]].Err
-      if !s3_common.IsS3Error(new(s3_types.NoSuchKey), got_err) {
+      if !errors.Is(got_err, types.ErrChunkFound) {
         util.Fatalf("Expected error status: %v", res)
       }
     case <-ctx.Done(): util.Fatalf("timedout")

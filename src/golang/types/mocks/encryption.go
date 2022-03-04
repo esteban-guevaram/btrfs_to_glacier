@@ -39,12 +39,12 @@ func (self *Codec) DecryptString(
   return types.SecretString{obfus.S}, self.Err
 }
 
-func (self *Codec) EncryptStream(ctx context.Context, input io.ReadCloser) (io.ReadCloser, error) {
+func (self *Codec) EncryptStream(ctx context.Context, input types.ReadEndIf) (types.ReadEndIf, error) {
   if self.Err != nil { return nil, self.Err }
   pipe := util.NewFileBasedPipe(ctx)
   go func() {
     var err error
-    defer func() { util.ClosePipeWithError(pipe, err) }()
+    defer func() { util.CloseWriteEndWithError(pipe, util.Coalesce(input.GetErr(), err)) }()
     defer func() { util.CloseWithError(input, err) }()
     if ctx.Err() != nil { return }
     _, err = io.Copy(pipe.WriteEnd(), input)
@@ -53,18 +53,19 @@ func (self *Codec) EncryptStream(ctx context.Context, input io.ReadCloser) (io.R
 }
 
 func (self *Codec) DecryptStream(
-    ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
+    ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
   return self.EncryptStream(ctx, input)
 }
 
 func (self *Codec) DecryptStreamInto(
-    ctx context.Context, key_fp types.PersistableString, input io.ReadCloser, output io.Writer) (<-chan error) {
+    ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) (<-chan error) {
   done := make(chan error, 1)
   if self.Err != nil { done <- self.Err; close(done); return done }
   go func() {
     var err error
-    defer close(done)
     defer func() { util.CloseWithError(input, err) }()
+    defer func() { util.OnlyCloseWhenError(output, util.Coalesce(input.GetErr(), err)) }()
+    defer close(done)
     if ctx.Err() != nil { return }
     _, err = io.Copy(output, input)
     done <- err

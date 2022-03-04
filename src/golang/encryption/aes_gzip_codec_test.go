@@ -167,11 +167,12 @@ func TestEncryptString_Fingerprint(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad decryption", plain, expect_plain)
 }
 
-type source_t struct { *bytes.Reader ; closed bool }
+type source_t struct { io.ReadCloser ; closed bool }
 func (self *source_t) Close() error { self.closed = true; return nil }
+func (self *source_t) GetErr() error { return nil }
 func TestEncryptStream_ClosesStreams(t *testing.T) {
   codec := buildTestCodec(t)
-  read_pipe := &source_t{ Reader:bytes.NewReader([]byte("coucou")), }
+  read_pipe := &source_t{ ReadCloser:io.NopCloser(bytes.NewReader([]byte("coucou"))), }
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
@@ -190,15 +191,15 @@ func TestEncryptStream_ClosesStreams(t *testing.T) {
   if !read_pipe.closed { t.Errorf("source not closed") }
 }
 
-type decrypt_f = func(types.Codec, context.Context, types.PersistableString, io.ReadCloser) (io.ReadCloser, error)
+type decrypt_f = func(types.Codec, context.Context, types.PersistableString, types.ReadEndIf) (types.ReadEndIf, error)
 func testEncryptDecryptStream_Helper(
-    t *testing.T, read_pipe io.ReadCloser, decrypt_lambda decrypt_f) []byte {
+    t *testing.T, read_pipe types.ReadEndIf, decrypt_lambda decrypt_f) []byte {
   codec := buildTestCodec(t)
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   var err error
-  var encoded_pipe, decoded_pipe io.ReadCloser
+  var encoded_pipe, decoded_pipe types.ReadEndIf
   encoded_pipe, err = codec.EncryptStream(ctx, read_pipe)
   if err != nil { t.Fatalf("Could not encrypt: %v", err) }
   decoded_pipe, err = decrypt_lambda(codec, ctx, types.CurKeyFp, encoded_pipe)
@@ -225,7 +226,7 @@ func TestEncryptStream(t *testing.T) {
   expect_msg := []byte("this is some plain text data")
   read_pipe := mocks.NewPreloadedPipe(expect_msg).ReadEnd()
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
+      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
     return codec.DecryptStream(ctx, key_fp, input)
   }
   data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
@@ -237,9 +238,9 @@ func TestEncryptStreamInto_SmallMsg(t *testing.T) {
   expect_msg := []byte("this is some plain text data")
   read_pipe := mocks.NewPreloadedPipe(expect_msg).ReadEnd()
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
+      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
-    reader := io.NopCloser(&io.LimitedReader{ R:pipe.ReadEnd(), N:int64(len(expect_msg)), })
+    reader := util.NewLimitedReadEnd(pipe.ReadEnd(), uint64(len(expect_msg)))
     done = codec.DecryptStreamInto(ctx, key_fp, input, pipe.WriteEnd())
     return reader, nil
   }
@@ -251,7 +252,7 @@ func TestEncryptStreamInto_SmallMsg(t *testing.T) {
 func TestEncryptStream_MoreData(t *testing.T) {
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, 32)
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
+      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
     return codec.DecryptStream(ctx, key_fp, input)
   }
   data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
@@ -262,9 +263,9 @@ func TestEncryptStreamInto_MoreData(t *testing.T) {
   var done <-chan error
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, 32)
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
+      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
-    reader := io.NopCloser(&io.LimitedReader{ R:pipe.ReadEnd(), N:4096*32, })
+    reader := util.NewLimitedReadEnd(pipe.ReadEnd(), 4096*32) 
     done = codec.DecryptStreamInto(ctx, key_fp, input, pipe.WriteEnd())
     return reader, nil
   }
@@ -277,8 +278,8 @@ func TestDecryptStreamInto_OutputRemainsOpen(t *testing.T) {
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 32, 1)
   pipe := util.NewFileBasedPipe(context.TODO()) // we use a file to avoid blocking on the last write
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input io.ReadCloser) (io.ReadCloser, error) {
-    reader := io.NopCloser(&io.LimitedReader{ R:pipe.ReadEnd(), N:32, })
+      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
+    reader := util.NewLimitedReadEnd(pipe.ReadEnd(), 32) 
     codec.DecryptStreamInto(ctx, key_fp, input, pipe.WriteEnd())
     return reader, nil
   }
@@ -288,8 +289,8 @@ func TestDecryptStreamInto_OutputRemainsOpen(t *testing.T) {
   if err != nil { t.Errorf("could not write after decryption: %v", err) }
 }
 
-func testStream_TimeoutContinousReads_Helper(
-    t *testing.T, stream_f func(context.Context, io.ReadCloser) (io.ReadCloser, error)) {
+type streamf_t = func(context.Context, types.ReadEndIf) (types.ReadEndIf, error)
+func testStream_TimeoutContinousReads_Helper(t *testing.T, stream_f streamf_t) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
@@ -322,8 +323,7 @@ func testStream_TimeoutContinousReads_Helper(
   }
 }
 
-func testStream_TimeoutReadAfterClose_Helper(
-    t *testing.T, stream_f func(context.Context, io.ReadCloser) (io.ReadCloser, error)) {
+func testStream_TimeoutReadAfterClose_Helper(t *testing.T, stream_f streamf_t) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
@@ -356,7 +356,7 @@ func testStream_TimeoutReadAfterClose_Helper(
 
 func TestEncryptStream_TimeoutContinousReads(t *testing.T) {
   codec := buildTestCodec(t)
-  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+  stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     return codec.EncryptStream(ctx, in)
   }
   testStream_TimeoutContinousReads_Helper(t, stream_f)
@@ -364,7 +364,7 @@ func TestEncryptStream_TimeoutContinousReads(t *testing.T) {
 
 func TestDecryptStream_TimeoutContinousReads(t *testing.T) {
   codec := buildTestCodec(t)
-  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+  stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     return codec.DecryptStream(ctx, types.CurKeyFp, in)
   }
   testStream_TimeoutContinousReads_Helper(t, stream_f)
@@ -373,7 +373,7 @@ func TestDecryptStream_TimeoutContinousReads(t *testing.T) {
 func TestDecryptStreamInto_TimeoutContinousReads(t *testing.T) {
   var done <-chan error
   codec := buildTestCodec(t)
-  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+  stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
     done = codec.DecryptStreamInto(ctx, types.CurKeyFp, in, pipe.WriteEnd())
     return pipe.ReadEnd(), nil
@@ -384,7 +384,7 @@ func TestDecryptStreamInto_TimeoutContinousReads(t *testing.T) {
 
 func TestEncryptStream_TimeoutReadAfterClose(t *testing.T) {
   codec := buildTestCodec(t)
-  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+  stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     return codec.EncryptStream(ctx, in)
   }
   testStream_TimeoutReadAfterClose_Helper(t, stream_f)
@@ -392,7 +392,7 @@ func TestEncryptStream_TimeoutReadAfterClose(t *testing.T) {
 
 func TestDecryptStream_TimeoutReadAfterClose(t *testing.T) {
   codec := buildTestCodec(t)
-  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+  stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     return codec.DecryptStream(ctx, types.CurKeyFp, in)
   }
   testStream_TimeoutReadAfterClose_Helper(t, stream_f)
@@ -401,7 +401,7 @@ func TestDecryptStream_TimeoutReadAfterClose(t *testing.T) {
 func TestDecryptStreamInto_TimeoutReadAfterClose(t *testing.T) {
   var done <-chan error
   codec := buildTestCodec(t)
-  stream_f := func(ctx context.Context, in io.ReadCloser) (io.ReadCloser, error) {
+  stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
     done = codec.DecryptStreamInto(ctx, types.CurKeyFp, in, pipe.WriteEnd())
     return pipe.ReadEnd(), nil
@@ -477,7 +477,7 @@ func TestDecryptStreamInto_PrematurelyClosedInput(t *testing.T) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
-  sink := new(bytes.Buffer)
+  sink := util.NewBufferWriteEnd()
   pipe := mocks.NewPreloadedPipe(util.GenerateRandomTextData(24))
   pipe.ReadEnd().Close()
   codec := buildTestCodec(t)

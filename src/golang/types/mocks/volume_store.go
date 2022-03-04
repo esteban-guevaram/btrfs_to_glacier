@@ -232,7 +232,7 @@ func (self *Metadata) PersistCurrentMetadataState(ctx context.Context) (string, 
 ///////////////////////// Storage //////////////////////////
 
 func (self *Storage) WriteStream(
-    ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan types.ChunksOrError, error) {
+    ctx context.Context, offset uint64, read_pipe types.ReadEndIf) (<-chan types.ChunksOrError, error) {
   result := types.ChunksOrError{
     Val: &pb.SnapshotChunks{ KeyFingerprint: uuid_mod.NewString(), },
   }
@@ -285,11 +285,11 @@ func (self *Storage) QueueRestoreObjects(
 }
 
 func (self *Storage) ReadChunksIntoStream(
-    ctx context.Context, data *pb.SnapshotChunks) (io.ReadCloser, error) {
+    ctx context.Context, data *pb.SnapshotChunks) (types.ReadEndIf, error) {
   pipe := util.NewInMemPipe(ctx)
   go func() {
     var err error
-    defer func() { util.ClosePipeWithError(pipe, err) }()
+    defer func() { util.CloseWriteEndWithError(pipe, err) }()
 
     for _,chunk := range data.Chunks {
       if ctx.Err() != nil { err = ctx.Err(); return }
@@ -469,11 +469,11 @@ func AlwaysErrChunkIo(par types.Storage, err error) *ChunkIoImpl {
   return &ChunkIoImpl{ Parent:par, Err: err, }
 }
 func (self *ChunkIoImpl) ReadOneChunk(
-    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
+    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.WriteCloser) error {
   return self.Err
 }
 func (self *ChunkIoImpl) WriteOneChunk(
-    ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error) {
+    ctx context.Context, start_offset uint64, clear_input types.ReadEndIf) (*pb.SnapshotChunks_Chunk, bool, error) {
   return nil, false, self.Err
 }
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {

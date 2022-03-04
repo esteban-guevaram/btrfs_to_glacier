@@ -157,7 +157,7 @@ func (self *Fixture) HelperTestWriteOneChunk(t *testing.T, offset uint64, chunk_
 
 func (self *Fixture) HelperTestWriteEmptyChunk(t *testing.T, offset uint64, chunk_len uint64) {
   _,chunkio := self.StorageCtor(t, chunk_len)
-  read_end := io.NopCloser(&bytes.Buffer{})
+  read_end := util.ReadEndFromBytes(nil)
 
   chunk_pb, more, err := chunkio.WriteOneChunk(self.Ctx, offset, read_end)
   if err != nil { t.Errorf("empty write should return no more data and a nul chunk") }

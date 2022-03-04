@@ -30,6 +30,7 @@ type WriteEndFile struct {
   *os.File
   parent *PipeImpl
 }
+type WriteEndBuffer struct { *bytes.Buffer }
 func (self *WriteEndImpl) SetErr(err error) {
   if err == nil { return }
   self.parent.mutex.Lock()
@@ -50,6 +51,12 @@ func (self *WriteEndFile) CloseWithError(err error) error {
   self.SetErr(err)
   return CloseWithError(self.File, err)
 }
+func (self *WriteEndBuffer) SetErr(err error) {}
+func (self *WriteEndBuffer) CloseWithError(err error) error { return nil }
+func (self *WriteEndBuffer) Close() error { return nil }
+func NewBufferWriteEnd() *WriteEndBuffer {
+  return &WriteEndBuffer{ Buffer:new(bytes.Buffer), }
+}
 
 type ReadEndImpl struct {
   io.ReadCloser
@@ -59,6 +66,11 @@ type ReadEndFile struct {
   *os.File
   parent *PipeImpl
 }
+type ReadEndLimitedImpl struct {
+  *io.LimitedReader
+  inner  types.ReadEndIf
+}
+type ReadEndNoErrWrapper struct { io.ReadCloser }
 func (self *ReadEndImpl) GetErr() error {
   self.parent.mutex.Lock()
   defer self.parent.mutex.Unlock()
@@ -68,6 +80,19 @@ func (self *ReadEndFile) GetErr() error {
   self.parent.mutex.Lock()
   defer self.parent.mutex.Unlock()
   return self.parent.err
+}
+func (self *ReadEndNoErrWrapper) GetErr() error { return nil }
+func WrapPlainReaderCloser(inner io.ReadCloser) types.ReadEndIf {
+  return &ReadEndNoErrWrapper{ ReadCloser: inner, }
+}
+func ReadEndFromBytes(data []byte) types.ReadEndIf {
+  return &ReadEndNoErrWrapper{ ReadCloser: io.NopCloser(bytes.NewBuffer(data)), }
+}
+func (self *ReadEndLimitedImpl) GetErr() error { return self.inner.GetErr() }
+func (self *ReadEndLimitedImpl) Close()  error { return nil }
+func NewLimitedReadEnd(inner types.ReadEndIf, limit uint64) *ReadEndLimitedImpl {
+  limited := &io.LimitedReader{ R:inner, N:int64(limit), }
+  return &ReadEndLimitedImpl{ LimitedReader:limited, inner:inner, }
 }
 
 
@@ -153,7 +178,7 @@ func StartCmdWithPipedInput(ctx context.Context, input io.ReadCloser, args []str
 func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser, error) {
   var err error
   pipe := NewFileBasedPipe(ctx)
-  defer func() { OnlyClosePipeWhenError(pipe, err) }()
+  defer func() { OnlyCloseWriteEndWhenError(pipe, err) }()
 
   buf_err := new(bytes.Buffer)
   command := exec.CommandContext(ctx, args[0], args[1:]...)
@@ -168,7 +193,7 @@ func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser,
 
   go func() {
     var err error
-    defer func() { ClosePipeWithError(pipe, err) }()
+    defer func() { CloseWriteEndWithError(pipe, err) }()
     err = command.Wait()
     if err != nil && ctx.Err() == nil {
       err = fmt.Errorf("%v failed: %v\nstderr: %s", args, err, buf_err.Bytes())
@@ -177,7 +202,7 @@ func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser,
   return pipe.ReadEnd(), nil
 }
 
-func ClosePipeWithError(pipe types.Pipe, err error) {
+func CloseWriteEndWithError(pipe types.Pipe, err error) {
   obj := pipe.WriteEnd()
   CloseWithError(obj, err)
 }
@@ -192,9 +217,19 @@ func CloseWithError(obj io.Closer, err error) error {
   return obj.Close()
 }
 
-func OnlyClosePipeWhenError(pipe types.Pipe, err error) {
+func OnlyCloseWriteEndWhenError(pipe types.Pipe, err error) {
   if err == nil { return }
-  ClosePipeWithError(pipe, err)
+  CloseWriteEndWithError(pipe, err)
+}
+
+func OnlyCloseWhenError(obj io.Closer, err error) {
+  if err == nil { return }
+  CloseWithError(obj, err)
+}
+
+func Coalesce(errors ...error) error {
+  for _,e := range errors { if e != nil { return e } }
+  return nil
 }
 
 // Closes the channel if `err != nil`.
@@ -211,11 +246,6 @@ func OnlyCloseChanWhenError(channel interface{}, err error) {
     if ok := rv.TrySend(reflect.ValueOf(err)); !ok { Fatalf("failed to send before closing: %v", err) }
   }
   rv.Close()
-}
-
-func OnlyCloseWhenError(obj io.Closer, err error) {
-  if err == nil { return }
-  CloseWithError(obj, err)
 }
 
 func WrapInChan(err error) (<-chan error) {

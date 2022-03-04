@@ -1,7 +1,6 @@
 package mem_only
 
 import (
-  "bytes"
   "context"
   "fmt"
   "io"
@@ -22,9 +21,9 @@ const (
 type ChunkIoIf interface {
   // Reading an object which does not exist should return `ErrChunkFound`.
   ReadOneChunk(
-    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error
+    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.WriteCloser) error
   WriteOneChunk(
-    ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error)
+    ctx context.Context, start_offset uint64, clear_input types.ReadEndIf) (*pb.SnapshotChunks_Chunk, bool, error)
   RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr
   ListChunks(ctx context.Context, continuation *string) ([]*pb.SnapshotChunks_Chunk, *string, error)
 }
@@ -69,13 +68,13 @@ func NewStorage(conf *pb.Config, codec types.Codec) (types.Storage, error) {
 }
 
 func (self *ChunkIoImpl) ReadOneChunk(
-    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
+    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.WriteCloser) error {
   data, found := self.Chunks[chunk.Uuid]
   if !found { return types.ErrChunkFound }
   if len(data) != int(chunk.Size) {
     return fmt.Errorf("mismatched length with metadata: %d != %d", len(data), chunk.Size)
   }
-  input := io.NopCloser(bytes.NewReader(data))
+  input := util.ReadEndFromBytes(data)
   done := self.ParCodec.DecryptStreamInto(ctx, key_fp, input, output)
   select {
     case err := <-done: return err
@@ -85,21 +84,21 @@ func (self *ChunkIoImpl) ReadOneChunk(
 }
 
 // Race detector does not recognize the ordering event (close pipe write end, EOF on read end)
-func HasMoreData(chunk_len uint64, codec_hdr int, data_len uint64, source *io.LimitedReader) bool {
-  if !util.RaceDetectorOn { return source.N == 0 }
+func HasMoreData(chunk_len uint64, codec_hdr int, data_len uint64, N int64) bool {
+  if !util.RaceDetectorOn { return N == 0 }
   return data_len == chunk_len + uint64(codec_hdr)
 }
-func IsChunkEmpty(chunk_len uint64, codec_hdr int, data_len uint64, source *io.LimitedReader) bool {
-  if !util.RaceDetectorOn { return source.N == int64(chunk_len) }
+func IsChunkEmpty(chunk_len uint64, codec_hdr int, data_len uint64, N int64) bool {
+  if !util.RaceDetectorOn { return N == int64(chunk_len) }
   return data_len == uint64(codec_hdr)
 }
 
 func (self *ChunkIoImpl) WriteOneChunk(
-    ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error) {
+    ctx context.Context, start_offset uint64, clear_input types.ReadEndIf) (*pb.SnapshotChunks_Chunk, bool, error) {
   key_str := uuid.NewString()
-  limit_reader := &io.LimitedReader{ R:clear_input, N:int64(self.ChunkLen) }
+  limit_reader := util.NewLimitedReadEnd(clear_input, self.ChunkLen)
 
-  encrypted_reader, err := self.ParCodec.EncryptStream(ctx, io.NopCloser(limit_reader))
+  encrypted_reader, err := self.ParCodec.EncryptStream(ctx, limit_reader)
   if err != nil { return nil, false, err }
   defer encrypted_reader.Close()
 
@@ -113,9 +112,9 @@ func (self *ChunkIoImpl) WriteOneChunk(
   }
 
   codec_hdr := self.ParCodec.EncryptionHeaderLen()
-  if IsChunkEmpty(self.ChunkLen, codec_hdr, chunk.Size, limit_reader) { return nil, false, nil }
+  if IsChunkEmpty(self.ChunkLen, codec_hdr, chunk.Size, limit_reader.N) { return nil, false, nil }
   self.Chunks[key_str] = data
-  return chunk, HasMoreData(self.ChunkLen, codec_hdr, chunk.Size, limit_reader), nil
+  return chunk, HasMoreData(self.ChunkLen, codec_hdr, chunk.Size, limit_reader.N), nil
 }
 
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {
@@ -140,7 +139,7 @@ func (self *ChunkIoImpl) ListChunks(
 }
 
 func (self *BaseStorage) WriteStream(
-    ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan types.ChunksOrError, error) {
+    ctx context.Context, offset uint64, read_pipe types.ReadEndIf) (<-chan types.ChunksOrError, error) {
   done := make(chan types.ChunksOrError, 1)
 
   go func() {
@@ -210,7 +209,7 @@ func (self *BaseStorage) QueueRestoreObjects(
 }
 
 func (self *BaseStorage) ReadChunksIntoStream(
-    ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error) {
+    ctx context.Context, chunks *pb.SnapshotChunks) (types.ReadEndIf, error) {
   err := store.ValidateSnapshotChunks(store.CheckChunkFromStart, chunks)
   if err != nil { return nil, err }
   pipe := util.NewFileBasedPipe(ctx)
@@ -218,7 +217,7 @@ func (self *BaseStorage) ReadChunksIntoStream(
 
   go func() {
     var err error
-    defer func() { util.ClosePipeWithError(pipe, err) }()
+    defer func() { util.CloseWriteEndWithError(pipe, err) }()
     for _,chunk := range chunks.Chunks {
       err = self.ChunkIo.ReadOneChunk(ctx, key_fp, chunk, pipe.WriteEnd())
       if err != nil { return }

@@ -93,7 +93,7 @@ func (self *ChunkIoImpl) OpenChunk(key string, read bool) (*os.File, error) {
 }
 
 func (self *ChunkIoImpl) ReadOneChunk(
-    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
+    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.WriteCloser) error {
   f, err_closer := self.OpenChunk(chunk.Uuid, ForRead)
   if err_closer != nil { return err_closer }
   defer func() { util.OnlyCloseWhenError(f, err_closer) }()
@@ -105,7 +105,8 @@ func (self *ChunkIoImpl) ReadOneChunk(
     return err_closer
   }
 
-  done := self.ParCodec.DecryptStreamInto(ctx, key_fp, f, output)
+  read_wrap := util.WrapPlainReaderCloser(f)
+  done := self.ParCodec.DecryptStreamInto(ctx, key_fp, read_wrap, output)
   select {
     case err := <-done: return err
     case <-ctx.Done():
@@ -114,14 +115,14 @@ func (self *ChunkIoImpl) ReadOneChunk(
 }
 
 func (self *ChunkIoImpl) WriteOneChunk(
-    ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error) {
+    ctx context.Context, start_offset uint64, clear_input types.ReadEndIf) (*pb.SnapshotChunks_Chunk, bool, error) {
   key := uuid.NewString()
   f, err := self.OpenChunk(key, ForWrite)
   if err != nil { return nil, false, err }
   defer func() { util.CloseWithError(f, err) }()
 
-  limit_reader := &io.LimitedReader{ R:clear_input, N:int64(self.ChunkLen) }
-  encrypted_reader, err := self.ParCodec.EncryptStream(ctx, io.NopCloser(limit_reader))
+  limit_reader := util.NewLimitedReadEnd(clear_input, self.ChunkLen)
+  encrypted_reader, err := self.ParCodec.EncryptStream(ctx, limit_reader)
   if err != nil { return nil, false, err }
   defer encrypted_reader.Close()
 
@@ -136,8 +137,8 @@ func (self *ChunkIoImpl) WriteOneChunk(
 
   codec_hdr := self.ParCodec.EncryptionHeaderLen()
   // We leave the empty chunk in the fs as an orphan
-  if mem_only.IsChunkEmpty(self.ChunkLen, codec_hdr, chunk.Size, limit_reader) { return nil, false, nil }
-  return chunk, mem_only.HasMoreData(self.ChunkLen, codec_hdr, chunk.Size, limit_reader), nil
+  if mem_only.IsChunkEmpty(self.ChunkLen, codec_hdr, chunk.Size, limit_reader.N) { return nil, false, nil }
+  return chunk, mem_only.HasMoreData(self.ChunkLen, codec_hdr, chunk.Size, limit_reader.N), nil
 }
 
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {

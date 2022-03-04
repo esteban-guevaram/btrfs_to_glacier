@@ -8,6 +8,8 @@ type CloseWithErrIf interface { CloseWithError(err error) error }
 type WriteEndIf interface {
   io.WriteCloser
   CloseWithErrIf
+  // If error is nil then noop.
+  // That way a previous error cannot be deleted.
   SetErr(error)
 }
 type ReadEndIf interface {

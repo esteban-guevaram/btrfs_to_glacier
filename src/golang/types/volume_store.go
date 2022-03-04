@@ -2,7 +2,6 @@ package types
 
 import "context"
 import "errors"
-import "io"
 import pb "btrfs_to_glacier/messages"
 
 var ErrNotFound = errors.New("key_not_found_in_metadata")
@@ -130,7 +129,7 @@ type Storage interface {
   // Returns the ids of all chunks uploaded. If some error prevented all pipe content from being uploaded,
   // then ChunksOrError.Err will be non nil and `Val` will contain the chunks that got uploaded.
   // Takes ownership of `read_pipe` and will close it once done.
-  WriteStream(ctx context.Context, offset uint64, read_pipe io.ReadCloser) (<-chan ChunksOrError, error)
+  WriteStream(ctx context.Context, offset uint64, read_pipe ReadEndIf) (<-chan ChunksOrError, error)
 
   // Request all objects identified by `uuids` to be restored so they can be downloaded.
   // Restoration can take several hours, this method will return sooner, after all object restore requests
@@ -145,7 +144,7 @@ type Storage interface {
   // Reads all `chunks` in order and outputs them to a stream.
   // Data may be filtered by a codec depending on the implementation.
   // A permanent error while reading a chunk will close the stream.
-  ReadChunksIntoStream(ctx context.Context, chunks *pb.SnapshotChunks) (io.ReadCloser, error)
+  ReadChunksIntoStream(ctx context.Context, chunks *pb.SnapshotChunks) (ReadEndIf, error)
 
   // Returns all chunks in no particular order.
   // Not all chunk fields may be filled.

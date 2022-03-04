@@ -110,7 +110,7 @@ func (self *s3Storage) injectConstants() {
 // In our case, the codec uses a stream cypher, parallel (out-of-order) downloads will make things much more complex.
 // Not to mention for a home connection bandwidth, this is an overkill...
 func (self *ChunkIoImpl) ReadOneChunk(
-    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.Writer) error {
+    ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.WriteCloser) error {
   get_in := &s3.GetObjectInput{
     Bucket: &self.Parent.Conf.Aws.S3.StorageBucketName,
     Key: aws.String(chunk.Uuid),
@@ -121,7 +121,8 @@ func (self *ChunkIoImpl) ReadOneChunk(
   if get_out.ContentLength != int64(chunk.Size) {
     return fmt.Errorf("mismatched length with metadata: %d != %d", get_out.ContentLength, chunk.Size)
   }
-  done := self.Parent.Codec.DecryptStreamInto(ctx, key_fp, get_out.Body, output)
+  read_wrap := util.WrapPlainReaderCloser(get_out.Body)
+  done := self.Parent.Codec.DecryptStreamInto(ctx, key_fp, read_wrap, output)
   select {
     case err := <-done: return err
     case <-ctx.Done():
@@ -132,15 +133,15 @@ func (self *ChunkIoImpl) ReadOneChunk(
 // Each chunk should be encrypted with a different IV,
 // `start_offset` is NOT used to advance the stream only to return a correct return value.
 func (self *ChunkIoImpl) WriteOneChunk(
-    ctx context.Context, start_offset uint64, clear_input io.Reader) (*pb.SnapshotChunks_Chunk, bool, error) {
+    ctx context.Context, start_offset uint64, clear_input types.ReadEndIf) (*pb.SnapshotChunks_Chunk, bool, error) {
   content_type := "application/octet-stream"
   chunk_len := uint64(self.Parent.Conf.Aws.S3.ChunkLen)
   key, err := uuid.NewRandom()
   key_str := key.String()
   if err != nil { return nil, false, err }
 
-  limit_reader := &io.LimitedReader{ R:clear_input, N:int64(chunk_len) }
-  encrypted_reader, err := self.Parent.Codec.EncryptStream(ctx, io.NopCloser(limit_reader))
+  limit_reader := util.NewLimitedReadEnd(clear_input, chunk_len)
+  encrypted_reader, err := self.Parent.Codec.EncryptStream(ctx, limit_reader)
   if err != nil { return nil, false, err }
   defer encrypted_reader.Close()
   // The small buffer should be bypassed for bigger reads by the s3 uploader
@@ -166,7 +167,7 @@ func (self *ChunkIoImpl) WriteOneChunk(
 
   write_cnt := uint64(codec_hdr) + chunk_len - uint64(limit_reader.N)
   // We leave the empty chunk in the fs as an orphan
-  if mem_only.IsChunkEmpty(chunk_len, codec_hdr, write_cnt, limit_reader) { return nil, false, nil }
+  if mem_only.IsChunkEmpty(chunk_len, codec_hdr, write_cnt, limit_reader.N) { return nil, false, nil }
   if write_cnt < 1 { return nil, false, fmt.Errorf("cannot write empty chunk.") }
   if chunk_reader.Buffered() > 0 { return nil, false, fmt.Errorf("some bytes were read but not written.") }
 
@@ -175,7 +176,7 @@ func (self *ChunkIoImpl) WriteOneChunk(
     Start: start_offset,
     Size: uint64(write_cnt),
   }
-  return chunk, mem_only.HasMoreData(chunk_len, codec_hdr, write_cnt, limit_reader), nil
+  return chunk, mem_only.HasMoreData(chunk_len, codec_hdr, write_cnt, limit_reader.N), nil
 }
 
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {

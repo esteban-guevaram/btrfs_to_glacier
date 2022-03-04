@@ -4,11 +4,11 @@ import "context"
 import "encoding/base64"
 import "encoding/json"
 import "fmt"
-import "io"
 import "math/rand"
 import "strings"
 import "testing"
 import "time"
+import "btrfs_to_glacier/types"
 
 func AsJson(val interface{}) string {
   switch s := val.(type) { case string: return s }
@@ -78,7 +78,7 @@ func GenerateRandomTextData(size int) []byte {
   return buffer_txt[:size]
 }
 
-func ProduceRandomTextIntoPipe(ctx context.Context, chunk int, iterations int) io.ReadCloser {
+func ProduceRandomTextIntoPipe(ctx context.Context, chunk int, iterations int) types.ReadEndIf {
   pipe := NewInMemPipe(ctx)
 
   go func() {
