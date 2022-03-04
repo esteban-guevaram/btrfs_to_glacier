@@ -208,10 +208,11 @@ func (self *btrfsUtilImpl) ListSubVolumesInFs(path string, is_root_fs bool) ([]*
   return vols, err
 }
 
-func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump io.ReadCloser) (*types.SendDumpOperations, error) {
+func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump types.ReadEndIf) (*types.SendDumpOperations, error) {
   defer dump.Close()
   if file_pipe,ok := dump.(types.HasFileDescriptorIf); ok {
-    return readAndProcessSendStreamHelper(file_pipe.Fd())
+    ops, err := readAndProcessSendStreamHelper(file_pipe.Fd())
+    return ops, util.Coalesce(dump.GetErr(), err)
   }
   // We connect `pipe` to `dump` so if dump is cancelled then `pipe` will be closed.
   pipe := util.NewFileBasedPipe(context.TODO())
@@ -221,10 +222,11 @@ func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump io.ReadCloser) (*types.
     io.Copy(pipe.WriteEnd(), dump)
   }()
   fd := pipe.ReadEnd().(types.HasFileDescriptorIf).Fd()
-  return readAndProcessSendStreamHelper(fd)
+  ops, err := readAndProcessSendStreamHelper(fd)
+  return ops, util.Coalesce(dump.GetErr(), err)
 }
 
-func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error) {
+func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (types.ReadEndIf, error) {
   if !self.linuxutil.IsCapSysAdmin() {
     return nil, fmt.Errorf("StartSendStream requires CAP_SYS_ADMIN")
   }
@@ -299,7 +301,7 @@ func (self *btrfsUtilImpl) DeleteSubVolume(subvol string) error {
   return nil
 }
 
-func (self *btrfsUtilImpl) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error {
+func (self *btrfsUtilImpl) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe types.ReadEndIf) error {
   if !self.linuxutil.IsCapSysAdmin() {
     return fmt.Errorf("ReceiveSendStream requires CAP_SYS_ADMIN")
   }

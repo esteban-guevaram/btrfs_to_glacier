@@ -117,10 +117,11 @@ func (self *Btrfsutil) ListSubVolumesInFs(path string, is_root_fs bool) ([]*pb.S
   if !fpmod.IsAbs(path) { return nil, fmt.Errorf("ListSubVolumesInFs bad args") }
   return append(self.Subvols, self.Snaps...), self.Err
 }
-func (self *Btrfsutil) ReadAndProcessSendStream(dump io.ReadCloser) (*types.SendDumpOperations, error) {
-  return self.DumpOps, self.DumpErr
+func (self *Btrfsutil) ReadAndProcessSendStream(dump types.ReadEndIf) (*types.SendDumpOperations, error) {
+  return self.DumpOps, util.Coalesce(self.DumpErr, dump.GetErr())
 }
-func (self *Btrfsutil) StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error) {
+func (self *Btrfsutil) StartSendStream(
+    ctx context.Context, from string, to string, no_data bool) (types.ReadEndIf, error) {
   if from == "" || to == "" { return nil, fmt.Errorf("StartSendStream bad args") }
   return self.SendStream.ReadEnd(), self.Err
 }
@@ -147,11 +148,12 @@ func (self *Btrfsutil) WaitForTransactionId(root_fs string, tid uint64) error {
   if root_fs == "" { return fmt.Errorf("WaitForTransactionId bad args") }
   return self.Err
 }
-func (self *Btrfsutil) ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error {
+func (self *Btrfsutil) ReceiveSendStream(
+    ctx context.Context, to_dir string, read_pipe types.ReadEndIf) error {
   defer read_pipe.Close()
   if to_dir == "" { return fmt.Errorf("ReceiveSendStream bad args") }
   _, err := io.Copy(io.Discard, read_pipe)
   if err != nil { return err }
-  return self.Err
+  return util.Coalesce(self.Err, read_pipe.GetErr())
 }
 

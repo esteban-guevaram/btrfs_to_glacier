@@ -7,7 +7,8 @@ import "testing"
 import "time"
 import "btrfs_to_glacier/types"
 
-func runCmdGetOutputOrDie(ctx context.Context, t *testing.T, args []string) <-chan []byte {
+func runCmdGetOutputOrDie(
+    ctx context.Context, t *testing.T, args []string) (<-chan []byte, types.ReadEndIf) {
   read_end, err := StartCmdWithPipedOutput(ctx, args)
   if err != nil {
     t.Fatalf("%v failed: %v", args, err)
@@ -20,7 +21,7 @@ func runCmdGetOutputOrDie(ctx context.Context, t *testing.T, args []string) <-ch
     done <- data
   }()
 
-  return done
+  return done, read_end
 }
 
 func testInMemPipeCtxCancel_Helper(t *testing.T, pipe types.Pipe, pipe_f func([]byte)) {
@@ -170,11 +171,27 @@ func TestStartCmdWithPipedOutput_Echo(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), 2*TestTimeout)
   defer cancel()
 
-  done := runCmdGetOutputOrDie(ctx, t, args)
+  done, read_end := runCmdGetOutputOrDie(ctx, t, args)
 
   select {
     case data := <-done:
       if string(data) != "salut" { t.Errorf("%v got: '%s'", args, data) }
+      if read_end.GetErr() != nil { t.Errorf("Error in output: %v", read_end.GetErr()) }
+    case <- ctx.Done():
+      t.Fatalf("%v timedout", args)
+  }
+}
+
+func TestStartCmdWithPipedOutput_ErrPropagation(t *testing.T) {
+  args := []string{ "false" }
+  ctx, cancel := context.WithTimeout(context.Background(), 2*TestTimeout)
+  defer cancel()
+
+  done, read_end := runCmdGetOutputOrDie(ctx, t, args)
+
+  select {
+    case <-done:
+      if read_end.GetErr() == nil { t.Errorf("StartCmdWithPipedOutput did not propagate errors") }
     case <- ctx.Done():
       t.Fatalf("%v timedout", args)
   }
@@ -185,7 +202,7 @@ func TestStartCmdWithPipedOutput_Timeout(t *testing.T) {
   ctx, cancel := context.WithCancel(context.Background())
   defer cancel()
 
-  done := runCmdGetOutputOrDie(ctx, t, args)
+  done, _ := runCmdGetOutputOrDie(ctx, t, args)
   cancel()
 
   select {

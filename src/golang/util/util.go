@@ -150,7 +150,7 @@ func (self *PipeImpl) WriteEnd() types.WriteEndIf { return self.write_end }
 
 // Synchronous, waits for the command to finish
 // Takes ownership of `input` and will close it once done.
-func StartCmdWithPipedInput(ctx context.Context, input io.ReadCloser, args []string) error {
+func StartCmdWithPipedInput(ctx context.Context, input types.ReadEndIf, args []string) error {
   var err error
   buf_err := new(bytes.Buffer)
   buf_out := new(bytes.Buffer)
@@ -172,10 +172,10 @@ func StartCmdWithPipedInput(ctx context.Context, input io.ReadCloser, args []str
     return fmt.Errorf("%v failed: %v\nstderr: %s", args, err, buf_err.Bytes())
   }
   Infof("%v done, output:\n%s", args, buf_out)
-  return nil
+  return input.GetErr()
 }
 
-func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser, error) {
+func StartCmdWithPipedOutput(ctx context.Context, args []string) (types.ReadEndIf, error) {
   var err error
   pipe := NewFileBasedPipe(ctx)
   defer func() { OnlyCloseWriteEndWhenError(pipe, err) }()
@@ -199,7 +199,7 @@ func StartCmdWithPipedOutput(ctx context.Context, args []string) (io.ReadCloser,
       err = fmt.Errorf("%v failed: %v\nstderr: %s", args, err, buf_err.Bytes())
     }
   }()
-  return pipe.ReadEnd(), nil
+  return pipe.ReadEnd(), pipe.ReadEnd().GetErr()
 }
 
 func CloseWriteEndWithError(pipe types.Pipe, err error) {

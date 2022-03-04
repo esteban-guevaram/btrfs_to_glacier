@@ -2,7 +2,6 @@ package types
 
 import (
   "context"
-  "io"
   pb "btrfs_to_glacier/messages"
 )
 
@@ -92,16 +91,16 @@ type Btrfsutil interface {
   ListSubVolumesInFs(path string, is_root_fs bool) ([]*pb.SubVolume, error)
   // Reads a stream generated from `btrfs send --no-data` and returns a record of the operations.
   // Takes ownership of `read_pipe` and will close it once done.
-  ReadAndProcessSendStream(dump io.ReadCloser) (*SendDumpOperations, error)
+  ReadAndProcessSendStream(dump ReadEndIf) (*SendDumpOperations, error)
   // Starts a separate `btrfs send` and returns the read end of the pipe.
   // `no_data` is the same option as for `btrfs send`.
   // `from` can be null to get the full contents of the subvolume.
   // When `ctx` is done/cancelled the write end of the pipe should be closed and the forked process killed.
-  StartSendStream(ctx context.Context, from string, to string, no_data bool) (io.ReadCloser, error)
+  StartSendStream(ctx context.Context, from string, to string, no_data bool) (ReadEndIf, error)
   // Wrapper around `btrfs receive`. `to_dir` must exist and be a directory.
   // The mounted path of the received subvol will be `to_dir/<basename_src_subvol>`.
   // Takes ownership of `read_pipe` and will close it once done.
-  ReceiveSendStream(ctx context.Context, to_dir string, read_pipe io.ReadCloser) error
+  ReceiveSendStream(ctx context.Context, to_dir string, read_pipe ReadEndIf) error
   // Calls `btrfs_util_create_snapshot()` to create a snapshot of `subvol` in `snap` path.
   // Sets the read-only flag.
   // Note async subvolume is no longer possible.

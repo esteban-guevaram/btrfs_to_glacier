@@ -2,6 +2,7 @@ package volume_source
 
 import (
   "context"
+  "errors"
   "fmt"
   fpmod "path/filepath"
   "io/ioutil"
@@ -186,6 +187,23 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
   }
 }
 
+func TestGetChangesBetweenSnaps_ErrPropagation(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  btrfsutil.SendStream = mocks.NewErrorPipe()
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+
+  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
+  if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
+  select {
+    case changes := <-ch:
+      if !errors.Is(changes.Err, mocks.ErrIoPipe) {
+        t.Fatalf("GetChangesBetweenSnaps bad error propagation: %v", changes.Err)
+      }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
 func TestGetSnapshotStream(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
   expect_stream := []byte("somedata")
@@ -300,6 +318,23 @@ func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
   select {
     case sv_or_error := <-ch:
       if sv_or_error.Err == nil { t.Errorf("ReceiveSendStream expected error") }
+    case <-ctx.Done(): t.Fatalf("timedout")
+  }
+}
+
+func TestReceiveSendStream_ErrPropagation(t *testing.T) {
+  volmgr, _, _ := buildTestManager()
+  read_pipe := mocks.NewErrorPipe().ReadEnd()
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+
+  ch, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)
+  if err != nil { t.Logf("ReceiveSendStream: %v", err) }
+  select {
+    case sv_or_error := <-ch:
+      if !errors.Is(sv_or_error.Err, mocks.ErrIoPipe) {
+        t.Errorf("ReceiveSendStream bad error propagation: %v", sv_or_error.Err)
+      }
     case <-ctx.Done(): t.Fatalf("timedout")
   }
 }

@@ -3,7 +3,6 @@ package types
 import (
   "context"
   "errors"
-  "io"
   pb "btrfs_to_glacier/messages"
 )
 
@@ -61,7 +60,7 @@ type VolumeSource interface {
   CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, error)
   // Create a pipe with the data from the delta between `from` and `to` snapshots.
   // `from` can be nil to get the full snapshot content.
-  GetSnapshotStream(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (io.ReadCloser, error)
+  GetSnapshotStream(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (ReadEndIf, error)
 }
 
 type VolumeDestination interface {
@@ -70,7 +69,7 @@ type VolumeDestination interface {
   // Received subvolume will be mounted at `root_path/<basename_src_subvol>`.
   // As a safety check this method asserts that received uuid equals `rec_uuid`.
   // Takes ownership of `read_pipe` and will close it once done.
-  ReceiveSendStream(ctx context.Context, root_path string, rec_uuid string, read_pipe io.ReadCloser) (<-chan SubVolumeOrError, error)
+  ReceiveSendStream(ctx context.Context, root_path string, rec_uuid string, read_pipe ReadEndIf) (<-chan SubVolumeOrError, error)
 }
 
 type VolumeAdmin interface {

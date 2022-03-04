@@ -217,14 +217,14 @@ func TestBtrfsSendStreamAll(linuxutil types.Linuxutil, btrfsutil types.Btrfsutil
 // Requires CAP_SYS_ADMIN
 func TestBtrfsSendStream(btrfsutil types.Btrfsutil, snap_old string, snap_new string, no_data bool) {
   var err error
-  var read_end io.ReadCloser
+  var read_end types.ReadEndIf
   header := []byte("btrfs-stream\x00")
   ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
   defer cancel()
 
   done := make(chan []byte)
   read_end, err = btrfsutil.StartSendStream(ctx, snap_old, snap_new, no_data)
-  if err != nil { panic(fmt.Sprintf("failed btrfs send: %v", err)) }
+  if err != nil { util.Fatalf("failed btrfs send: %v", err) }
 
   go func() {
     defer read_end.Close()
@@ -246,12 +246,13 @@ func TestBtrfsSendStream(btrfsutil types.Btrfsutil, snap_old string, snap_new st
       }
     case <-ctx.Done(): panic("btrfs send timeout")
   }
+  if read_end.GetErr() != nil { util.Fatalf("Pipe contains error: %v", read_end.GetErr()) }
 }
 
 // Requires CAP_SYS_ADMIN
 func TestBtrfsSendAndReceiveStreamDump(btrfsutil types.Btrfsutil, snap_old string, snap_new string) {
   var err error
-  var read_end io.ReadCloser
+  var read_end types.ReadEndIf
   ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
   defer cancel()
 
@@ -277,5 +278,6 @@ func TestBtrfsSendAndReceiveStreamDump(btrfsutil types.Btrfsutil, snap_old strin
     case <-done:
     case <-ctx.Done(): panic("btrfs send timeout")
   }
+  if read_end.GetErr() != nil { util.Fatalf("Pipe contains error: %v", read_end.GetErr()) }
 }
 
