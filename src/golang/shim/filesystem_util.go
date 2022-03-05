@@ -2,6 +2,7 @@ package shim
 
 import (
   "context"
+  "errors"
   "fmt"
   "io/fs"
   fpmod "path/filepath"
@@ -18,6 +19,7 @@ const DEV_BLOCK = "/dev/block" //ex: 8:1 -> ../sda1
 const DEV_BY_PART = "/dev/disk/by-partuuid" //ex: YYYYYYYY-bc17-4e6f-9c1d-XXXXXXXXXXXX -> ../../sda3
 const DEV_BY_UUID = "/dev/disk/by-uuid" //ex: ZZZZ-WWWW -> ../../sda1
 const DEV_MAPPER = "/dev/mapper" //ex: mapper-group -> ../dm-0
+const SYS_BLOCK = "/sys/block" // Block devices are presented like a tree. ex sda -> (sda1, sda2)
 const SYS_FS_BTRFS = "/sys/fs/btrfs"
 const SYS_FS_FEATURE_DIR = "features"
 const SYS_FS_UUID = "metadata_uuid"
@@ -191,16 +193,30 @@ func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.De
     if !found { continue }
     dev.FsUuid = item.Name()
   }
+
+  items, err = self.SysUtil.ReadDir(SYS_BLOCK)
+  if err != nil { return nil, err }
+  for _,item := range items {
+    prop_dir := fpmod.Join(SYS_BLOCK, item.Name(), "loop")
+    if !self.SysUtil.IsDir(prop_dir) { continue }
+    backing_file, err := self.SysUtil.ReadAsciiFile(prop_dir, "backing_file", false)
+    if errors.Is(err, fs.ErrNotExist) { continue }
+    if err != nil { return nil, err }
+    dev, found := dev_list[item.Name()]
+    if found { dev.LoopFile = backing_file }
+
+    parts, err := self.SysUtil.ReadDir(fpmod.Join(SYS_BLOCK, item.Name()))
+    if err != nil { return nil, err }
+    for _,part := range parts {
+      dev, found := dev_list[part.Name()]
+      if found { dev.LoopFile = backing_file }
+    }
+  }
   return dev_list, nil
 }
 
-func (self *FilesystemUtil) ListBlockDevMounts() ([]*types.MountEntry, error) {
-  var filter_mnts []*types.MountEntry
-  mnt_list, err := self.parseProcMountInfoFile()
-  if err != nil { return nil, err }
-  dev_map, err := self.listBlockDevPartitionsOnHost()
-  if err != nil { return nil, err }
-
+func (self *FilesystemUtil) mergeDevicesToMounts(mnt_list []*types.MountEntry, dev_map map[string]*types.Device) []*types.MountEntry {
+  filter_mnts := make([]*types.MountEntry, 0, len(mnt_list))
   for _, mnt := range mnt_list {
     dev, found := dev_map[mnt.Device.Name]
     if !found {
@@ -213,6 +229,15 @@ func (self *FilesystemUtil) ListBlockDevMounts() ([]*types.MountEntry, error) {
     mnt.Device = dev
     filter_mnts = append(filter_mnts, mnt)
   }
+  return filter_mnts
+}
+
+func (self *FilesystemUtil) ListBlockDevMounts() ([]*types.MountEntry, error) {
+  mnt_list, err := self.parseProcMountInfoFile()
+  if err != nil { return nil, err }
+  dev_map, err := self.listBlockDevPartitionsOnHost()
+  if err != nil { return nil, err }
+  filter_mnts := self.mergeDevicesToMounts(mnt_list, dev_map)
   return filter_mnts, nil
 }
 
@@ -340,26 +365,20 @@ func (self *FilesystemUtil) matchMountEntriesToFilesystem(
 }
 
 // Looks at relevant info in /sys/fs/btrfs/<uuid>/devices
-func (self *FilesystemUtil) readSysFsBtrfsDir(path string) ([]*types.Device, error) {
+func (self *FilesystemUtil) readSysFsBtrfsDir(dev_map map[string]*types.Device, path string) ([]*types.Device, error) {
   var dev_list []*types.Device
   items, err := self.SysUtil.ReadDir(path)
   if err != nil { return nil, err }
 
   for _,item := range items {
-    dev := &types.Device{ Name:item.Name(), }
-    if item.IsDir() { return nil, fmt.Errorf("expecting only links under: '%s'", path) }
-    real_path, err := self.SysUtil.EvalSymlinks(fpmod.Join(path, item.Name()))
-    if err != nil { return nil, err }
-    majmin, err := self.SysUtil.ReadAsciiFile(real_path, SYS_FS_DEVICE_FILE, false)
-    if err != nil { return nil, err }
-    dev.Major, dev.Minor, err = majminFromString(majmin)
-    if err != nil { return nil, err }
+    dev, found := dev_map[item.Name()]
+    if !found { util.Fatalf("Device '%s' referenced by '%s' not found", item.Name(), path) }
     dev_list = append(dev_list, dev)
   }
   return dev_list, nil
 }
 
-func (self *FilesystemUtil) btrfsFilesystemsFromSysFs() ([]*types.Filesystem, error) {
+func (self *FilesystemUtil) btrfsFilesystemsFromSysFs(dev_map map[string]*types.Device) ([]*types.Filesystem, error) {
   var fs_list []*types.Filesystem
   items, err := self.SysUtil.ReadDir(SYS_FS_BTRFS)
   if err != nil { return nil, err }
@@ -384,7 +403,7 @@ func (self *FilesystemUtil) btrfsFilesystemsFromSysFs() ([]*types.Filesystem, er
           if len(label) < 1 { return nil, fmt.Errorf("expect fs to have a non empty label") }
           fs_item.Label = label
         case SYS_FS_DEVICE_DIR:
-          devs, err := self.readSysFsBtrfsDir(fpmod.Join(dir_path, name))
+          devs, err := self.readSysFsBtrfsDir(dev_map, fpmod.Join(dir_path, name))
           if err != nil { return nil, err }
           fs_item.Devices = devs
       }
@@ -403,10 +422,15 @@ func (self *FilesystemUtil) ListBtrfsFilesystems() ([]*types.Filesystem, error) 
   if err != nil { return nil, err }
   mnt_list, err = self.validateAndKeepOnlyBtrfsEntries(mnt_list)
   if err != nil { return nil, err }
+
+  dev_map, err := self.listBlockDevPartitionsOnHost()
+  if err != nil { return nil, err }
+  mnt_list = self.mergeDevicesToMounts(mnt_list, dev_map)
+
   mnt_list, err = self.collapseBtrfsBindMounts(mnt_list)
   if err != nil { return nil, err }
 
-  fs_list, err := self.btrfsFilesystemsFromSysFs()
+  fs_list, err := self.btrfsFilesystemsFromSysFs(dev_map)
   if err != nil { return nil, err }
   err = self.matchMountEntriesToFilesystem(mnt_list, fs_list)
   if err != nil { return nil, err }

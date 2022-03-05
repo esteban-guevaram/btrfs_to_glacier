@@ -16,6 +16,7 @@ import (
 type SysUtilIf interface {
   ReadAsciiFile(string, string, bool) (string, error)
   ReadDir(string) ([]os.DirEntry, error)
+  IsDir(string) bool
   EvalSymlinks(string) (string, error)
   CombinedOutput(*exec.Cmd) ([]byte, error)
 }
@@ -43,6 +44,10 @@ func (self *SysUtilImpl) ReadAsciiFile(
   err = util.IsOnlyAsciiString(str, allow_ctrl)
   if err != nil { err = fmt.Errorf("file:'%s', err:%v", fpath, err) }
   return str, err
+}
+
+func (self *SysUtilImpl) IsDir(p string) bool {
+  return util.IsDir(p)
 }
 
 type DirEntry struct {
@@ -78,6 +83,11 @@ func (self *SysUtilMock) ReadDir(dir string) ([]os.DirEntry, error) {
   return nil, fmt.Errorf("%w ReadDir '%s'", fs.ErrNotExist, dir)
 }
 
+func (self *SysUtilMock) IsDir(dir string) bool {
+  _,found := self.DirContent[dir]
+  return found
+}
+
 func (self *SysUtilMock) EvalSymlinks(path string) (string, error) {
   if content,found := self.LinkTarget[path]; found {
     return content, self.Err
@@ -108,6 +118,9 @@ func (self *SysUtilMock) AddMount(fs_uuid string, dev string, target string) {
     &DirEntry{ Leaf:min_maj, Mode:fs.ModeSymlink, })
   self.LinkTarget["/dev/block/"+min_maj] = "/dev/"+dev
 
+  if _,found := self.DirContent["/sys/block"]; !found {
+    self.DirContent["/sys/block"] = []os.DirEntry{}
+  }
   if _,found := self.DirContent["/dev/mapper"]; !found {
     self.DirContent["/dev/mapper"] = []os.DirEntry{}
   }

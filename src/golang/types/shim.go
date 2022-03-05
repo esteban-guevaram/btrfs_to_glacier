@@ -22,8 +22,9 @@ type Device struct {
   Name string
   MapperGroup string // if device belongs to a virtual block device
   Minor, Major int // Unreliable when taken from /proc/self/mountinfo
-  FsUuid string  // Optional
-  GptUuid string // Optional
+  FsUuid string   // Optional
+  GptUuid string  // Optional
+  LoopFile string // Optional
 }
 type Filesystem struct {
   Uuid string

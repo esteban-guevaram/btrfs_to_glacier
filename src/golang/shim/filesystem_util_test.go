@@ -141,6 +141,19 @@ func TestListMounts(t *testing.T) {
   }
   fs_reader.LinkTarget["/dev/mapper/mapper-group"] = "/dev/dm-0"
 
+  fs_reader.DirContent["/sys/block"] = []os.DirEntry{
+    &DirEntry{ Leaf:"sda", Mode:fs.ModeSymlink, },
+    &DirEntry{ Leaf:"loop111", Mode:fs.ModeSymlink, },
+  }
+  fs_reader.DirContent["/sys/block/loop111"] = []os.DirEntry{
+    &DirEntry{ Leaf:"loop111p1", Mode:fs.ModeDir, },
+    &DirEntry{ Leaf:"loop111p2", Mode:fs.ModeDir, },
+  }
+  fs_reader.DirContent["/sys/block/loop111/loop"] = []os.DirEntry{
+    &DirEntry{ Leaf:"backing_file", Mode:0, },
+  }
+  fs_reader.FileContent["/sys/block/loop111/loop/backing_file"] = "/tmp/loopfile"
+
   expected := `[
   {
     "Id": 61,
@@ -150,7 +163,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 3,
       "Major": 259,
       "FsUuid": "fs-uuid-nvme0n1p1",
-      "GptUuid": "gpt-uuid-nvme0n1p1"
+      "GptUuid": "gpt-uuid-nvme0n1p1",
+      "LoopFile": ""
     },
     "TreePath": "",
     "MountedPath": "/",
@@ -169,7 +183,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 0,
       "Major": 254,
       "FsUuid": "fs-uuid-dm-0",
-      "GptUuid": ""
+      "GptUuid": "",
+      "LoopFile": ""
     },
     "TreePath": "",
     "MountedPath": "/media/some_fs_a",
@@ -188,7 +203,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 0,
       "Major": 254,
       "FsUuid": "fs-uuid-dm-0",
-      "GptUuid": ""
+      "GptUuid": "",
+      "LoopFile": ""
     },
     "TreePath": "Bind_dm-0",
     "MountedPath": "/home/host_user/Bind_dm-0",
@@ -207,7 +223,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 3,
       "Major": 8,
       "FsUuid": "fs-uuid-sda3",
-      "GptUuid": "gpt-uuid-sda3"
+      "GptUuid": "gpt-uuid-sda3",
+      "LoopFile": ""
     },
     "TreePath": "",
     "MountedPath": "/media/some_fs_b",
@@ -226,7 +243,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 4,
       "Major": 8,
       "FsUuid": "fs-uuid-sda4",
-      "GptUuid": "gpt-uuid-sda4"
+      "GptUuid": "gpt-uuid-sda4",
+      "LoopFile": ""
     },
     "TreePath": "",
     "MountedPath": "/media/some_fs_c",
@@ -245,7 +263,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 3,
       "Major": 8,
       "FsUuid": "fs-uuid-sda3",
-      "GptUuid": "gpt-uuid-sda3"
+      "GptUuid": "gpt-uuid-sda3",
+      "LoopFile": ""
     },
     "TreePath": "Bind_sda3",
     "MountedPath": "/home/host_user/Bind_sda3",
@@ -264,7 +283,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 4,
       "Major": 8,
       "FsUuid": "fs-uuid-sda4",
-      "GptUuid": "gpt-uuid-sda4"
+      "GptUuid": "gpt-uuid-sda4",
+      "LoopFile": ""
     },
     "TreePath": "Bind_sda4",
     "MountedPath": "/home/host_user/Bind_sda4",
@@ -283,7 +303,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 7,
       "Major": 259,
       "FsUuid": "fs-uuid-loop111p1",
-      "GptUuid": "gpt-uuid-loop111p1"
+      "GptUuid": "gpt-uuid-loop111p1",
+      "LoopFile": "/tmp/loopfile"
     },
     "TreePath": "",
     "MountedPath": "/tmp/btrfs_mnt_1",
@@ -302,7 +323,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 8,
       "Major": 259,
       "FsUuid": "fs-uuid-loop111p2",
-      "GptUuid": "gpt-uuid-loop111p2"
+      "GptUuid": "gpt-uuid-loop111p2",
+      "LoopFile": "/tmp/loopfile"
     },
     "TreePath": "",
     "MountedPath": "/tmp/btrfs_mnt_2",
@@ -321,7 +343,8 @@ func TestListMounts(t *testing.T) {
       "Minor": 7,
       "Major": 259,
       "FsUuid": "fs-uuid-loop111p1",
-      "GptUuid": "gpt-uuid-loop111p1"
+      "GptUuid": "gpt-uuid-loop111p1",
+      "LoopFile": "/tmp/loopfile"
     },
     "TreePath": "asubvol",
     "MountedPath": "/tmp/btrfs_mnt_3/asubvol",

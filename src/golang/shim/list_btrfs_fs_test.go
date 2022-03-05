@@ -46,6 +46,32 @@ func (self *SysUtilMock_ForBtrfs) ReadAsciiFile(
 
 func (self *SysUtilMock_ForBtrfs) ReadDir(dir string) ([]os.DirEntry, error) {
   switch dir {
+    case DEV_BLOCK:
+      return []fs.DirEntry{
+        &DirEntry{ Leaf:"259:0", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"259:1", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"259:2", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"260:0", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"260:1", Mode:fs.ModeSymlink, },
+      }, nil
+    case DEV_BY_PART:
+      return []fs.DirEntry{
+        &DirEntry{ Leaf:"gpt-uuid-sdb2", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"gpt-uuid-sdb3", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"gpt-uuid-sdc1", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"gpt-uuid-loop111p1", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"gpt-uuid-loop111p2", Mode:fs.ModeSymlink, },
+      }, nil
+    case DEV_BY_UUID:
+      return []fs.DirEntry{
+        &DirEntry{ Leaf:"fs-uuid-sdb2", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"fs-uuid-sdb3", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"fs-uuid-sdc1", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"fs-uuid-loop111p1", Mode:fs.ModeSymlink, },
+        &DirEntry{ Leaf:"fs-uuid-loop111p2", Mode:fs.ModeSymlink, },
+      }, nil
+    case DEV_MAPPER:
+      return []fs.DirEntry{}, nil
     case SYS_FS_BTRFS:
       return []fs.DirEntry{
         &DirEntry{ Leaf:"fs1_uuid", Mode:fs.ModeDir, },
@@ -60,9 +86,11 @@ func (self *SysUtilMock_ForBtrfs) ReadDir(dir string) ([]os.DirEntry, error) {
         &DirEntry{ Leaf:SYS_FS_LABEL },
         &DirEntry{ Leaf:SYS_FS_DEVICE_DIR, Mode:fs.ModeDir, },
       }, nil
+    case SYS_BLOCK:
+      return []fs.DirEntry{}, nil
     case fpmod.Join(SYS_FS_BTRFS, "fs1_uuid", SYS_FS_DEVICE_DIR):
       return []fs.DirEntry{
-        &DirEntry{ Leaf:"sda1", Mode:fs.ModeSymlink },
+        &DirEntry{ Leaf:"sdb2", Mode:fs.ModeSymlink },
         &DirEntry{ Leaf:"sdc1", Mode:fs.ModeSymlink },
       }, nil
     case fpmod.Join(SYS_FS_BTRFS, "fs2_uuid", SYS_FS_DEVICE_DIR):
@@ -70,11 +98,32 @@ func (self *SysUtilMock_ForBtrfs) ReadDir(dir string) ([]os.DirEntry, error) {
     case fpmod.Join(SYS_FS_BTRFS, "fs3_uuid", SYS_FS_DEVICE_DIR):
       return []fs.DirEntry{ &DirEntry{ Leaf:"loop111p2", Mode:fs.ModeSymlink }, }, nil
   }
-  return nil, fmt.Errorf("'%s' not found in mock", dir)
+  return nil, fmt.Errorf("ReadDir '%s' not found in mock", dir)
 }
 
 func (self *SysUtilMock_ForBtrfs) EvalSymlinks(path string) (string, error) {
-  return path, nil
+  switch path {
+    case "/dev/disk/by-partuuid/gpt-uuid-sdb2": return "/dev/sdb2", nil
+    case "/dev/disk/by-partuuid/gpt-uuid-sdb3": return "/dev/sdb3", nil
+    case "/dev/disk/by-partuuid/gpt-uuid-sdc1": return "/dev/sdc1", nil
+    case "/dev/disk/by-partuuid/gpt-uuid-loop111p1": return "/dev/loop111p1", nil
+    case "/dev/disk/by-partuuid/gpt-uuid-loop111p2": return "/dev/loop111p2", nil
+
+    case "/dev/disk/by-uuid/fs-uuid-sdb2": return "/dev/sdb2", nil
+    case "/dev/disk/by-uuid/fs-uuid-sdb3": return "/dev/sdb3", nil
+    case "/dev/disk/by-uuid/fs-uuid-sdc1": return "/dev/sdc1", nil
+    case "/dev/disk/by-uuid/fs-uuid-loop111p1": return "/dev/loop111p1", nil
+    case "/dev/disk/by-uuid/fs-uuid-loop111p2": return "/dev/loop111p2", nil
+
+    case "/dev/block/259:0": return "/dev/sdb2", nil
+    case "/dev/block/259:1": return "/dev/sdb3", nil
+    case "/dev/block/259:2": return "/dev/sdc1", nil
+    case "/dev/block/260:0": return "/dev/loop111p1", nil
+    case "/dev/block/260:1": return "/dev/loop111p2", nil
+    default:
+      if strings.HasPrefix(path, SYS_FS_BTRFS) { return fpmod.Join("/dev", fpmod.Base(path)), nil }
+  }
+  return "", fmt.Errorf("EvalSymlinks '%s' not found in mock", path)
 }
 
 func TestListBtrfsFilesystems(t *testing.T) {
@@ -88,20 +137,22 @@ func TestListBtrfsFilesystems(t *testing.T) {
     "Label": "/sys/fs/btrfs/fs1_uuid_label",
     "Devices": [
       {
-        "Name": "sda1",
+        "Name": "sdb2",
         "MapperGroup": "",
-        "Minor": 35,
-        "Major": 35,
-        "FsUuid": "",
-        "GptUuid": ""
+        "Minor": 0,
+        "Major": 259,
+        "FsUuid": "fs-uuid-sdb2",
+        "GptUuid": "gpt-uuid-sdb2",
+        "LoopFile": ""
       },
       {
         "Name": "sdc1",
         "MapperGroup": "",
-        "Minor": 35,
-        "Major": 35,
-        "FsUuid": "",
-        "GptUuid": ""
+        "Minor": 2,
+        "Major": 259,
+        "FsUuid": "fs-uuid-sdc1",
+        "GptUuid": "gpt-uuid-sdc1",
+        "LoopFile": ""
       }
     ],
     "Mounts": [
@@ -110,10 +161,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Device": {
           "Name": "sdc1",
           "MapperGroup": "",
-          "Minor": 38,
-          "Major": 0,
-          "FsUuid": "",
-          "GptUuid": ""
+          "Minor": 2,
+          "Major": 259,
+          "FsUuid": "fs-uuid-sdc1",
+          "GptUuid": "gpt-uuid-sdc1",
+          "LoopFile": ""
         },
         "TreePath": "Lucian_PrioA",
         "MountedPath": "/media/Lucian_PrioA",
@@ -130,10 +182,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
             "Device": {
               "Name": "sdc1",
               "MapperGroup": "",
-              "Minor": 38,
-              "Major": 0,
-              "FsUuid": "",
-              "GptUuid": ""
+              "Minor": 2,
+              "Major": 259,
+              "FsUuid": "fs-uuid-sdc1",
+              "GptUuid": "gpt-uuid-sdc1",
+              "LoopFile": ""
             },
             "TreePath": "Lucian_PrioA/Images",
             "MountedPath": "/home/cguevara/Images",
@@ -150,10 +203,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
             "Device": {
               "Name": "sdc1",
               "MapperGroup": "",
-              "Minor": 38,
-              "Major": 0,
-              "FsUuid": "",
-              "GptUuid": ""
+              "Minor": 2,
+              "Major": 259,
+              "FsUuid": "fs-uuid-sdc1",
+              "GptUuid": "gpt-uuid-sdc1",
+              "LoopFile": ""
             },
             "TreePath": "Lucian_PrioA/MyProj",
             "MountedPath": "/home/cguevara/Progr",
@@ -173,10 +227,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Device": {
           "Name": "sdc1",
           "MapperGroup": "",
-          "Minor": 38,
-          "Major": 0,
-          "FsUuid": "",
-          "GptUuid": ""
+          "Minor": 2,
+          "Major": 259,
+          "FsUuid": "fs-uuid-sdc1",
+          "GptUuid": "gpt-uuid-sdc1",
+          "LoopFile": ""
         },
         "TreePath": "Lucian_PrioB",
         "MountedPath": "/media/Lucian_PrioB",
@@ -193,10 +248,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Device": {
           "Name": "sdc1",
           "MapperGroup": "",
-          "Minor": 38,
-          "Major": 0,
-          "FsUuid": "",
-          "GptUuid": ""
+          "Minor": 2,
+          "Major": 259,
+          "FsUuid": "fs-uuid-sdc1",
+          "GptUuid": "gpt-uuid-sdc1",
+          "LoopFile": ""
         },
         "TreePath": "Lucian_PrioC",
         "MountedPath": "/media/Lucian_PrioC",
@@ -212,10 +268,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
             "Device": {
               "Name": "sdc1",
               "MapperGroup": "",
-              "Minor": 38,
-              "Major": 0,
-              "FsUuid": "",
-              "GptUuid": ""
+              "Minor": 2,
+              "Major": 259,
+              "FsUuid": "fs-uuid-sdc1",
+              "GptUuid": "gpt-uuid-sdc1",
+              "LoopFile": ""
             },
             "TreePath": "Lucian_PrioC/Music",
             "MountedPath": "/home/cguevara/Music",
@@ -232,10 +289,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
             "Device": {
               "Name": "sdc1",
               "MapperGroup": "",
-              "Minor": 38,
-              "Major": 0,
-              "FsUuid": "",
-              "GptUuid": ""
+              "Minor": 2,
+              "Major": 259,
+              "FsUuid": "fs-uuid-sdc1",
+              "GptUuid": "gpt-uuid-sdc1",
+              "LoopFile": ""
             },
             "TreePath": "Lucian_PrioC/Video",
             "MountedPath": "/home/cguevara/Videos",
@@ -254,10 +312,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Device": {
           "Name": "sdc1",
           "MapperGroup": "",
-          "Minor": 38,
-          "Major": 0,
-          "FsUuid": "",
-          "GptUuid": ""
+          "Minor": 2,
+          "Major": 259,
+          "FsUuid": "fs-uuid-sdc1",
+          "GptUuid": "gpt-uuid-sdc1",
+          "LoopFile": ""
         },
         "TreePath": "BifrostSnap",
         "MountedPath": "/media/BifrostSnap",
@@ -279,10 +338,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
       {
         "Name": "loop111p1",
         "MapperGroup": "",
-        "Minor": 40,
-        "Major": 40,
-        "FsUuid": "",
-        "GptUuid": ""
+        "Minor": 0,
+        "Major": 260,
+        "FsUuid": "fs-uuid-loop111p1",
+        "GptUuid": "gpt-uuid-loop111p1",
+        "LoopFile": ""
       }
     ],
     "Mounts": [
@@ -291,10 +351,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Device": {
           "Name": "loop111p1",
           "MapperGroup": "",
-          "Minor": 43,
-          "Major": 0,
-          "FsUuid": "",
-          "GptUuid": ""
+          "Minor": 0,
+          "Major": 260,
+          "FsUuid": "fs-uuid-loop111p1",
+          "GptUuid": "gpt-uuid-loop111p1",
+          "LoopFile": ""
         },
         "TreePath": "",
         "MountedPath": "/tmp/other_fs_src",
@@ -312,10 +373,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Device": {
           "Name": "loop111p1",
           "MapperGroup": "",
-          "Minor": 43,
-          "Major": 0,
-          "FsUuid": "",
-          "GptUuid": ""
+          "Minor": 0,
+          "Major": 260,
+          "FsUuid": "fs-uuid-loop111p1",
+          "GptUuid": "gpt-uuid-loop111p1",
+          "LoopFile": ""
         },
         "TreePath": "asubvol",
         "MountedPath": "/tmp/asubvol_mnt",
@@ -332,10 +394,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Device": {
           "Name": "loop111p1",
           "MapperGroup": "",
-          "Minor": 43,
-          "Major": 0,
-          "FsUuid": "",
-          "GptUuid": ""
+          "Minor": 0,
+          "Major": 260,
+          "FsUuid": "fs-uuid-loop111p1",
+          "GptUuid": "gpt-uuid-loop111p1",
+          "LoopFile": ""
         },
         "TreePath": "snaps/asubvol.snap",
         "MountedPath": "/tmp/with spaces",
@@ -356,10 +419,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
       {
         "Name": "loop111p2",
         "MapperGroup": "",
-        "Minor": 40,
-        "Major": 40,
-        "FsUuid": "",
-        "GptUuid": ""
+        "Minor": 1,
+        "Major": 260,
+        "FsUuid": "fs-uuid-loop111p2",
+        "GptUuid": "gpt-uuid-loop111p2",
+        "LoopFile": ""
       }
     ],
     "Mounts": [
@@ -368,10 +432,11 @@ func TestListBtrfsFilesystems(t *testing.T) {
         "Device": {
           "Name": "loop111p2",
           "MapperGroup": "",
-          "Minor": 46,
-          "Major": 0,
-          "FsUuid": "",
-          "GptUuid": ""
+          "Minor": 1,
+          "Major": 260,
+          "FsUuid": "fs-uuid-loop111p2",
+          "GptUuid": "gpt-uuid-loop111p2",
+          "LoopFile": ""
         },
         "TreePath": "",
         "MountedPath": "/tmp/other_fs_dst",
