@@ -59,6 +59,25 @@ func (self *Linuxutil) UMount(ctx context.Context, fs_uuid string) error {
 func (self *Linuxutil) ListBlockDevMounts() ([]*types.MountEntry, error) {
   return self.Mounts, self.Err
 }
+func (self *Linuxutil) CreateLoopDevice(
+    ctx context.Context, size_mb uint64) (*types.Device, error) {
+  return &types.Device{
+    Name: "loop1",
+    Minor: 0, Major: 213,
+    GptUuid: uuid.NewString(),
+    LoopFile: uuid.NewString(),
+  }, self.Err
+}
+func (self *Linuxutil) DeleteLoopDevice(context.Context, *types.Device) error { return self.Err }
+func (self *Linuxutil) CreateBtrfsFilesystem(
+    ctx context.Context, dev *types.Device, label string, opts ...string) (*types.Filesystem, error) {
+  return &types.Filesystem{
+    Uuid: uuid.NewString(),
+    Label: uuid.NewString(),
+    Devices: []*types.Device{ dev },
+  }, self.Err
+}
+
 
 type Btrfsutil struct {
   Err        error

@@ -12,6 +12,7 @@ import (
   "os/exec"
   fpmod "path/filepath"
   "reflect"
+  "strings"
   "sync"
   "unicode"
   "unicode/utf8"
@@ -268,6 +269,16 @@ func IsOnlyAsciiString(str string, allow_ctrl bool) error {
     }
   }
   return nil
+}
+
+// Removes problematic characters for shell arguments.
+func SanitizeShellInput(in []byte) string {
+  sanitized := bytes.Map(func(b rune) rune {
+    if b > unicode.MaxASCII || unicode.IsControl(b) { return -1 }
+    if strings.ContainsRune(";&$`(){}<>", b) { return -1 }
+    return b
+  }, in)
+  return string(sanitized)
 }
 
 func IsDir(path string) bool {

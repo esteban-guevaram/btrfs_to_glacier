@@ -6,13 +6,17 @@ import (
   "fmt"
   "io/fs"
   fpmod "path/filepath"
+  "os"
   "os/exec"
   "regexp"
   "strconv"
   "strings"
+  "time"
 
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+
+  "github.com/google/uuid"
 )
 
 const DEV_BLOCK = "/dev/block" //ex: 8:1 -> ../sda1
@@ -147,7 +151,12 @@ func (self *FilesystemUtil) nameOfTarget(path string, link string) (string, erro
   return fpmod.Base(real_path), err
 }
 
-func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.Device, error) {
+func (self *FilesystemUtil) ListBlockDevicesOnHost() (map[string]*types.Device, error) {
+  return self.listBlockDevicesMatching(nil)
+}
+
+func (self *FilesystemUtil) listBlockDevicesMatching(
+    include_rx *regexp.Regexp) (map[string]*types.Device, error) {
   dev_list := make(map[string]*types.Device)
 
   items, err := self.SysUtil.ReadDir(DEV_BLOCK)
@@ -155,6 +164,7 @@ func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.De
   for _,item := range items {
     if item.Type() & fs.ModeSymlink == 0 { continue }
     name, err := self.nameOfTarget(DEV_BLOCK, item.Name())
+    if include_rx != nil && !include_rx.MatchString(name) { continue }
     if err != nil { return nil, err }
     maj, min, err := majminFromString(item.Name())
     if err != nil { return nil, err }
@@ -186,9 +196,11 @@ func (self *FilesystemUtil) listBlockDevPartitionsOnHost() (map[string]*types.De
   items, err = self.SysUtil.ReadDir(DEV_BY_UUID)
   if err != nil { return nil, err }
   for _,item := range items {
+    //util.Debugf("%s/%s", DEV_BY_UUID, item.Name())
     if item.Type() & fs.ModeSymlink == 0 { continue }
     name, err := self.nameOfTarget(DEV_BY_UUID, item.Name())
     if err != nil { return nil, err }
+    //util.Debugf("link: %s", name)
     dev, found := dev_list[name]
     if !found { continue }
     dev.FsUuid = item.Name()
@@ -235,28 +247,49 @@ func (self *FilesystemUtil) mergeDevicesToMounts(mnt_list []*types.MountEntry, d
 func (self *FilesystemUtil) ListBlockDevMounts() ([]*types.MountEntry, error) {
   mnt_list, err := self.parseProcMountInfoFile()
   if err != nil { return nil, err }
-  dev_map, err := self.listBlockDevPartitionsOnHost()
+  dev_map, err := self.ListBlockDevicesOnHost()
   if err != nil { return nil, err }
   filter_mnts := self.mergeDevicesToMounts(mnt_list, dev_map)
   return filter_mnts, nil
 }
 
-func (self *FilesystemUtil) Mount(
+func (self *FilesystemUtil) IsMounted(
     ctx context.Context, fs_uuid string, target string) (*types.MountEntry, error) {
-  cmd := exec.CommandContext(ctx, "mount", fmt.Sprintf("UUID=%s", fs_uuid))
-  util.Debugf("Running: %s", cmd.String())
-  _, err_mnt := self.SysUtil.CombinedOutput(cmd)
-
   mnt_list, err := self.ListBlockDevMounts()
   if err != nil { return nil, err }
-
   for _,mnt := range mnt_list {
     if mnt.Device.FsUuid != fs_uuid || mnt.MountedPath != target { continue }
     return mnt, nil
   }
-  fstab_msg := fmt.Sprintf("You may need to configure /etc/fstab, example:\nUUID=%s %s auto noauto,user,noatime,nodiratime,noexec 0 2",
-                           fs_uuid, target)
-  return nil, fmt.Errorf("failed to mount: %w\n%s", err_mnt, fstab_msg)
+  return nil, nil
+}
+
+func (self *FilesystemUtil) Mount(
+    ctx context.Context, fs_uuid string, target string) (*types.MountEntry, error) {
+  if mnt, err := self.IsMounted(ctx, fs_uuid, target); err != nil || mnt != nil {
+    return mnt, err
+  }
+
+  cmd := exec.CommandContext(ctx, "mount", fmt.Sprintf("UUID=%s", fs_uuid))
+  _, err_mnt := self.SysUtil.CombinedOutput(cmd)
+  // In case the filesystem is not in /etc/fstab add the target explicitely
+  if err_mnt != nil {
+    cmd := exec.CommandContext(ctx, "mount", fmt.Sprintf("UUID=%s", fs_uuid), target)
+    _, err_mnt = self.SysUtil.CombinedOutput(cmd)
+  }
+  if err_mnt != nil {
+    fstab_msg := fmt.Sprintf("You may need to configure /etc/fstab, example:\nUUID=%s %s auto noauto,user,noatime,nodiratime,noexec 0 2",
+                             fs_uuid, target)
+    return nil, fmt.Errorf("failed to mount: %w\n%s", err_mnt, fstab_msg)
+  }
+
+  for range make([]int, 50) {
+    if mnt, err := self.IsMounted(ctx, fs_uuid, target); err != nil || mnt != nil {
+      return mnt, err
+    }
+    time.Sleep(util.MedTimeout)
+  }
+  return nil, fmt.Errorf("timeout while waiting for mount to be visible '%s'", fs_uuid)
 }
 
 func (self *FilesystemUtil) UMount(ctx context.Context, fs_uuid string) error {
@@ -272,6 +305,46 @@ func (self *FilesystemUtil) UMount(ctx context.Context, fs_uuid string) error {
     return fmt.Errorf("%s is still mounted at %s: %w", fs_uuid, mnt.MountedPath, err_mnt)
   }
   return nil
+}
+
+func (self *FilesystemUtil) CreateLoopDevice(
+    ctx context.Context, size_mb uint64) (*types.Device, error) {
+  backing_file := fpmod.Join(os.TempDir(), uuid.NewString())
+  cmd := exec.CommandContext(ctx, "dd", "if=/dev/zero", "count=1",
+                             fmt.Sprintf("of=%s", backing_file), fmt.Sprintf("bs=%dM", size_mb))
+  if _, err := self.SysUtil.CombinedOutput(cmd); err != nil { return nil, err }
+  bail_out := func(err error) (*types.Device, error) { self.SysUtil.Remove(backing_file); return nil, err }
+
+  cmd = exec.CommandContext(ctx, "losetup", "-f")
+  stdout, err := self.SysUtil.CombinedOutput(cmd)
+  if err != nil { return bail_out(err) }
+  devpath := strings.TrimSpace(util.SanitizeShellInput(stdout))
+  devname := fpmod.Base(devpath)
+
+  cmd = exec.CommandContext(ctx, "losetup", devpath, backing_file)
+  if _, err := self.SysUtil.CombinedOutput(cmd); err != nil { return bail_out(err) }
+
+  dev_filter := regexp.MustCompile(fmt.Sprintf("^%s$", devname))
+  for range make([]int, 50) {
+    dev_map, err := self.listBlockDevicesMatching(dev_filter)
+    if err != nil { return bail_out(err) }
+    dev, found := dev_map[devname]
+    if found {
+      util.Infof("New loop device: %v", dev.Name)
+      return dev, nil
+    }
+    time.Sleep(util.MedTimeout)
+  }
+  return bail_out(fmt.Errorf("could not find loopdev: %s", devname))
+}
+
+func (self *FilesystemUtil) DeleteLoopDevice(ctx context.Context, dev *types.Device) error {
+  util.Infof("Deleting device: %v", dev.Name)
+  devpath := fpmod.Join("/dev", dev.Name)
+  cmd := exec.CommandContext(ctx, "losetup", "-d", devpath)
+  if _, err := self.SysUtil.CombinedOutput(cmd); err != nil { return err }
+  err := self.SysUtil.Remove(dev.LoopFile)
+  return err
 }
 
 ///////////////// BTRFS ///////////////////////////////////////////////////////
@@ -379,12 +452,19 @@ func (self *FilesystemUtil) readSysFsBtrfsDir(dev_map map[string]*types.Device, 
 }
 
 func (self *FilesystemUtil) btrfsFilesystemsFromSysFs(dev_map map[string]*types.Device) ([]*types.Filesystem, error) {
+  return self.btrfsFilesystemsMatching(nil, dev_map)
+}
+
+// SYS_FS_BTRFS will only show filesystems that have been mounted.
+func (self *FilesystemUtil) btrfsFilesystemsMatching(
+    include_rx *regexp.Regexp, dev_map map[string]*types.Device) ([]*types.Filesystem, error) {
   var fs_list []*types.Filesystem
   items, err := self.SysUtil.ReadDir(SYS_FS_BTRFS)
   if err != nil { return nil, err }
 
   for _,item := range items {
     if !item.IsDir() { continue }
+    if include_rx != nil && !include_rx.MatchString(item.Name()) { continue }
     if item.Name() == SYS_FS_FEATURE_DIR { continue }
     fs_item := &types.Filesystem{ Uuid: item.Name(), }
     dir_path := fpmod.Join(SYS_FS_BTRFS, fs_item.Uuid)
@@ -417,13 +497,41 @@ func (self *FilesystemUtil) btrfsFilesystemsFromSysFs(dev_map map[string]*types.
   return fs_list, nil
 }
 
+func (self *FilesystemUtil) CreateBtrfsFilesystem(
+    ctx context.Context, dev *types.Device, label string, opts ...string) (*types.Filesystem, error) {
+  fs_uuid := uuid.NewString()
+  all_opts := []string{ "--uuid", fs_uuid, "--label", label, }
+  all_opts = append(all_opts, opts...)
+  all_opts = append(all_opts, fpmod.Join("/dev", dev.Name))
+  cmd := exec.CommandContext(ctx, "mkfs.btrfs", all_opts...)
+  if _, err := self.SysUtil.CombinedOutput(cmd); err != nil { return nil, err }
+
+  dev_rx := regexp.MustCompile(fmt.Sprintf("^%s$", dev.Name))
+  for range make([]int, 50) {
+    devs, err := self.listBlockDevicesMatching(dev_rx)
+    if err != nil { return nil, err }
+    for _,d := range devs {
+      if d.FsUuid != fs_uuid { continue }
+      util.Infof("New btrfs filesystem: %v", fs_uuid)
+      fs := &types.Filesystem{
+        Uuid: fs_uuid,
+        Label: label,
+        Devices: []*types.Device{ d, },
+      }
+      return fs, nil
+    }
+    time.Sleep(util.MedTimeout)
+  }
+  return nil, fmt.Errorf("Timedout waiting for '%s'", fs_uuid)
+}
+
 func (self *FilesystemUtil) ListBtrfsFilesystems() ([]*types.Filesystem, error) {
   mnt_list, err := self.parseProcMountInfoFile()
   if err != nil { return nil, err }
   mnt_list, err = self.validateAndKeepOnlyBtrfsEntries(mnt_list)
   if err != nil { return nil, err }
 
-  dev_map, err := self.listBlockDevPartitionsOnHost()
+  dev_map, err := self.ListBlockDevicesOnHost()
   if err != nil { return nil, err }
   mnt_list = self.mergeDevicesToMounts(mnt_list, dev_map)
 

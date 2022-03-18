@@ -54,6 +54,7 @@ type Linuxutil interface {
 
   // Mounts the device and checks it got mounted at desired path.
   // If device is already mounted at target, this is a noop.
+  // This method should only return once the mount is fully visible.
   // The device needs to be mountable by the user in /etc/fstab.
   // CAP_SYS_ADMIN will not be acquired.
   Mount(context.Context, string, string) (*MountEntry, error)
@@ -68,6 +69,14 @@ type Linuxutil interface {
   // Bind mounts to the same subvolume are deduplicated.
   // For each filesystem list all the mounts it owns.
   ListBtrfsFilesystems() ([]*Filesystem, error)
+  // Creates a file of the size specified in Mb and a loop device backed by it.
+  // This method should only return once the device is visible.
+  CreateLoopDevice(context.Context, uint64) (*Device, error)
+  // Deletes loop device and backing file.
+  DeleteLoopDevice(context.Context, *Device) error
+  // Creates a btrfs filesystem on the device.
+  // This method should only return once the filesystem is visible.
+  CreateBtrfsFilesystem(context.Context, *Device, string, ...string) (*Filesystem, error)
 }
 
 type Btrfsutil interface {

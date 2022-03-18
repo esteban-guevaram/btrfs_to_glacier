@@ -4,8 +4,12 @@ import (
   "context"
   "io/fs"
   "os"
+  "os/exec"
+  "regexp"
+  "strings"
   "testing"
 
+  "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
 )
 
@@ -14,6 +18,8 @@ func buildFilesystemUtil(t *testing.T) (*FilesystemUtil, *SysUtilMock) {
     FileContent: make(map[string]string),
     DirContent: make(map[string][]os.DirEntry),
     LinkTarget: make(map[string]string),
+    CmdOutput:  make(map[string]string),
+    Removed:    make(map[string]bool),
   }
   lu := &FilesystemUtil{ SysUtil:sys_util, }
   return lu, sys_util
@@ -98,12 +104,6 @@ func TestListMounts(t *testing.T) {
     &DirEntry{ Leaf:"7:0",   Mode:fs.ModeSymlink, },
     &DirEntry{ Leaf:"7:1",   Mode:fs.ModeSymlink, },
     &DirEntry{ Leaf:"7:111", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:2",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:3",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:4",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:5",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:6",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:7",   Mode:fs.ModeSymlink, },
     &DirEntry{ Leaf:"8:0",   Mode:fs.ModeSymlink, },
     &DirEntry{ Leaf:"8:1",   Mode:fs.ModeSymlink, },
     &DirEntry{ Leaf:"8:2",   Mode:fs.ModeSymlink, },
@@ -123,12 +123,6 @@ func TestListMounts(t *testing.T) {
   fs_reader.LinkTarget["/dev/block/7:0"]   = "/dev/loop0"
   fs_reader.LinkTarget["/dev/block/7:1"]   = "/dev/loop1"
   fs_reader.LinkTarget["/dev/block/7:111"] = "/dev/loop111"
-  fs_reader.LinkTarget["/dev/block/7:2"]   = "/dev/loop2"
-  fs_reader.LinkTarget["/dev/block/7:3"]   = "/dev/loop3"
-  fs_reader.LinkTarget["/dev/block/7:4"]   = "/dev/loop4"
-  fs_reader.LinkTarget["/dev/block/7:5"]   = "/dev/loop5"
-  fs_reader.LinkTarget["/dev/block/7:6"]   = "/dev/loop6"
-  fs_reader.LinkTarget["/dev/block/7:7"]   = "/dev/loop7"
   fs_reader.LinkTarget["/dev/block/8:0"]   = "/dev/sda"
   fs_reader.LinkTarget["/dev/block/8:1"]   = "/dev/sda1"
   fs_reader.LinkTarget["/dev/block/8:2"]   = "/dev/sda2"
@@ -146,6 +140,7 @@ func TestListMounts(t *testing.T) {
     &DirEntry{ Leaf:"loop111", Mode:fs.ModeSymlink, },
   }
   fs_reader.DirContent["/sys/block/loop111"] = []os.DirEntry{
+    &DirEntry{ Leaf:"loop", Mode:fs.ModeDir, },
     &DirEntry{ Leaf:"loop111p1", Mode:fs.ModeDir, },
     &DirEntry{ Leaf:"loop111p2", Mode:fs.ModeDir, },
   }
@@ -411,5 +406,57 @@ func TestUMount_StillMounted(t *testing.T) {
   err := lu.UMount(context.TODO(), fs_uuid)
 
   if err == nil { t.Errorf("Expected error if device is still mounted") }
+}
+
+func TestCreateLoopDevice_OK(t *testing.T) {
+  lu,sys_util := buildFilesystemUtil(t)
+  expect_dev := sys_util.AddDevice("loop666")
+  expect_dev.LoopFile = "/tmp/loopfile"
+  sys_util.AddLoopDev(expect_dev.Name, expect_dev.LoopFile)
+  sys_util.CmdOutput["dd"] = ""
+  sys_util.CmdOutput["losetup"] = "/dev/" + expect_dev.Name
+
+  dev, err := lu.CreateLoopDevice(context.TODO(), 32)
+  if err != nil { t.Errorf("CreateLoopDevice err: %v", err) }
+  util.EqualsOrFailTest(t, "Bad device", dev, expect_dev)
+  util.EqualsOrFailTest(t, "Files removed", sys_util.Removed, map[string]bool{})
+}
+
+func TestCreateLoopDevice_LosetupErr(t *testing.T) {
+  lu,sys_util := buildFilesystemUtil(t)
+  sys_util.CmdOutput["dd"] = ""
+
+  _, err := lu.CreateLoopDevice(context.TODO(), 32)
+  if err == nil { t.Errorf("CreateLoopDevice should have failed") }
+  util.EqualsOrFailTest(t, "File not cleaned", len(sys_util.Removed), 1)
+}
+
+func TestDeleteLoopDevice(t *testing.T) {
+  lu,sys_util := buildFilesystemUtil(t)
+  sys_util.CmdOutput["losetup"] = ""
+  dev := sys_util.AddDevice("loop666")
+  err := lu.DeleteLoopDevice(context.TODO(), dev)
+  if err != nil { t.Errorf("DeleteLoopDevice err: %v", err) }
+  util.EqualsOrFailTest(t, "File not cleaned", len(sys_util.Removed), 1)
+}
+
+func TestCreateBtrfsFilesystem(t *testing.T) {
+  lu,sys_util := buildFilesystemUtil(t)
+  var expected_fs *types.Filesystem
+  sys_util.RunOnCmd = func(cmd *exec.Cmd) {
+    args_rx := regexp.MustCompile("--uuid.([^ ]+)")
+    match := args_rx.FindStringSubmatch(strings.Join(cmd.Args, " "))
+    if match == nil { return }
+    expected_fs = sys_util.AddBtrfsFilesystem(match[1], "sda1", "/mnt")
+    sys_util.CmdOutput["mkfs.btrfs"] = ""
+  }
+  dev := &types.Device{ Name: "sda1", }
+  fs, err := lu.CreateBtrfsFilesystem(context.TODO(), dev, "label")
+  if err != nil { t.Fatalf("CreateBtrfsFilesystem err: %v", err) }
+  expected_fs.Label = "label"
+  expected_fs.Mounts = nil
+  expected_fs.Devices = nil
+  fs.Devices = nil
+  util.EqualsOrFailTest(t, "Bad filesystem", fs, expected_fs)
 }
 
