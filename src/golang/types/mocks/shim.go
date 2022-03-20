@@ -144,6 +144,15 @@ func (self *Btrfsutil) StartSendStream(
   if from == "" || to == "" { return nil, fmt.Errorf("StartSendStream bad args") }
   return self.SendStream.ReadEnd(), self.Err
 }
+func (self *Btrfsutil) CreateSubvolume(sv_path string) error {
+  sv := util.DummySubVolume(uuid.NewString())
+  sv.MountedPath = sv_path
+  self.Subvols = append(self.Subvols, sv)
+  return self.Err
+}
+func (self *Btrfsutil) CreateClone(sv_path string, clone_path string) error {
+  return self.CreateSubvolume(clone_path)
+}
 func (self *Btrfsutil) CreateSnapshot(subvol string, snap string) error {
   if !fpmod.IsAbs(subvol) || !fpmod.IsAbs(snap) { return fmt.Errorf("CreateSnapshot bad args") }
   sv := util.DummySnapshot(uuid.NewString(), subvol)

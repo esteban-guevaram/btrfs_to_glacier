@@ -252,6 +252,16 @@ func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to 
   return util.StartCmdWithPipedOutput(ctx, args)
 }
 
+func (self *btrfsUtilImpl) CreateSubvolume(sv_path string) error {
+  util.Fatalf("not_implemented")
+  return nil
+}
+
+func (self *btrfsUtilImpl) CreateClone(sv_path string, clone_path string) error {
+  util.Fatalf("not_implemented")
+  return nil
+}
+
 func (self *btrfsUtilImpl) CreateSnapshot(subvol string, snap string) error {
   if !fpmod.IsAbs(subvol) {
     return fmt.Errorf("'subvol' needs an absolute path, got: %s", subvol)

@@ -39,13 +39,13 @@ message LocalFs {
 
 // Additional tools not directly related to backup/restores.
 message Tool {
-  enum Type {
+  enum ToolType {
     INVALID = 0;
     BTRFS_SNAP_DIFFS = 1;
     GARBAGE_COLLECTOR = 2;
     META_EXPLORE = 3;
   }
-  Type   type    = 1;
+  ToolType type  = 1;
   string name    = 2;
   string wf_name = 3;
 }
@@ -105,7 +105,7 @@ message Restore {
     INVALID = 0;
     BTRFS  = 1;
   }
-  RestoreType  restore_type = 1;
+  RestoreType type = 1;
   string name = 2;
   // The absolute path of the directory where all restored snapshots should be stored.
   string root_restore_path = 3;

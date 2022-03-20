@@ -111,6 +111,10 @@ type Btrfsutil interface {
   // The mounted path of the received subvol will be `to_dir/<basename_src_subvol>`.
   // Takes ownership of `read_pipe` and will close it once done.
   ReceiveSendStream(ctx context.Context, to_dir string, read_pipe ReadEndIf) error
+  // Calls `btrfs_util_create_subvolume()` to new subvolume in `sv_path`.
+  CreateSubvolume(sv_path string) error
+  // Calls `btrfs_util_create_snapshot()` to create a clone of subvol at `sv_path` in `clone_path`.
+  CreateClone(sv_path string, clone_path string) error
   // Calls `btrfs_util_create_snapshot()` to create a snapshot of `subvol` in `snap` path.
   // Sets the read-only flag.
   // Note async subvolume is no longer possible.

@@ -42,7 +42,7 @@ type VolumeManager interface {
   // If `path` does not point to a snapshot the corresponding fields will be empty.
   GetVolume(path string) (*pb.SubVolume, error)
   // Returns the first subvolume in filesystem owning `fs_path` that matches.
-  // May return nil if nothing was found.
+  // Will return nil if nothing was found.
   FindVolume(fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error)
   // Returns all snapshots whose parent is `subvol`.
   // Returned snaps are sorted by creation generation (oldest first).
@@ -95,15 +95,16 @@ type VolumeAdmin interface {
 type BtrfsPathJuggler interface {
   // Returns the Filesystem, MountEntry and SubVolume Id that own `path`.
   // "Tighter" means the MountEntry returned has the longer prefix of `path` found.
-  // Fails is `path` is not owned by a btrfs filesystem.
+  // Fails if `path` is not owned by a btrfs filesystem.
   // `path` must be an absolute path and must exist.
   // Bind mounts are ignored when searching.
   FindFsAndTighterMountOwningPath(path string) (*Filesystem, *MountEntry, uint64, error)
   // Returns the filesystem, mount entry and path to the root of `sv`.
   // "Tighter" means the MountEntry returned has the longer prefix of `path` found.
-  // Requires the `sv` has a TreePath.
+  // Requires the subvolume argument to have a TreePath.
   // Bind mounts are ignored when searching.
   // Only the filesystems in `fs_list` will be scanned looking for `sv`.
+  // If no mount in `fs_list` is found for `sv` then returns ErrNotMounted.
   FindTighterMountForSubVolume(fs_list []*Filesystem, sv *pb.SubVolume) (*Filesystem, *MountEntry, string, error)
   // For each source returns its corresponding filesystem if the following are OK:
   // * Checks that all volumes for a given source belong to the same filesystem.
