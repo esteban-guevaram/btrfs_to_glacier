@@ -28,13 +28,8 @@ func TestTableCreation_Immediate(t *testing.T) {
   client.CreateTableOutput = dyn_types.TableDescription{
     TableStatus: dyn_types.TableStatusActive,
   }
-  done := metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-    case <-ctx.Done():
-      t.Fatalf("TestTableCreation_Immediate timeout")
-  }
+  err := metadata.SetupMetadata(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
 func TestTableCreation_Wait(t *testing.T) {
@@ -47,13 +42,8 @@ func TestTableCreation_Wait(t *testing.T) {
   client.DescribeTableOutput = dyn_types.TableDescription{
     TableStatus: dyn_types.TableStatusActive,
   }
-  done := metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-    case <-ctx.Done():
-      t.Fatalf("TestTableCreation_Immediate timeout")
-  }
+  err := metadata.SetupMetadata(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
 func TestTableCreation_Idempotent(t *testing.T) {
@@ -61,13 +51,8 @@ func TestTableCreation_Idempotent(t *testing.T) {
   defer cancel()
   metadata, client := buildTestAdminMetadata(t)
   client.Err = &dyn_types.ResourceInUseException{}
-  done := metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-    case <-ctx.Done():
-      t.Fatalf("TestTableCreation_Wait timeout")
-  }
+  err := metadata.SetupMetadata(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
 func testDeleteMetadataUuids_Helper(t *testing.T, seq_cnt int, snap_cnt int, batch_size int) {
@@ -90,8 +75,8 @@ func testDeleteMetadataUuids_Helper(t *testing.T, seq_cnt int, snap_cnt int, bat
     }
   }
 
-  done := metadata.DeleteMetadataUuids(ctx, seq_uuids, snap_uuids)
-  util.WaitForNoError(t, ctx, done)
+  err := metadata.DeleteMetadataUuids(ctx, seq_uuids, snap_uuids)
+  if err != nil { t.Errorf("metadata.DeleteMetadataUuids: %v", err) }
 
   for _,uuid := range seq_uuids {
     if client.getForTest(uuid, &pb.SnapshotSequence{}) { t.Errorf("Did not delete: %v", uuid) }
@@ -131,8 +116,8 @@ func TestDeleteMetadataUuids_DynamoError(t *testing.T) {
   seq_uuids := []string { "uuid1" }
   snap_uuids := []string { "uuid2" }
 
-  done := metadata.DeleteMetadataUuids(ctx, seq_uuids, snap_uuids)
-  if err := util.WaitForClosure(t, ctx, done); err == nil { t.Fatalf("expected error.") }
+  err := metadata.DeleteMetadataUuids(ctx, seq_uuids, snap_uuids)
+  if err == nil { t.Fatalf("expected error.") }
 }
 
 func TestReplaceSnapshotSeqHead(t *testing.T) {

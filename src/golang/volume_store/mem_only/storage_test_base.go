@@ -76,16 +76,10 @@ func (self *Fixture) TestWriteStream_PipeClosed(t *testing.T) {
   pipe := mocks.NewPreloadedPipe(data)
   pipe.ReadEnd().Close()
 
-  done, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
-  if err != nil { t.Fatalf("expected to fail but not right now: %v", err) }
-  select {
-    case chunk_or_err := <-done:
-      if chunk_or_err.Err == nil { t.Errorf("expected error") }
-      if chunk_or_err.Val == nil { return }
-      chunks := chunk_or_err.Val.Chunks
-      if len(chunks) > 1 { t.Errorf("At most only the IV should have been written") }
-    case <-self.Ctx.Done(): t.Fatalf("timedout")
-  }
+  chunks, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
+  if err == nil { t.Errorf("expected error") }
+  if chunks == nil { return }
+  if len(chunks.Chunks) > 1 { t.Errorf("At most only the IV should have been written") }
 }
 
 func (self *Fixture) TestWriteStream_ErrPropagation(t *testing.T) {
@@ -94,15 +88,9 @@ func (self *Fixture) TestWriteStream_ErrPropagation(t *testing.T) {
   storage,_ := self.StorageCtor(t, chunk_len)
   pipe := mocks.NewErrorPipe()
 
-  done, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
-  if err != nil { t.Logf("Error propagated right away: %v", err) }
-  select {
-    case chunk_or_err := <-done:
-      got_err := chunk_or_err.Err
-      if got_err == nil { t.Errorf("storage.WriteStream: expected error") }
-      if !errors.Is(got_err, mocks.ErrIoPipe) { t.Errorf("storage.WriteStream bad error: %v", got_err) }
-    case <-self.Ctx.Done(): t.Fatalf("timedout")
-  }
+  _, got_err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
+  if got_err == nil { t.Errorf("storage.WriteStream: expected error") }
+  if !errors.Is(got_err, mocks.ErrIoPipe) { t.Errorf("storage.WriteStream bad error: %v", got_err) }
 }
 
 func (self *Fixture) TestWriteStream_OffsetTooBig(t *testing.T) {
@@ -113,16 +101,9 @@ func (self *Fixture) TestWriteStream_OffsetTooBig(t *testing.T) {
   data := util.GenerateRandomTextData(total_len)
   pipe := mocks.NewPreloadedPipe(data)
 
-  done, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
-  if err != nil { t.Fatalf("expected to fail but not right now: %v", err) }
-  select {
-    case chunk_or_err := <-done:
-      if chunk_or_err.Err == nil { t.Errorf("expected error") }
-      if chunk_or_err.Val != nil && len(chunk_or_err.Val.Chunks) > 0 {
-        t.Errorf("no chunks should have been written")
-      }
-    case <-self.Ctx.Done(): t.Fatalf("timedout")
-  }
+  chunks, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
+  if err == nil { t.Errorf("expected error") }
+  if chunks != nil && len(chunks.Chunks) > 0 { t.Errorf("no chunks should have been written") }
 }
 
 func (self *Fixture) HelperTestWriteOneChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
@@ -212,21 +193,16 @@ func (self *Fixture) HelperTestWriteStream_SingleChunk(t *testing.T, offset uint
     },
   }
 
-  done, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
-  if err != nil { t.Fatalf("failed: %v", err) }
-  select {
-    case chunk_or_err := <-done:
-      if chunk_or_err.Err != nil { t.Fatalf("failed after done: %v", chunk_or_err.Err) }
-      chunks := chunk_or_err.Val.Chunks
-      if len(chunks) < 1 || len(chunks[0].Uuid) < 1 { t.Fatalf("Malformed chunks: %v", chunks) }
-      expect_chunks.Chunks[0].Uuid = chunks[0].Uuid //intended since uuid is random
-      util.EqualsOrFailTest(t, "Bad SnapshotChunks", chunk_or_err.Val, expect_chunks)
+  result, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
+  if err != nil { t.Fatalf("storage.WriteStream_SingleChunk: %v", err) }
+  chunks := result.Chunks
+  if len(chunks) < 1 || len(chunks[0].Uuid) < 1 { t.Fatalf("Malformed chunks: %v", chunks) }
+  expect_chunks.Chunks[0].Uuid = chunks[0].Uuid //intended since uuid is random
+  util.EqualsOrFailTest(t, "Bad SnapshotChunks", result, expect_chunks)
 
-      data,found := chunkio.Get(chunks[0].Uuid)
-      if !found { t.Errorf("nothing written to storage") }
-      util.EqualsOrFailTest(t, "Bad object data", data, expect_data)
-    case <-self.Ctx.Done(): t.Fatalf("timedout")
-  }
+  data,found := chunkio.Get(chunks[0].Uuid)
+  if !found { t.Errorf("nothing written to storage") }
+  util.EqualsOrFailTest(t, "Bad object data", data, expect_data)
 }
 
 func (self *Fixture) HelperTestWriteStream_EmptyChunk(t *testing.T, offset uint64, chunk_len uint64, total_len uint64) {
@@ -234,18 +210,12 @@ func (self *Fixture) HelperTestWriteStream_EmptyChunk(t *testing.T, offset uint6
   data := util.GenerateRandomTextData(int(total_len))
   pipe := mocks.NewPreloadedPipe(data)
 
-  done, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
-  if err != nil { t.Fatalf("failed: %v", err) }
-  select {
-    case chunk_or_err := <-done:
-      if chunk_or_err.Err == nil { t.Errorf("empty stream should return error") }
-      if chunk_or_err.Val != nil {
-        chunks := chunk_or_err.Val.Chunks
-        if len(chunks) > 0 { t.Errorf("no chunks should have been returned") }
-      }
-      if chunkio.Len() > 0 { t.Errorf("nothing should have been written to storage") }
-    case <-self.Ctx.Done(): t.Fatalf("timedout")
+  result, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
+  if err == nil { t.Errorf("empty stream should return error") }
+  if result != nil {
+    if len(result.Chunks) > 0 { t.Errorf("no chunks should have been returned") }
   }
+  if chunkio.Len() > 0 { t.Errorf("nothing should have been written to storage") }
 }
 
 func (self *Fixture) TestWriteStream_SingleSmallChunk(t *testing.T) {
@@ -274,37 +244,32 @@ func (self *Fixture) HelperTestWriteStream_MultiChunk(t *testing.T, offset uint6
   copy(expect_data, data)
   pipe := mocks.NewPreloadedPipe(data)
 
-  done, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
-  if err != nil { t.Fatalf("failed: %v", err) }
-  select {
-    case chunk_or_err := <-done:
-      if chunk_or_err.Err != nil { t.Fatalf("failed after done: %v", chunk_or_err.Err) }
-      chunks := chunk_or_err.Val.Chunks
-      util.EqualsOrFailTest(t, "Bad number of chunks", len(chunks), chunk_cnt)
-      util.EqualsOrFailTest(t, "Bad fingerprint", chunk_or_err.Val.KeyFingerprint, expect_fp)
+  result, err := storage.WriteStream(self.Ctx, offset, pipe.ReadEnd())
+  if err != nil { t.Fatalf("storage.WriteStream_MultiChunk: %v", err) }
+  chunks := result.Chunks
+  util.EqualsOrFailTest(t, "Bad number of chunks", len(chunks), chunk_cnt)
+  util.EqualsOrFailTest(t, "Bad fingerprint", result.KeyFingerprint, expect_fp)
 
-      uuids := make(map[string]bool)
-      var next_start uint64 = offset
-      for idx,chunk := range chunks {
-        data,found := chunkio.Get(chunk.Uuid)
-        if !found { t.Errorf("chunk not found: %s", chunk.Uuid) }
-        expect_chunk := expect_data[chunk.Start:chunk.Start+chunk.Size]
-        util.EqualsOrFailTest(t, "Bad object data", data, expect_chunk)
-        util.EqualsOrFailTest(t, "Bad start offset", chunk.Start, next_start)
+  uuids := make(map[string]bool)
+  var next_start uint64 = offset
+  for idx,chunk := range chunks {
+    data,found := chunkio.Get(chunk.Uuid)
+    if !found { t.Errorf("chunk not found: %s", chunk.Uuid) }
+    expect_chunk := expect_data[chunk.Start:chunk.Start+chunk.Size]
+    util.EqualsOrFailTest(t, "Bad object data", data, expect_chunk)
+    util.EqualsOrFailTest(t, "Bad start offset", chunk.Start, next_start)
 
-        last_len := (total_len-offset) % chunk_len
-        if last_len == 0 { last_len = chunk_len }
-        if uint64(idx) == (chunk_cnt-1) {
-          util.EqualsOrFailTest(t, "Bad last chunk len", chunk.Size, last_len)
-        } else {
-          util.EqualsOrFailTest(t, "Bad chunk len", chunk.Size, chunk_len)
-        }
-        next_start += chunk_len
-        uuids[chunk.Uuid] = true
-      }
-      util.EqualsOrFailTest(t, "Duplicate uuid", len(uuids), chunk_cnt)
-    case <-self.Ctx.Done(): t.Fatalf("timedout")
+    last_len := (total_len-offset) % chunk_len
+    if last_len == 0 { last_len = chunk_len }
+    if uint64(idx) == (chunk_cnt-1) {
+      util.EqualsOrFailTest(t, "Bad last chunk len", chunk.Size, last_len)
+    } else {
+      util.EqualsOrFailTest(t, "Bad chunk len", chunk.Size, chunk_len)
+    }
+    next_start += chunk_len
+    uuids[chunk.Uuid] = true
   }
+  util.EqualsOrFailTest(t, "Duplicate uuid", len(uuids), chunk_cnt)
 }
 
 func (self *Fixture) TestWriteStream_MultiChunk(t *testing.T) {
@@ -332,14 +297,8 @@ func (self *Fixture) TestQueueRestoreObjects_Simple(t *testing.T) {
     chunkio.Set(k, []byte{})
     expect[k] = expect_obj
   }
-  done, err := storage.QueueRestoreObjects(self.Ctx, keys)
-  if err != nil { t.Fatalf("failed: %v", err) }
-
-  select {
-    case res := <-done:
-      util.EqualsOrFailTest(t, "Bad queue result", res, expect)
-    case <-self.Ctx.Done(): t.Fatalf("timedout")
-  }
+  result := storage.QueueRestoreObjects(self.Ctx, keys)
+  util.EqualsOrFailTest(t, "Bad queue result", result, expect)
 }
 
 func (self *Fixture) TestQueueRestoreObjects_NoSuchObject(t *testing.T) {
@@ -349,14 +308,8 @@ func (self *Fixture) TestQueueRestoreObjects_NoSuchObject(t *testing.T) {
   expect := make(map[string]types.ObjRestoreOrErr)
   for _,k := range keys { expect[k] = expect_obj }
 
-  done, err := storage.QueueRestoreObjects(self.Ctx, keys)
-  if err != nil { t.Fatalf("failed: %v", err) }
-
-  select {
-    case res := <-done:
-      util.EqualsOrFailTest(t, "Bad queue result", res, expect)
-    case <-self.Ctx.Done(): t.Fatalf("timedout")
-  }
+  result := storage.QueueRestoreObjects(self.Ctx, keys)
+  util.EqualsOrFailTest(t, "Bad queue result", result, expect)
 }
 
 func (self *Fixture) TestReadOneChunk_Ok(t *testing.T) {
@@ -563,9 +516,8 @@ func (self *Fixture) HelperDeleteChunks(t *testing.T, obj_count int, add_keys bo
     if add_keys { chunkio.Set(chunks[i].Uuid, []byte("value")) }
   }
 
-  done := storage.DeleteChunks(self.Ctx, chunks)
-  util.WaitForClosure(t, self.Ctx, done)
-
+  err := storage.DeleteChunks(self.Ctx, chunks)
+  if err != nil { t.Fatalf("storage.DeleteChunks: %v", err) }
   if !add_keys { return }
   for _,chunk := range chunks {
     _,found := chunkio.Get(chunk.Uuid)
@@ -584,13 +536,8 @@ func (self *Fixture) TestDeleteChunks_NotFoundNoop(t *testing.T) {
 func (self *Fixture) TestDeleteChunks_NoKeysErr(t *testing.T) {
   storage,_ := self.AdminCtor(t, 96)
   chunks := make([]*pb.SnapshotChunks_Chunk, 0, 1)
-  done := storage.DeleteChunks(self.Ctx, chunks)
-
-  select {
-    case err := <-done:
-      if err == nil { t.Errorf("expecting error for empty chunks") }
-    case <-self.Ctx.Done(): t.Fatalf("timeout")
-  }
+  err := storage.DeleteChunks(self.Ctx, chunks)
+  if err == nil { t.Errorf("expecting error for empty chunks") }
 }
 
 

@@ -141,7 +141,7 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
 }
 
 func (self *btrfsVolumeManager) GetChangesBetweenSnaps(
-    ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (<-chan types.SnapshotChangesOrError, error) {
+    ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (*pb.SnapshotChanges, error) {
   var read_end types.ReadEndIf
   var from_path, to_path string
   var err error
@@ -157,21 +157,11 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(
   read_end, err = self.btrfsutil.StartSendStream(ctx, from_path, to_path, true)
   if err != nil { return nil, err }
 
-  changes_chan := make(chan types.SnapshotChangesOrError, 1)
-  go func() {
-    defer close(changes_chan)
-    defer read_end.Close()
-    dump_ops, err := self.btrfsutil.ReadAndProcessSendStream(read_end)
-    var changes *pb.SnapshotChanges
-    if err == nil {
-      changes = sendDumpOpsToSnapChanges(dump_ops)
-    }
-    changes_chan <- types.SnapshotChangesOrError{
-      Val: changes,
-      Err: util.Coalesce(read_end.GetErr(), err),
-    }
-  }()
-  return changes_chan, nil
+  defer read_end.Close()
+  dump_ops, err := self.btrfsutil.ReadAndProcessSendStream(read_end)
+  if err != nil { return nil, err }
+  changes := sendDumpOpsToSnapChanges(dump_ops)
+  return changes, read_end.GetErr()
 }
 
 func (self *btrfsVolumeManager) GetSnapshotStream(
@@ -240,32 +230,22 @@ func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
 }
 
 func (self *btrfsVolumeManager) ReceiveSendStream(
-    ctx context.Context, root_path string, rec_uuid string, read_pipe types.ReadEndIf) (<-chan types.SubVolumeOrError, error) {
-  ch := make(chan types.SubVolumeOrError, 1)
-  go func() {
-    var err error
-    var sv *pb.SubVolume
-    defer close(ch)
-    defer read_pipe.Close()
+    ctx context.Context, root_path string, rec_uuid string, read_pipe types.ReadEndIf) (*pb.SubVolume, error) {
+  var err error
+  var sv *pb.SubVolume
+  defer read_pipe.Close()
 
-    err = util.Coalesce(read_pipe.GetErr(),
-                        self.btrfsutil.ReceiveSendStream(ctx, root_path, read_pipe))
-    if err != nil {
-      ch <- types.SubVolumeOrError{Err: err}
-      return
-    }
-    sv, err = self.FindVolume(root_path, types.ByReceivedUuid(rec_uuid))
-    if err != nil {
-      ch <- types.SubVolumeOrError{Err: err}
-      return
-    }
-    if sv == nil {
-      ch <- types.SubVolumeOrError{Err: fmt.Errorf("No subvolume with received uuid '%s' got created", rec_uuid)}
-      return
-    }
-    ch <- types.SubVolumeOrError{Val: sv}
-  }()
-  return ch, read_pipe.GetErr()
+  err = util.Coalesce(read_pipe.GetErr(),
+                      self.btrfsutil.ReceiveSendStream(ctx, root_path, read_pipe))
+  if err != nil { return nil, err }
+
+  sv, err = self.FindVolume(root_path, types.ByReceivedUuid(rec_uuid))
+  if err != nil { return nil, err }
+
+  if sv == nil {
+    return nil, fmt.Errorf("No subvolume with received uuid '%s' got created", rec_uuid)
+  }
+  return sv, read_pipe.GetErr()
 }
 
 // Returns the old snaps sorted by creation time descending.

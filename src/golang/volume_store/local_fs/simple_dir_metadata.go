@@ -137,34 +137,27 @@ func (self *SimpleDirMetadata) PersistCurrentMetadataState(ctx context.Context) 
 }
 
 // Do not create anything, just check
-func (self *SimpleDirMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
-  done := make(chan error, 1)
-  go func() {
-    defer close(done)
-    p := self.DirInfo
-    if !util.IsDir(MetaDir(p)) {
-      done <- fmt.Errorf("'%s' is not a directory", MetaDir(p))
-      return
-    }
-    if !util.Exists(SymLink(p)) {
-      if self.State == nil { self.State = &pb.AllMetadata{} }
-      done <- nil
-      return
-    }
-    if !util.IsSymLink(SymLink(p)) {
-      done <- fmt.Errorf("'%s' is not a symlink", SymLink(p))
-      return
-    }
-    target,err := fpmod.EvalSymlinks(SymLink(p))
-    if err != nil { done <- err; return }
-    if !fpmod.HasPrefix(target, MetaDir(p)) {
-      done <- fmt.Errorf("'%s' points outside of '%s'", SymLink(p), MetaDir(p))
-      return
-    }
-    if self.State == nil { done <- self.LoadPreviousStateFromDir(ctx); return }
-    done <- nil
-  }()
-  return done
+func (self *SimpleDirMetadata) SetupMetadata(ctx context.Context) error {
+  p := self.DirInfo
+  if !util.IsDir(MetaDir(p)) {
+    return fmt.Errorf("'%s' is not a directory", MetaDir(p))
+  }
+  if !util.Exists(SymLink(p)) {
+    if self.State == nil { self.State = &pb.AllMetadata{} }
+    return nil
+  }
+  if !util.IsSymLink(SymLink(p)) {
+    return fmt.Errorf("'%s' is not a symlink", SymLink(p))
+  }
+  target,err := fpmod.EvalSymlinks(SymLink(p))
+  if err != nil { return err }
+  if !fpmod.HasPrefix(target, MetaDir(p)) {
+    return fmt.Errorf("'%s' points outside of '%s'", SymLink(p), MetaDir(p))
+  }
+  if self.State == nil {
+    return self.LoadPreviousStateFromDir(ctx)
+  }
+  return nil
 }
 
 func TestOnlySetInnerState(metadata types.Metadata, state *pb.AllMetadata) {

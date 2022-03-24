@@ -99,29 +99,20 @@ func (self *RoundRobinMetadata) FindOldestPartition() (*pb.LocalFs_Partition, er
   return oldest_part, nil
 }
 
-func (self *RoundRobinMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
-  done := make(chan error, 1)
-  go func() {
-    defer close(done)
-    err := self.MountAllSinkPartitions(ctx)
-    if err != nil { done <- err; return }
-    part, err := self.FindOldestPartition()
-    if err != nil { done <- err; return }
+func (self *RoundRobinMetadata) SetupMetadata(ctx context.Context) error {
+  err := self.MountAllSinkPartitions(ctx)
+  if err != nil { return err }
+  part, err := self.FindOldestPartition()
+  if err != nil { return err }
 
-    if self.SimpleDirMetadata == nil {
-      meta, err := NewSimpleDirMetadataAdmin(ctx, self.Conf, part.FsUuid)
-      if err != nil { done <- err; return }
-      select {
-        case err = <-meta.SetupMetadata(ctx):
-          self.SimpleDirMetadata = meta.(*SimpleDirMetadata)
-          done <- err
-        case <-ctx.Done(): done <- ctx.Err()
-      }
-      return
-    }
-    done <- nil
-  }()
-  return done
+  if self.SimpleDirMetadata == nil {
+    meta, err := NewSimpleDirMetadataAdmin(ctx, self.Conf, part.FsUuid)
+    if err != nil { return err }
+    err = meta.SetupMetadata(ctx)
+    if err == nil { self.SimpleDirMetadata = meta.(*SimpleDirMetadata) }
+    return err
+  }
+  return nil
 }
 
 // Storage should always be tied to the same metadata partition.

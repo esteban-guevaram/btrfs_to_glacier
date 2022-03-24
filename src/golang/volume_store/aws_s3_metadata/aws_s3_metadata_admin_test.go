@@ -38,17 +38,12 @@ func TestSetupMetadata(t *testing.T) {
   defer cancel()
   meta_admin,client := buildTestAdminMetadata_WithNilState(t)
   bucket := meta_admin.Conf.Aws.S3.MetadataBucketName
-  done := meta_admin.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-      if client.LastPublicAccessBlockIn == nil { t.Errorf("did not block ppublic access: %v", err) }
-      if client.LastPutBucketVersioning == nil { t.Errorf("did not enable versions: %v", err) }
-      if len(client.Buckets) != 1 { t.Errorf("Bad bucket creation: %v", err) } 
-      if _,found := client.Buckets[bucket]; !found { t.Errorf("Bad bucket name: %v", err) } 
-    case <-ctx.Done():
-      t.Fatalf("TestSetupmeta_admin timeout")
-  }
+  err := meta_admin.SetupMetadata(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  if client.LastPublicAccessBlockIn == nil { t.Errorf("did not block ppublic access: %v", err) }
+  if client.LastPutBucketVersioning == nil { t.Errorf("did not enable versions: %v", err) }
+  if len(client.Buckets) != 1 { t.Errorf("Bad bucket creation: %v", err) } 
+  if _,found := client.Buckets[bucket]; !found { t.Errorf("Bad bucket name: %v", err) } 
 }
 
 func TestSetupMetadata_Fail(t *testing.T) {
@@ -56,13 +51,8 @@ func TestSetupMetadata_Fail(t *testing.T) {
   defer cancel()
   meta_admin,client := buildTestAdminMetadata_WithNilState(t)
   client.Err = fmt.Errorf("an unfortunate error")
-  done := meta_admin.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err == nil { t.Errorf("Expected error in SetupMetadata") }
-    case <-ctx.Done():
-      t.Fatalf("TestSetupmeta_admin timeout")
-  }
+  err := meta_admin.SetupMetadata(ctx)
+  if err == nil { t.Errorf("Expected error in SetupMetadata") }
 }
 
 func TestSetupMetadata_Idempotent(t *testing.T) {
@@ -71,13 +61,8 @@ func TestSetupMetadata_Idempotent(t *testing.T) {
   meta_admin,client := buildTestAdminMetadata_WithNilState(t)
   bucket := meta_admin.Conf.Aws.S3.MetadataBucketName
   client.Buckets[bucket] = true
-  done := meta_admin.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-      if len(client.Buckets) != 1 { t.Errorf("Bad bucket creation: %v", err) } 
-    case <-ctx.Done():
-      t.Fatalf("TestSetupMetadata_Idempotent timeout")
-  }
+  err := meta_admin.SetupMetadata(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  if len(client.Buckets) != 1 { t.Errorf("Bad bucket creation: %v", err) } 
 }
 

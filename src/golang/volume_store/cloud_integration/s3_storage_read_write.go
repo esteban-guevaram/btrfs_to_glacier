@@ -57,27 +57,30 @@ func (self *s3StoreReadWriteTester) helperWrite(
   copy(expect_obj, data[offset:])
   pipe := mocks.NewBigPreloadedPipe(ctx, data)
 
-  var chunk_or_err types.ChunksOrError
-  done, err := self.Storage.WriteStream(ctx, offset, pipe.ReadEnd())
-  if err != nil { util.Fatalf("failed: %v", err) }
+  done := make(chan *pb.SnapshotChunks)
+  go func() {
+    defer close(done)
+    result, err := self.Storage.WriteStream(ctx, offset, pipe.ReadEnd())
+    if err != nil { util.Fatalf("Storage.WriteStream: %v", err) }
+    chunks := result.Chunks
+    if len(result.KeyFingerprint) < 1 || len(chunks) < 1 || len(chunks[0].Uuid) < 1 {
+      util.Fatalf("Malformed chunks: %v", chunks)
+    }
+    for idx,chunk := range chunks {
+      if len(chunk.Uuid) < 1 { util.Fatalf("Malformed chunk: %v", chunk) }
+      object := self.getObjectOrDie(ctx, chunk.Uuid)
+      start := int(chunk_len) * idx
+      end := start + int(chunk_len)
+      if end > len(expect_obj) { end = len(expect_obj) }
+      util.EqualsOrDie("Bad object data", object, expect_obj[start:end])
+    }
+    done <- result
+  }()
   select {
-    case chunk_or_err = <-done:
-      if chunk_or_err.Err != nil { util.Fatalf("failed after done: %v", chunk_or_err.Err) }
-      chunks := chunk_or_err.Val.Chunks
-      if len(chunk_or_err.Val.KeyFingerprint) < 1 || len(chunks) < 1 || len(chunks[0].Uuid) < 1 {
-        util.Fatalf("Malformed chunks: %v", chunks)
-      }
-      for idx,chunk := range chunks {
-        if len(chunk.Uuid) < 1 { util.Fatalf("Malformed chunk: %v", chunk) }
-        object := self.getObjectOrDie(ctx, chunk.Uuid)
-        start := int(chunk_len) * idx
-        end := start + int(chunk_len)
-        if end > len(expect_obj) { end = len(expect_obj) }
-        util.EqualsOrDie("Bad object data", object, expect_obj[start:end])
-      }
+    case result := <-done: return result
     case <-ctx.Done(): util.Fatalf("timedout")
   }
-  return chunk_or_err.Val
+  return nil
 }
 
 func (self *s3StoreReadWriteTester) TestWriteObjectLessChunkLen(ctx context.Context) {
@@ -112,16 +115,10 @@ func (self *s3StoreReadWriteTester) TestWriteObjectMultipleChunkLen(ctx context.
 func (self *s3StoreReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
   const offset = 0
   read_end := util.ReadEndFromBytes(nil)
-  done, err := self.Storage.WriteStream(ctx, offset, read_end)
-  if err != nil { util.Fatalf("failed: %v", err) }
-  select {
-    case chunk_or_err := <-done:
-      if chunk_or_err.Err == nil { util.Fatalf("empty object should return error") }
-      if chunk_or_err.Val != nil {
-        chunks := chunk_or_err.Val.Chunks
-        if len(chunks) > 0 { util.Fatalf("no chunks should have been returned") }
-      }
-    case <-ctx.Done(): util.Fatalf("timedout")
+  result, err := self.Storage.WriteStream(ctx, offset, read_end)
+  if err != nil { util.Fatalf("Storage.WriteStream: %v", err) }
+  if result != nil {
+    if len(result.Chunks) > 0 { util.Fatalf("no chunks should have been returned") }
   }
 }
 
@@ -183,16 +180,19 @@ func (self *s3StoreReadWriteTester) TestReadMultiChunkObject(ctx context.Context
 }
 
 func (self *s3StoreReadWriteTester) testQueueRestoreObjects_Helper(ctx context.Context, keys []string, expect_obj types.ObjRestoreOrErr) {
-  done, err := self.Storage.QueueRestoreObjects(ctx, keys)
-  if err != nil { util.Fatalf("failed: %v", err) }
+  done := make(chan bool)
+  go func() {
+    defer close(done)
+    result := self.Storage.QueueRestoreObjects(ctx, keys)
+    if len(result) < 1 { util.Fatalf("Storage.QueueRestoreObjects empty result") }
 
-  expect := make(map[string]types.ObjRestoreOrErr)
-  for _,k := range keys { expect[k] = expect_obj }
-
+    expect := make(map[string]types.ObjRestoreOrErr)
+    for _,k := range keys { expect[k] = expect_obj }
+    util.Debugf("result: %v", result)
+    util.EqualsOrDie("Bad obj status", result, expect)
+  }()
   select {
-    case res := <-done:
-      util.Debugf("result: %v", res)
-      util.EqualsOrDie("Bad obj status", res, expect)
+    case <-done:
     case <-ctx.Done(): util.Fatalf("timedout")
   }
 }
@@ -207,16 +207,11 @@ func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_StandardClass(ctx co
 
 func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx context.Context) {
   keys := []string{uuid.NewString()}
-  done, err := self.Storage.QueueRestoreObjects(ctx, keys)
-  if err != nil { util.Fatalf("failed: %v", err) }
-
-  select {
-    case res := <-done:
-      got_err := res[keys[0]].Err
-      if !errors.Is(got_err, types.ErrChunkFound) {
-        util.Fatalf("Expected error status: %v", res)
-      }
-    case <-ctx.Done(): util.Fatalf("timedout")
+  result := self.Storage.QueueRestoreObjects(ctx, keys)
+  if len(result) < 1 { util.Fatalf("Storage.QueueRestoreObjects empty result") }
+  got_err := result[keys[0]].Err
+  if !errors.Is(got_err, types.ErrChunkFound) {
+    util.Fatalf("Expected error status: %v", result)
   }
 }
 

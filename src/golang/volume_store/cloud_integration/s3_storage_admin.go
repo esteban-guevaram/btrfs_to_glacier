@@ -34,19 +34,18 @@ func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client,
     util.Infof("TestStorageSetup '%s' deleted", bucket)
   }
 
-  done := storage.SetupStorage(ctx)
+  done := make(chan bool)
+  go func() {
+    defer close(done)
+    err := storage.SetupStorage(ctx)
+    if err != nil { util.Fatalf("storage.SetupStorage: %v", err) }
+    util.Infof("Bucket '%s' created OK", bucket)
+    err = storage.SetupStorage(ctx)
+    if err != nil { util.Fatalf("Not idempotent %v", err) }
+  }()
   select {
-    case err := <-done:
-      if err != nil { util.Fatalf("%v", err) }
-      util.Infof("Bucket '%s' created OK", bucket)
-    case <-ctx.Done():
-  }
-
-  done = storage.SetupStorage(ctx)
-  select {
-    case err := <-done:
-      if err != nil { util.Fatalf("Not idempotent %v", err) }
-    case <-ctx.Done():
+    case <-done:
+    case <-ctx.Done(): util.Fatalf("timeout: %v", ctx.Err())
   }
 }
 
@@ -60,15 +59,22 @@ func (self *s3AdminStoreTester) testDeleteChunks_Helper(ctx context.Context, obj
     chunks[i] = &pb.SnapshotChunks_Chunk{ Uuid:key, }
   }
 
-  done := self.Storage.DeleteChunks(ctx, chunks)
-  err := util.WaitForClosureOrDie(ctx, done)
-  if err != nil { util.Fatalf("delete failed: %v", err) }
+  done := make(chan bool)
+  go func() {
+    defer close(done)
+    err := self.Storage.DeleteChunks(ctx, chunks)
+    if err != nil { util.Fatalf("delete failed: %v", err) }
 
-  for _,key := range keys {
-    _,err := self.getObject(ctx, key)
-    if !s3_common.IsS3Error(new(s3_types.NoSuchKey), err) {
-      util.Fatalf("Key '%s' was not deleted", key)
+    for _,key := range keys {
+      _,err := self.getObject(ctx, key)
+      if !s3_common.IsS3Error(new(s3_types.NoSuchKey), err) {
+        util.Fatalf("Key '%s' was not deleted", key)
+      }
     }
+  }()
+  select {
+    case <-done:
+    case <-ctx.Done(): util.Fatalf("timeout: %v", ctx.Err())
   }
 }
 
@@ -85,8 +91,7 @@ func (self *s3AdminStoreTester) TestDeleteChunks_NoSuchKey(ctx context.Context) 
   uuids := []*pb.SnapshotChunks_Chunk{
     &pb.SnapshotChunks_Chunk{ Uuid:key, },
   }
-  done := self.Storage.DeleteChunks(ctx, uuids)
-  err := util.WaitForClosureOrDie(ctx, done)
+  err := self.Storage.DeleteChunks(ctx, uuids)
   if err != nil { util.Fatalf("delete of unexisting object should be a noop: %v", err) }
 }
 

@@ -7,11 +7,6 @@ import pb "btrfs_to_glacier/messages"
 var ErrNotFound = errors.New("key_not_found_in_metadata")
 var ErrChunkFound = errors.New("chunk_not_found_in_storage")
 
-type ChunksOrError struct {
-  Val *pb.SnapshotChunks
-  Err error
-}
-
 type RestoreStatus int
 const (
   Unknown  RestoreStatus = iota
@@ -19,11 +14,10 @@ const (
   Restored RestoreStatus = iota
 )
 
-type DeletedObjectsOrErr struct {
-  Chunks []*pb.SnapshotChunks_Chunk
+type DeletedItems struct {
   Snaps  []*pb.SubVolume
   Seqs   []*pb.SnapshotSequence
-  Err error
+  Chunks []*pb.SnapshotChunks_Chunk
 }
 
 type ObjRestoreOrErr struct {
@@ -105,15 +99,13 @@ type AdminMetadata interface {
   Metadata
 
   // Creates the infrastructure (depend on implementation) that will contain the metadata.
-  // Creation can take some time so it is done asynchronously.
-  // If the channel contains a null error then the infrastructure has been created ok and is ready to use.
-  // It is a noop if they are already created.
-  SetupMetadata(ctx context.Context) (<-chan error)
+  // Calling this method twice is a noop.
+  SetupMetadata(ctx context.Context) error
 
   // Deletes all items corresponding to the uuids.
   // Uuids not existing will be ignored.
   // Even if an error is returned, some items may have been deleted.
-  DeleteMetadataUuids(ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error)
+  DeleteMetadataUuids(ctx context.Context, seq_uuids []string, snap_uuids []string) error
 
   // Replaces a head with a different one.
   // Returns the old head that got replaced.
@@ -127,9 +119,9 @@ type Storage interface {
   // Data may be filtered by a codec depending on the implementation.
   // Chunk length is determined by configuration.
   // Returns the ids of all chunks uploaded. If some error prevented all pipe content from being uploaded,
-  // then ChunksOrError.Err will be non nil and `Val` will contain the chunks that got uploaded.
+  // then both a non nil error and the chunks that got uploaded willb e returned.
   // Takes ownership of `read_pipe` and will close it once done.
-  WriteStream(ctx context.Context, offset uint64, read_pipe ReadEndIf) (<-chan ChunksOrError, error)
+  WriteStream(ctx context.Context, offset uint64, read_pipe ReadEndIf) (*pb.SnapshotChunks, error)
 
   // Request all objects identified by `uuids` to be restored so they can be downloaded.
   // Restoration can take several hours, this method will return sooner, after all object restore requests
@@ -139,7 +131,7 @@ type Storage interface {
   // Restoring an object which does not exist should return `ErrChunkFound`.
   // Clients can use this method to poll and get the status of their pending restores.
   // Returns a result per object, for some the restore may have failed.
-  QueueRestoreObjects(ctx context.Context, uuids []string) (<-chan RestoreResult, error)
+  QueueRestoreObjects(ctx context.Context, uuids []string) RestoreResult
 
   // Reads all `chunks` in order and outputs them to a stream.
   // Data may be filtered by a codec depending on the implementation.
@@ -156,34 +148,32 @@ type AdminStorage interface {
   Storage
 
   // Creates the infrastructure (depend on implementation) that will contain the storage.
-  // Creation can take some time so it is done asynchronously.
-  // If the channel contains a null error then the infrastructure has been created ok and is ready to use.
-  // It is a noop if they are already created.
-  SetupStorage(ctx context.Context) (<-chan error)
+  // Calling this method twice is a noop.
+  SetupStorage(ctx context.Context) error
 
   // Deletes all objects in `chunks`.
-  // If the channel contains a null error then all objects got deleted.
   // Objects not found (already deleted?) should be a noop.
-  DeleteChunks(ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error)
+  // Returns a non-nil error if at least 1 chunk could not be deleted.
+  DeleteChunks(ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) error
 }
 
 type GarbageCollector interface {
   // Remove from storage all chunks that are not linked to any snapshot in the metadata.
-  // Returns the list of chunks deleted and any error that may have interrupted the cleaning.
+  // Returns the list of **potentially** deleted chunks and any error that may have interrupted the cleaning.
   // In dry-run mode, nothing will be deleted.
-  CleanUnreachableChunks(context.Context, bool) (<-chan DeletedObjectsOrErr)
+  CleanUnreachableChunks(context.Context, bool) ([]*pb.SnapshotChunks_Chunk, error)
 
   // Removes any metadata objects that cannot be reached starting from a SnapshotSeqHead.
-  // Returns the list of metadata objects and any error that may have interrupted the cleaning.
+  // Returns the list of **potentially** deleted metadata objects and any error that may have interrupted the cleaning.
   // In dry-run mode, nothing will be deleted.
   //
   // Note: you can clean the orphan chunks calling CleanUnreachableChunks after.
   // This has the advantage of also cleaning the chunks that were never mentioned in the metadata to begin with.
-  CleanUnreachableMetadata(context.Context, bool) (<-chan DeletedObjectsOrErr)
+  CleanUnreachableMetadata(context.Context, bool) (*DeletedItems, error)
 
   // Cascade removal of all objects reachable from a SnapshotSequence.
-  // Returns the list of metadata and storage objects and any error that may have interrupted the cleaning.
+  // Returns the list of **potentially** deleted metadata and storage objects and any error that may have interrupted the cleaning.
   // In dry-run mode, nothing will be deleted. If the sequence does not exists this is a noop.
-  DeleteSnapshotSequence(context.Context, bool, string) (<-chan DeletedObjectsOrErr)
+  DeleteSnapshotSequence(context.Context, bool, string) (*DeletedItems, error)
 }
 

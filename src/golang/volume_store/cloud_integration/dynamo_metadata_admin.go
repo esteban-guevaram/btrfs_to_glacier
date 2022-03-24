@@ -34,18 +34,17 @@ func TestDynamoDbMetadataSetup(ctx context.Context, conf *pb.Config, client *dyn
     util.Infof("TestDynamoDbMetadataSetup '%s' deleted", conf.Aws.DynamoDb.TableName)
   }
 
-  done := metadata.SetupMetadata(ctx)
+  done := make(chan bool)
+  go func() {
+    defer close(done)
+    err := metadata.SetupMetadata(ctx)
+    if err != nil { util.Fatalf("%v", err) }
+    err = metadata.SetupMetadata(ctx)
+    if err != nil { util.Fatalf("Idempotent err: %v", err) }
+  }()
   select {
-    case err := <-done:
-      if err != nil { util.Fatalf("%v", err) }
-    case <-ctx.Done():
-  }
-
-  done = metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { util.Fatalf("Idempotent err: %v", err) }
-    case <-ctx.Done():
+    case <-done:
+    case <-ctx.Done(): util.Fatalf("Timeout: %v", ctx.Err())
   }
 }
 
@@ -70,17 +69,24 @@ func (self *dynAdminTester) testDeleteMetadataUuids_Helper(
     seq_uuids = append(seq_uuids, uuid.NewString())
   }
 
-  done := self.Metadata.DeleteMetadataUuids(ctx, seq_uuids, snap_uuids)
-  err := util.WaitForClosureOrDie(ctx, done)
-  if err != nil { util.Fatalf("BatchWriteItem error: %v", err) }
+  done := make(chan bool)
+  go func() {
+    defer close(done)
+    err := self.Metadata.DeleteMetadataUuids(ctx, seq_uuids, snap_uuids)
+    if err != nil { util.Fatalf("Metadata.DeleteMetadataUuids error: %v", err) }
 
-  for _,uuid := range seq_uuids {
-    err := self.getItem(ctx, uuid, &pb.SnapshotSequence{})
-    if !errors.Is(err, types.ErrNotFound) { util.Fatalf("failed to delete %s: %v", uuid, err) }
-  }
-  for _,uuid := range snap_uuids {
-    err := self.getItem(ctx, uuid, &pb.SubVolume{})
-    if !errors.Is(err, types.ErrNotFound) { util.Fatalf("failed to delete %s: %v", uuid, err) }
+    for _,uuid := range seq_uuids {
+      err := self.getItem(ctx, uuid, &pb.SnapshotSequence{})
+      if !errors.Is(err, types.ErrNotFound) { util.Fatalf("failed to delete %s: %v", uuid, err) }
+    }
+    for _,uuid := range snap_uuids {
+      err := self.getItem(ctx, uuid, &pb.SubVolume{})
+      if !errors.Is(err, types.ErrNotFound) { util.Fatalf("failed to delete %s: %v", uuid, err) }
+    }
+  }()
+  select {
+    case <-done:
+    case <-ctx.Done(): util.Fatalf("Timeout: %v", ctx.Err())
   }
 }
 

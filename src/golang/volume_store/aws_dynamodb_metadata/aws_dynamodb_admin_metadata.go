@@ -58,39 +58,27 @@ func (self *dynamoMetadata) describeTable(ctx context.Context, tabname string) (
   return result.Table, nil
 }
 
-func (self *dynamoMetadata) waitForTableCreation(ctx context.Context, tabname string) (<-chan error) {
-  done := make(chan error, 1)
-  go func() {
-    defer close(done)
-    ticker := time.NewTicker(self.describe_retry)
-    defer ticker.Stop()
+func (self *dynamoMetadata) waitForTableCreation(ctx context.Context, tabname string) error {
+  ticker := time.NewTicker(self.describe_retry)
+  defer ticker.Stop()
 
-    for {
-      select {
-        case <-ticker.C:
-          result, err := self.describeTable(ctx, tabname)
-          if err != nil {
-            done <- err
-            return
-          }
-          if result.TableStatus == dyn_types.TableStatusActive {
-            done <- nil
-            return
-          }
-          if result.TableStatus != dyn_types.TableStatusCreating {
-            done <- fmt.Errorf("Unexpected status while waiting for table creation: %v", result.TableStatus)
-            return
-          }
-        case <-ctx.Done():
-          done <- fmt.Errorf("Timedout while waiting for table creation")
-          return
-      }
+  for {
+    select {
+      case <-ticker.C:
+        result, err := self.describeTable(ctx, tabname)
+        if err != nil { return err }
+        if result.TableStatus == dyn_types.TableStatusActive { return nil }
+        if result.TableStatus != dyn_types.TableStatusCreating {
+          return fmt.Errorf("Unexpected status while waiting for table creation: %v", result.TableStatus)
+        }
+      case <-ctx.Done():
+        return fmt.Errorf("Timedout while waiting for table creation")
     }
-  }()
-  return done
+  }
+  return fmt.Errorf("WTF why am I out of the loop ?!")
 }
 
-func (self *dynamoMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
+func (self *dynamoMetadata) SetupMetadata(ctx context.Context) error {
   tabname := self.conf.Aws.DynamoDb.TableName
 
   attrs := []dyn_types.AttributeDefinition{
@@ -125,12 +113,12 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) (<-chan error) {
     apiErr := new(dyn_types.ResourceInUseException)
     if errors.As(err, &apiErr) {
       util.Infof("Table '%s' already exists", tabname)
-      return util.WrapInChan(nil)
+      return nil
     }
-    return util.WrapInChan(err)
+    return err
   }
   if result.TableDescription.TableStatus == dyn_types.TableStatusActive {
-    return util.WrapInChan(nil)
+    return nil
   }
   return self.waitForTableCreation(ctx, tabname)
 }
@@ -159,31 +147,27 @@ func (self *dynamoAdminMetadata) flushDeletes(ctx context.Context, keys []dyn_ty
 }
 
 func (self *dynamoAdminMetadata) DeleteMetadataUuids(
-    ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error) {
-  done := make(chan error, 1)
-  go func() {
-    defer close(done)
-    uuid_map := map[string][]string {
-      typeColValue(&pb.SnapshotSequence{}): seq_uuids,
-      typeColValue(&pb.SubVolume{}): snap_uuids,
-    }
-    keys := make([]dyn_types.WriteRequest, 0, self.delete_batch)
+    ctx context.Context, seq_uuids []string, snap_uuids []string) error {
+  uuid_map := map[string][]string {
+    typeColValue(&pb.SnapshotSequence{}): seq_uuids,
+    typeColValue(&pb.SubVolume{}): snap_uuids,
+  }
+  keys := make([]dyn_types.WriteRequest, 0, self.delete_batch)
 
-    for typename,uuids := range uuid_map {
-      for _,uuid := range uuids {
-        keys = append(keys, self.buildDeleteRequest(uuid, typename))
-        if len(keys) >= self.delete_batch {
-          err := self.flushDeletes(ctx, keys)
-          if err != nil { done <- err ; return }
-          keys = keys[:0]
-        }
+  for typename,uuids := range uuid_map {
+    for _,uuid := range uuids {
+      keys = append(keys, self.buildDeleteRequest(uuid, typename))
+      if len(keys) >= self.delete_batch {
+        err := self.flushDeletes(ctx, keys)
+        if err != nil { return err }
+        keys = keys[:0]
       }
     }
-    err := self.flushDeletes(ctx, keys)
-    if err != nil { done <- err ; return }
-    util.Infof("Deleted seq=%v, snap=%v", seq_uuids, snap_uuids)
-  }()
-  return done
+  }
+  err := self.flushDeletes(ctx, keys)
+  if err != nil { return err }
+  util.Infof("Deleted seq=%v, snap=%v", seq_uuids, snap_uuids)
+  return nil
 }
 
 func (self *dynamoAdminMetadata) ReplaceSnapshotSeqHead(

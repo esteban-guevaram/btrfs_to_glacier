@@ -58,19 +58,14 @@ func (self *Codec) DecryptStream(
 }
 
 func (self *Codec) DecryptStreamInto(
-    ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) (<-chan error) {
-  done := make(chan error, 1)
-  if self.Err != nil { done <- self.Err; close(done); return done }
-  go func() {
-    var err error
-    defer func() { util.CloseWithError(input, err) }()
-    defer func() { util.OnlyCloseWhenError(output, util.Coalesce(input.GetErr(), err)) }()
-    defer close(done)
-    if ctx.Err() != nil { return }
-    _, err = io.Copy(output, input)
-    done <- err
-  }()
-  return done
+    ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) error {
+  if self.Err != nil { return self.Err }
+  var err error
+  defer func() { util.CloseWithError(input, err) }()
+  defer func() { util.OnlyCloseWhenError(output, util.Coalesce(input.GetErr(), err)) }()
+  if ctx.Err() != nil { return ctx.Err() }
+  _, err = io.Copy(output, input)
+  return err
 }
 
 func (self *Codec) ReEncryptKeyring(pw_prompt func() ([]byte, error)) ([]types.PersistableKey, error) {

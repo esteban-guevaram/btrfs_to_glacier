@@ -8,16 +8,6 @@ import (
 
 var ErrNotMounted = errors.New("subvolume_not_mounted")
 
-type SnapshotChangesOrError struct {
-  Val *pb.SnapshotChanges
-  Err error
-}
-
-type SubVolumeOrError struct {
-  Val *pb.SubVolume
-  Err error
-}
-
 // The raw operations from a btrfs-send dump
 type SendDumpOperations struct {
   Written map[string]bool
@@ -50,7 +40,7 @@ type VolumeManager interface {
   GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([]*pb.SubVolume, error)
   // Returns the changes between 2 snapshots of the same subvolume.
   // Both snaps must come from the same parent and `from` must be from a previous gen than `to`.
-  GetChangesBetweenSnaps(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (<-chan SnapshotChangesOrError, error)
+  GetChangesBetweenSnaps(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (*pb.SnapshotChanges, error)
 }
 
 type VolumeSource interface {
@@ -69,7 +59,7 @@ type VolumeDestination interface {
   // Received subvolume will be mounted at `root_path/<basename_src_subvol>`.
   // As a safety check this method asserts that received uuid equals `rec_uuid`.
   // Takes ownership of `read_pipe` and will close it once done.
-  ReceiveSendStream(ctx context.Context, root_path string, rec_uuid string, read_pipe ReadEndIf) (<-chan SubVolumeOrError, error)
+  ReceiveSendStream(ctx context.Context, root_path string, rec_uuid string, read_pipe ReadEndIf) (*pb.SubVolume, error)
 }
 
 type VolumeAdmin interface {

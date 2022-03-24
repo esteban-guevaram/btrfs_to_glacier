@@ -311,23 +311,16 @@ func (self *aesGzipCodec) DecryptStream(
 }
 
 func (self *aesGzipCodec) DecryptStreamInto(
-    ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) (<-chan error) {
+    ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) error {
   var err error
-  done := make(chan error, 1)
-  defer func() { util.OnlyCloseWhenError(input, util.Coalesce(input.GetErr(), err)) }()
-  defer func() { util.OnlyCloseChanWhenError(done, err) }()
+  defer func() { util.CloseWithError(input, err) }()
+  defer func() { util.OnlyCloseWhenError(output, err) }()
 
   block, stream, err := self.getStreamDecrypter(key_fp)
-  if err != nil { return done }
+  if err != nil { return err }
 
-  go func() {
-    var err error
-    defer func() { util.CloseWithError(input, err) }()
-    defer func() { util.OnlyCloseWhenError(output, util.Coalesce(input.GetErr(), err)) }()
-    defer close(done)
-    err = self.decryptStream_BlockIterator(ctx, stream, block.BlockSize(), input, output)
-    done <- err
-  }()
-  return done
+  err = self.decryptStream_BlockIterator(ctx, stream, block.BlockSize(), input, output)
+  err = util.Coalesce(input.GetErr(), err)
+  return err
 }
 

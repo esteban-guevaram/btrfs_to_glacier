@@ -106,12 +106,8 @@ func (self *ChunkIoImpl) ReadOneChunk(
   }
 
   read_wrap := util.WrapPlainReaderCloser(f)
-  done := self.ParCodec.DecryptStreamInto(ctx, key_fp, read_wrap, output)
-  select {
-    case err := <-done: return err
-    case <-ctx.Done():
-  }
-  return nil
+  err := self.ParCodec.DecryptStreamInto(ctx, key_fp, read_wrap, output)
+  return err
 }
 
 func (self *ChunkIoImpl) WriteOneChunk(
@@ -176,21 +172,14 @@ func (self *ChunkIoImpl) ListChunks(
 func (self *SimpleDirStorage) ChunkDir() string { return self.ChunkIo.(*ChunkIoImpl).ChunkDir }
 func (self *SimpleDirStorage) ChunkIndex() map[string]bool { return self.ChunkIo.(*ChunkIoImpl).ChunkIndex }
 
-func (self *SimpleDirStorage) SetupStorage(ctx context.Context) (<-chan error) {
-  done := make(chan error, 1)
-  go func() {
-    defer close(done)
-    if !util.IsDir(self.ChunkDir()) {
-      done <- fmt.Errorf("'%s' is not a directory", self.ChunkDir())
-      return
-    }
-    if len(self.ChunkIndex()) < 1 {
-      done <- self.LoadPreviousStateFromDir(ctx);
-      return
-    }
-    done <- nil
-  }()
-  return done
+func (self *SimpleDirStorage) SetupStorage(ctx context.Context) error {
+  if !util.IsDir(self.ChunkDir()) {
+    return fmt.Errorf("'%s' is not a directory", self.ChunkDir())
+  }
+  if len(self.ChunkIndex()) < 1 {
+    return self.LoadPreviousStateFromDir(ctx);
+  }
+  return nil
 }
 
 func (self *SimpleDirStorage) LoadPreviousStateFromDir(ctx context.Context) error {
@@ -208,13 +197,13 @@ func (self *SimpleDirStorage) LoadPreviousStateFromDir(ctx context.Context) erro
 }
 
 func (self *SimpleDirStorage) DeleteChunks(
-    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error) {
-  if len(chunks) < 1 { return util.WrapInChan(fmt.Errorf("cannot delete 0 keys")) }
+    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) error {
+  if len(chunks) < 1 { return fmt.Errorf("cannot delete 0 keys") }
   for _,chunk := range chunks {
     err := os.Remove(ChunkFile(self.ChunkDir(), chunk.Uuid))
-    if err != nil && !util.IsNotExist(err) { return util.WrapInChan(err) }
+    if err != nil && !util.IsNotExist(err) { return err }
     self.ChunkIndex()[chunk.Uuid] = false
   }
-  return util.WrapInChan(nil)
+  return nil
 }
 

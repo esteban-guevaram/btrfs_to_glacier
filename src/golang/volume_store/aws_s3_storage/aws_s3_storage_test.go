@@ -196,15 +196,9 @@ func testQueueRestoreObjects_Helper(
     expect[k] = expect_obj
   }
   client.RestoreObjectErr = restore_err
-  done, err := storage.QueueRestoreObjects(ctx, keys)
-  if err != nil { t.Fatalf("failed: %v", err) }
-
-  select {
-    case res := <-done:
-      util.EqualsOrFailTest(t, "Bad queue result", res, expect)
-      t.Logf("Error? %v", res)
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
+  res := storage.QueueRestoreObjects(ctx, keys)
+  util.EqualsOrFailTest(t, "Bad queue result", res, expect)
+  t.Logf("Error? %v", res)
 }
 
 func TestQueueRestoreObjects_Simple(t *testing.T) {
@@ -245,15 +239,9 @@ func TestQueueRestoreObjects_HeadFail(t *testing.T) {
   defer cancel()
   storage,_ := buildTestStorage(t)
   keys := []string{"k1", "k2"}
-  done, err := storage.QueueRestoreObjects(ctx, keys)
-  if err != nil { t.Fatalf("failed: %v", err) }
-
-  select {
-    case res := <-done:
-      for k,s := range res {
-        if s.Err == nil { t.Errorf("Expected error for %v:%v", k, s) }
-      }
-    case <-ctx.Done(): t.Fatalf("timedout")
+  res := storage.QueueRestoreObjects(ctx, keys)
+  for k,s := range res {
+    if s.Err == nil { t.Errorf("Expected error for %v:%v", k, s) }
   }
 }
 

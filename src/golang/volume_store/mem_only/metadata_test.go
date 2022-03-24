@@ -369,17 +369,11 @@ func TestDeleteMetadataUuids(t *testing.T) {
                                  util.DummySnapshot(uuid.NewString(), vol_uuid))
   meta_admin := buildTestMetadataWithState(t, ini_state)
 
-  done := meta_admin.DeleteMetadataUuids(ctx,
-                                         []string{ini_state.Sequences[1].Uuid},
-                                         []string{ini_state.Snapshots[1].Uuid})
-
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-      util.EqualsOrFailTest(t, "Bad state", meta_admin.State, expect_state)
-    case <-ctx.Done():
-      t.Fatalf("TestDeleteMetadataUuids timeout")
-  }
+  err := meta_admin.DeleteMetadataUuids(ctx,
+                                        []string{ini_state.Sequences[1].Uuid},
+                                        []string{ini_state.Snapshots[1].Uuid})
+  if err != nil { t.Errorf("meta_admin.DeleteMetadataUuids: %v", err) }
+  util.EqualsOrFailTest(t, "Bad state", meta_admin.State, expect_state)
 }
 
 func TestDeleteMetadataUuids_Empty(t *testing.T) {
@@ -387,17 +381,11 @@ func TestDeleteMetadataUuids_Empty(t *testing.T) {
   defer cancel()
   meta_admin := buildTestMetadataWithState(t, &pb.AllMetadata{})
 
-  done := meta_admin.DeleteMetadataUuids(ctx,
-                                         []string{"not_exists_seq"},
-                                         []string{"not_exists_snap"})
-
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-      util.EqualsOrFailTest(t, "Bad state", meta_admin.State, &pb.AllMetadata{})
-    case <-ctx.Done():
-      t.Fatalf("TestDeleteMetadataUuids_Empty timeout")
-  }
+  err := meta_admin.DeleteMetadataUuids(ctx,
+                                        []string{"not_exists_seq"},
+                                        []string{"not_exists_snap"})
+  if err != nil { t.Errorf("meta_admin.DeleteMetadataUuids: %v", err) }
+  util.EqualsOrFailTest(t, "Bad state", meta_admin.State, &pb.AllMetadata{})
 }
 
 func TestDeleteMetadataUuids_UuidNotFound(t *testing.T) {
@@ -407,17 +395,11 @@ func TestDeleteMetadataUuids_UuidNotFound(t *testing.T) {
   ini_state := proto.Clone(expect_state).(*pb.AllMetadata)
   meta_admin := buildTestMetadataWithState(t, ini_state)
 
-  done := meta_admin.DeleteMetadataUuids(ctx,
-                                         []string{"not_exists_seq"},
-                                         []string{"not_exists_snap"})
-
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-      util.EqualsOrFailTest(t, "Bad state", meta_admin.State, expect_state)
-    case <-ctx.Done():
-      t.Fatalf("TestDeleteMetadataUuids_UuidNotFound timeout")
-  }
+  err := meta_admin.DeleteMetadataUuids(ctx,
+                                        []string{"not_exists_seq"},
+                                        []string{"not_exists_snap"})
+  if err != nil { t.Errorf("meta_admin.DeleteMetadataUuids: %v", err) }
+  util.EqualsOrFailTest(t, "Bad state", meta_admin.State, expect_state)
 }
 
 func TestReplaceSnapshotSeqHead(t *testing.T) {

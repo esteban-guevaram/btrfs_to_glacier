@@ -63,17 +63,11 @@ func (self *S3MetadataAdmin) SetupMetadata_Only(
   return err
 }
 
-func (self *S3MetadataAdmin) SetupMetadata(
-    ctx context.Context) (<-chan error) {
-  done := make(chan error, 1)
-  go func() {
-    defer close(done)
-    err := self.SetupMetadata_Only(ctx)
-    if err != nil { done <- err ; return }
-    if self.State == nil { done <- self.LoadPreviousStateFromS3(ctx); return }
-    done <- nil
-  }()
-  return done
+func (self *S3MetadataAdmin) SetupMetadata(ctx context.Context) error {
+  err := self.SetupMetadata_Only(ctx)
+  if err != nil { return err }
+  if self.State == nil { return self.LoadPreviousStateFromS3(ctx) }
+  return nil
 }
 
 func (self *S3MetadataAdmin) enableVersioning(

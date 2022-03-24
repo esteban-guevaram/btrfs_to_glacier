@@ -185,8 +185,8 @@ func (self *Metadata) ListAllSnapshots(
   return &SnapshotIterator{ next_f }, nil
 }
 
-func (self *Metadata) SetupMetadata(ctx context.Context) (<-chan error) {
-  return util.WrapInChan(ctx.Err())
+func (self *Metadata) SetupMetadata(ctx context.Context) error {
+  return ctx.Err()
 }
 
 func (self *Metadata) DeleteSnapshotSeqHead(ctx context.Context, uuid string) error {
@@ -211,10 +211,10 @@ func (self *Metadata) DeleteSnapshot(ctx context.Context, uuid string) error {
 }
 
 func (self *Metadata) DeleteMetadataUuids(
-    ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error) {
+    ctx context.Context, seq_uuids []string, snap_uuids []string) error {
   for _,uuid := range seq_uuids { delete(self.Seqs, uuid) }
   for _,uuid := range snap_uuids { delete(self.Snaps, uuid) }
-  return util.WrapInChan(ctx.Err())
+  return ctx.Err()
 }
 
 func (self *Metadata) ReplaceSnapshotSeqHead(
@@ -232,14 +232,10 @@ func (self *Metadata) PersistCurrentMetadataState(ctx context.Context) (string, 
 ///////////////////////// Storage //////////////////////////
 
 func (self *Storage) WriteStream(
-    ctx context.Context, offset uint64, read_pipe types.ReadEndIf) (<-chan types.ChunksOrError, error) {
-  result := types.ChunksOrError{
-    Val: &pb.SnapshotChunks{ KeyFingerprint: uuid_mod.NewString(), },
-  }
-  done := make(chan types.ChunksOrError, 1)
+    ctx context.Context, offset uint64, read_pipe types.ReadEndIf) (*pb.SnapshotChunks, error) {
+  result := &pb.SnapshotChunks{ KeyFingerprint: uuid_mod.NewString(), }
   start := offset
   defer read_pipe.Close()
-  defer close(done)
 
   if offset > 0 {
     limit_read := &io.LimitedReader{ R:read_pipe, N:int64(offset), }
@@ -247,11 +243,11 @@ func (self *Storage) WriteStream(
     if err != nil { return nil, err }
   }
   for {
-    if ctx.Err() != nil { result.Err = ctx.Err(); break }
+    if ctx.Err() != nil { return result, ctx.Err() }
     uuid := uuid_mod.NewString()
     limit_read := &io.LimitedReader{ R:read_pipe, N:int64(self.ChunkLen), }
     chunk,err := io.ReadAll(limit_read)
-    if err != nil { result.Err = err; break }
+    if err != nil { return result, err }
     if len(chunk) < 1 { break }
 
     self.Chunks[uuid] = chunk
@@ -260,28 +256,27 @@ func (self *Storage) WriteStream(
       Start: start,
       Size: uint64(len(chunk)),
     }
-    result.Val.Chunks = append(result.Val.Chunks, chunk_pb)
+    result.Chunks = append(result.Chunks, chunk_pb)
     start += uint64(len(chunk))
   }
-  done <- result
-  return done, nil
+  return result, nil
 }
 
 func (self *Storage) QueueRestoreObjects(
-    ctx context.Context, uuids []string) (<-chan types.RestoreResult, error) {
-  done := make(chan types.RestoreResult, 1)
+    ctx context.Context, uuids []string) types.RestoreResult {
   result := make(types.RestoreResult)
-  defer close(done)
 
   for _,uuid := range uuids {
-    if ctx.Err() != nil { return nil, ctx.Err() }
+    if ctx.Err() != nil {
+      result[uuid] = types.ObjRestoreOrErr { Err: ctx.Err(), }
+      break
+    }
     _,found := self.Chunks[uuid]
     if !found { continue }
     self.Restored[uuid] = true
     result[uuid] = types.ObjRestoreOrErr { Stx: types.Restored, }
   }
-  done <- result
-  return done, nil
+  return result
 }
 
 func (self *Storage) ReadChunksIntoStream(
@@ -328,17 +323,17 @@ func (self *Storage) ListAllChunks(
   return &SnapshotChunksIterator{ next_f }, nil
 }
 
-func (self *Storage) SetupStorage(ctx context.Context) (<-chan error) {
-  return util.WrapInChan(ctx.Err())
+func (self *Storage) SetupStorage(ctx context.Context) error {
+  return ctx.Err()
 }
 
 func (self *Storage) DeleteChunks(
-    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error) {
+    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) error {
   for _,chunk := range chunks {
     delete(self.Chunks, chunk.Uuid)
     delete(self.Restored, chunk.Uuid)
   }
-  return util.WrapInChan(ctx.Err())
+  return ctx.Err()
 }
 
 ///////////////////////// Fill out mock ////////////////////////

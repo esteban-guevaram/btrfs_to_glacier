@@ -40,12 +40,8 @@ func buildTestRoundRobinMetadataWithState(
 func callSetupMetadataSync(t *testing.T, meta *RoundRobinMetadata) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
-  done := meta.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Fatalf("SetupMetadata err: %v", err) }
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
+  err := meta.SetupMetadata(ctx)
+  if err != nil { t.Fatalf("SetupMetadata err: %v", err) }
 }
 
 func getPairStorageAndSetup(t *testing.T, meta *RoundRobinMetadata) (types.AdminStorage, *ChunkIoForTestImpl) {
@@ -55,12 +51,8 @@ func getPairStorageAndSetup(t *testing.T, meta *RoundRobinMetadata) (types.Admin
   codec.Fingerprint = types.PersistableString{"some_fp"}
   storage, err := meta.GetPairStorage(codec)
   if err != nil { t.Fatalf("meta.GetPairStorage: %v", err) }
-  done := storage.SetupStorage(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Fatalf("SetupStorage err: %v", err) }
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
+  err = storage.SetupStorage(ctx)
+  if err != nil { t.Fatalf("SetupStorage err: %v", err) }
   chunkio := GetChunkIoForTest(storage)
   if !strings.HasPrefix(chunkio.ChunkDir, meta.DirInfo.MountRoot) {
     t.Fatalf("Different fs between metadata and storage: '%s', '%s'", chunkio.ChunkDir, meta.DirInfo.MountRoot)
@@ -179,12 +171,8 @@ func TestSetupRoundRobinMetadata_MountFail(t *testing.T) {
   defer clean_f()
   meta.Linuxutil.(*mocks.Linuxutil).Err = fmt.Errorf("mount_err")
 
-  done := meta.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err == nil { t.Errorf("expected error") }
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
+  err := meta.SetupMetadata(ctx)
+  if err == nil { t.Errorf("expected error") }
 }
 
 func TestSetupRoundRobinMetadata_Idempotent(t *testing.T) {
@@ -243,17 +231,9 @@ func TestStorageReadWriteCycle(t *testing.T) {
 
   expect_data := util.GenerateRandomTextData(32)
   pipe := mocks.NewPreloadedPipe(expect_data)
-  done, err := storage.WriteStream(ctx, 0, pipe.ReadEnd())
-  if err != nil { t.Errorf("storage.WriteStream: %v", err) }
-
-  var val *pb.SnapshotChunks
-  select {
-    case val_or_err := <-done:
-      if val_or_err.Err != nil { t.Fatalf("ChunksOrError: %v", val_or_err.Err) }
-      util.EqualsOrFailTest(t, "Bad len", len(val_or_err.Val.Chunks), 1)
-      val = val_or_err.Val
-    case <-ctx.Done(): t.Fatalf("storage.WriteStream timedout")
-  }
+  val, err := storage.WriteStream(ctx, 0, pipe.ReadEnd())
+  if err != nil { t.Fatalf("ChunksOrError: %v", err) }
+  util.EqualsOrFailTest(t, "Bad len", len(val.Chunks), 1)
 
   reader, err := storage.ReadChunksIntoStream(ctx, val)
   if err != nil { t.Fatalf("storage.ReadChunksIntoStream: %v", err) }

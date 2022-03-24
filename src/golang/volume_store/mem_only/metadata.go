@@ -234,7 +234,7 @@ func (self *Metadata) FindOrCloneSnap(snap *pb.SubVolume) *pb.SubVolume {
 }
 
 func (self *Metadata) DeleteMetadataUuids(
-    ctx context.Context, seq_uuids []string, snap_uuids []string) (<-chan error) {
+    ctx context.Context, seq_uuids []string, snap_uuids []string) error {
   seq_set := make(map[string]bool)
   for _,uuid := range seq_uuids { seq_set[uuid] = true }
   snap_set := make(map[string]bool)
@@ -254,7 +254,7 @@ func (self *Metadata) DeleteMetadataUuids(
 
   self.State.Sequences = new_seqs
   self.State.Snapshots = new_snaps
-  return util.WrapInChan(nil)
+  return nil
 }
 
 func (self *Metadata) ReplaceSnapshotSeqHead(

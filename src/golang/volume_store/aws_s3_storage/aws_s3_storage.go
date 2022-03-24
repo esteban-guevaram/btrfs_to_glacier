@@ -122,12 +122,8 @@ func (self *ChunkIoImpl) ReadOneChunk(
     return fmt.Errorf("mismatched length with metadata: %d != %d", get_out.ContentLength, chunk.Size)
   }
   read_wrap := util.WrapPlainReaderCloser(get_out.Body)
-  done := self.Parent.Codec.DecryptStreamInto(ctx, key_fp, read_wrap, output)
-  select {
-    case err := <-done: return err
-    case <-ctx.Done():
-  }
-  return nil
+  err = self.Parent.Codec.DecryptStreamInto(ctx, key_fp, read_wrap, output)
+  return err
 }
 
 // Each chunk should be encrypted with a different IV,
@@ -275,28 +271,22 @@ func (self *s3Storage) pollRestoreStatus(ctx context.Context, key string) types.
 }
 
 func (self *s3Storage) QueueRestoreObjects(
-    ctx context.Context, keys []string) (<-chan types.RestoreResult, error) {
-  if len(keys) < 1 { return nil, fmt.Errorf("empty keys") }
-  done := make(chan types.RestoreResult)
-  go func() {
-    defer close(done)
-    result := make(types.RestoreResult)
-    for _,key := range keys {
-      stx := self.ChunkIo.RestoreSingleObject(ctx, key)
-      result[key] = stx
-      // restore request is successful for pending and completed restores.
-      // we need to issue a head request to know which.
-      if stx.Err == nil && stx.Stx == types.Unknown {
-        head_stx := self.pollRestoreStatus(ctx, key)
-        if head_stx.Err == nil && head_stx.Stx == types.Unknown {
-          head_stx.Err = fmt.Errorf("head should have determined restore status for '%s'", key)
-        }
-        result[key] = head_stx
+    ctx context.Context, keys []string) types.RestoreResult {
+  result := make(types.RestoreResult)
+  for _,key := range keys {
+    stx := self.ChunkIo.RestoreSingleObject(ctx, key)
+    result[key] = stx
+    // restore request is successful for pending and completed restores.
+    // we need to issue a head request to know which.
+    if stx.Err == nil && stx.Stx == types.Unknown {
+      head_stx := self.pollRestoreStatus(ctx, key)
+      if head_stx.Err == nil && head_stx.Stx == types.Unknown {
+        head_stx.Err = fmt.Errorf("head should have determined restore status for '%s'", key)
       }
+      result[key] = head_stx
     }
-    util.Infof("Queued restore for %d objects.", len(keys))
-    done <- result
-  }()
-  return done, nil
+  }
+  util.Infof("Queued restore for %d objects.", len(keys))
+  return result
 }
 

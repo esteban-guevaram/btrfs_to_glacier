@@ -177,14 +177,9 @@ func TestGetChangesBetweenSnaps(t *testing.T) {
   }
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
 	defer cancel()
-  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
+  changes, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
   if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
-  select {
-    case changes := <-ch:
-      if changes.Err != nil { t.Fatalf("GetChangesBetweenSnaps: %v", err) }
-      util.EqualsOrFailTest(t, "Bad changes", changes.Val, expect_changes)
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
+  util.EqualsOrFailTest(t, "Bad changes", changes, expect_changes)
 }
 
 func TestGetChangesBetweenSnaps_ErrPropagation(t *testing.T) {
@@ -193,14 +188,9 @@ func TestGetChangesBetweenSnaps_ErrPropagation(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
-  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
-  if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
-  select {
-    case changes := <-ch:
-      if !errors.Is(changes.Err, mocks.ErrIoPipe) {
-        t.Fatalf("GetChangesBetweenSnaps bad error propagation: %v", changes.Err)
-      }
-    case <-ctx.Done(): t.Fatalf("timedout")
+  _, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
+  if !errors.Is(err, mocks.ErrIoPipe) {
+    t.Fatalf("GetChangesBetweenSnaps bad error propagation: %v", err)
   }
 }
 
@@ -235,9 +225,9 @@ func TestGetChangesBetweenSnaps_ErrStartingStream(t *testing.T) {
   btrfsutil.Err = fmt.Errorf("problemo")
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
-  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
+  changes, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[0], btrfsutil.Snaps[1])
   if err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
-  if ch != nil { t.Errorf("Expected nil channel on error") }
+  if changes != nil { t.Errorf("Expected nil changes on error") }
 }
 
 func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
@@ -245,13 +235,8 @@ func TestGetChangesBetweenSnaps_ErrParsingStream(t *testing.T) {
   btrfsutil.DumpErr = fmt.Errorf("problemo")
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
-  ch, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
-  if err != nil { t.Errorf("GetChangesBetweenSnaps: %v", err) }
-  select {
-    case changes := <-ch:
-      if changes.Err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
+  _, err := volmgr.GetChangesBetweenSnaps(ctx, btrfsutil.Snaps[1], btrfsutil.Snaps[4])
+  if err == nil { t.Errorf("GetChangesBetweenSnaps expected error") }
 }
 
 func TestCreateSnapshot(t *testing.T) {
@@ -297,14 +282,9 @@ func TestReceiveSendStream(t *testing.T) {
   mock_received.MountedPath = fpmod.Join(recv_path, "recv_snap")
   btrfsutil.Snaps = append(btrfsutil.Snaps, mock_received)
 
-  ch, err := volmgr.ReceiveSendStream(ctx, recv_path, mock_received.ReceivedUuid, read_pipe)
+  sv, err := volmgr.ReceiveSendStream(ctx, recv_path, mock_received.ReceivedUuid, read_pipe)
   if err != nil { t.Errorf("ReceiveSendStream: %v", err) }
-  select {
-    case sv_or_error := <-ch:
-      if sv_or_error.Err != nil { t.Errorf("ReceiveSendStream: %v", sv_or_error.Err) }
-      util.EqualsOrFailTest(t, "Bad received subvol", sv_or_error.Val, mock_received)
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
+  util.EqualsOrFailTest(t, "Bad received subvol", sv, mock_received)
 }
 
 func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
@@ -313,13 +293,8 @@ func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
-  ch, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)
-  if err != nil { t.Errorf("ReceiveSendStream: %v", err) }
-  select {
-    case sv_or_error := <-ch:
-      if sv_or_error.Err == nil { t.Errorf("ReceiveSendStream expected error") }
-    case <-ctx.Done(): t.Fatalf("timedout")
-  }
+  _, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)
+  if err == nil { t.Errorf("ReceiveSendStream expected error") }
 }
 
 func TestReceiveSendStream_ErrPropagation(t *testing.T) {
@@ -328,14 +303,9 @@ func TestReceiveSendStream_ErrPropagation(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
-  ch, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)
-  if err != nil { t.Logf("ReceiveSendStream: %v", err) }
-  select {
-    case sv_or_error := <-ch:
-      if !errors.Is(sv_or_error.Err, mocks.ErrIoPipe) {
-        t.Errorf("ReceiveSendStream bad error propagation: %v", sv_or_error.Err)
-      }
-    case <-ctx.Done(): t.Fatalf("timedout")
+  _, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)
+  if !errors.Is(err, mocks.ErrIoPipe) {
+    t.Errorf("ReceiveSendStream bad error propagation: %v", err)
   }
 }
 

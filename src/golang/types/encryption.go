@@ -54,7 +54,7 @@ type Codec interface {
   // `key_fp` may be left empty to use the current encryption key.
   // Takes ownership of `input` and will close it once done.
   // `output` will NOT be closed (unless there is an error) so that it can be reused.
-  // Waiting on the returned channel will block until the whole stream has been decrypted.
-  DecryptStreamInto(ctx context.Context, key_fp PersistableString, input ReadEndIf, output io.WriteCloser) (<-chan error)
+  // Returns when the whole stream has been decrypted.
+  DecryptStreamInto(ctx context.Context, key_fp PersistableString, input ReadEndIf, output io.WriteCloser) error
 }
 

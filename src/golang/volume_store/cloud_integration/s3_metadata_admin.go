@@ -35,19 +35,19 @@ func (self *s3MetaAdminTester) TestS3MetadataSetup(ctx context.Context) {
     util.Infof("TestS3MetadataSetup '%s' deleted", bucket)
   }
 
-  done := self.Metadata.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { util.Fatalf("%v", err) }
-      util.Infof("Bucket '%s' created OK", bucket)
-    case <-ctx.Done():
-  }
+  done := make(chan bool)
+  go func() {
+    defer close(done)
+    err = self.Metadata.SetupMetadata(ctx)
+    if err != nil { util.Fatalf("Metadata.SetupMetadata: %v", err) }
+    util.Infof("Bucket '%s' created OK", bucket)
 
-  done = self.Metadata.SetupMetadata(ctx)
+    err = self.Metadata.SetupMetadata(ctx)
+    if err != nil { util.Fatalf("Not idempotent %v", err) }
+  }()
   select {
-    case err := <-done:
-      if err != nil { util.Fatalf("Not idempotent %v", err) }
-    case <-ctx.Done():
+    case <-done:
+    case <-ctx.Done(): util.Fatalf("Timeout: %v", ctx.Err())
   }
 }
 

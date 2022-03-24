@@ -75,12 +75,8 @@ func (self *ChunkIoImpl) ReadOneChunk(
     return fmt.Errorf("mismatched length with metadata: %d != %d", len(data), chunk.Size)
   }
   input := util.ReadEndFromBytes(data)
-  done := self.ParCodec.DecryptStreamInto(ctx, key_fp, input, output)
-  select {
-    case err := <-done: return err
-    case <-ctx.Done():
-  }
-  return nil
+  err := self.ParCodec.DecryptStreamInto(ctx, key_fp, input, output)
+  return err
 }
 
 // Race detector does not recognize the ordering event (close pipe write end, EOF on read end)
@@ -140,77 +136,66 @@ func (self *ChunkIoImpl) ListChunks(
 }
 
 func (self *BaseStorage) WriteStream(
-    ctx context.Context, offset uint64, read_pipe types.ReadEndIf) (<-chan types.ChunksOrError, error) {
-  done := make(chan types.ChunksOrError, 1)
-
-  go func() {
-    var err error
-    result := types.ChunksOrError{
-      Val: &pb.SnapshotChunks{ KeyFingerprint: self.Codec.CurrentKeyFingerprint().S, },
-    }
-
-    defer func() {
-      result.Err = util.Coalesce(read_pipe.GetErr(), err)
-      done <- result
-      close(done)
-    }()
-    defer read_pipe.Close()
-
+    ctx context.Context, offset uint64, read_pipe types.ReadEndIf) (*pb.SnapshotChunks, error) {
+  defer read_pipe.Close()
+  
+  result, err := func() (*pb.SnapshotChunks, error) {
+    result := &pb.SnapshotChunks{ KeyFingerprint: self.Codec.CurrentKeyFingerprint().S, }
     if offset > 0 {
       var cnt int64
-      cnt, err = io.CopyN(io.Discard, read_pipe, int64(offset))
-      if err != nil { return }
+      cnt, err := io.CopyN(io.Discard, read_pipe, int64(offset))
+      if err != nil { return nil, err }
       if cnt != int64(offset) {
-        err = fmt.Errorf("Discarded less bytes than expected.")
-        return
+        return nil, fmt.Errorf("Discarded less bytes than expected.")
       }
     }
 
     more_data := true
     start_offset := uint64(offset)
     for more_data {
+      var err error
       var chunk *pb.SnapshotChunks_Chunk
       chunk, more_data, err = self.ChunkIo.WriteOneChunk(ctx, start_offset, read_pipe)
-      if err != nil { return }
+      if err != nil { return result, nil }
       if chunk != nil {
-        result.Val.Chunks = append(result.Val.Chunks, chunk)
+        result.Chunks = append(result.Chunks, chunk)
         start_offset += chunk.Size
       }
     }
 
-    if len(result.Val.Chunks) < 1 { err = fmt.Errorf("stream contained no data") }
-    util.Infof(self.UploadSummary(result))
+    if len(result.Chunks) < 1 { return result, fmt.Errorf("stream contained no data") }
+    return result, nil
   }()
-  return done, read_pipe.GetErr()
+
+  err = util.Coalesce(read_pipe.GetErr(), err)
+  util.Infof(self.UploadSummary(result, err))
+  return result, err
 }
 
-func (self *BaseStorage) UploadSummary(result types.ChunksOrError) string {
+func (self *BaseStorage) UploadSummary(result *pb.SnapshotChunks, err error) string {
   var total_size uint64 = 0
   var uuids strings.Builder
-  for _,c := range result.Val.Chunks {
+  if result == nil { result = &pb.SnapshotChunks{} }
+  for _,c := range result.Chunks {
     total_size += c.Size
     uuids.WriteString(c.Uuid)
     uuids.WriteString(", ")
   }
-  if result.Err == nil {
+  if err == nil {
     return fmt.Sprintf("Wrote OK %d bytes in %d chunks: %s",
-                       total_size, len(result.Val.Chunks), uuids.String())
+                       total_size, len(result.Chunks), uuids.String())
   }
   return fmt.Sprintf("Wrote %d bytes in %d chunks: %s\nError: %v",
-                     total_size, len(result.Val.Chunks), uuids.String(), result.Err)
+                     total_size, len(result.Chunks), uuids.String(), err)
 }
 
 func (self *BaseStorage) QueueRestoreObjects(
-    ctx context.Context, uuids []string) (<-chan types.RestoreResult, error) {
-  done := make(chan types.RestoreResult, 1)
+    ctx context.Context, uuids []string) types.RestoreResult {
   result := make(types.RestoreResult)
-  defer close(done)
-
   for _,uuid := range uuids {
     result[uuid] = self.ChunkIo.RestoreSingleObject(ctx, uuid)
   }
-  done <- result
-  return done, nil
+  return result
 }
 
 func (self *BaseStorage) ReadChunksIntoStream(
@@ -232,20 +217,20 @@ func (self *BaseStorage) ReadChunksIntoStream(
   return pipe.ReadEnd(), pipe.ReadEnd().GetErr()
 }
 
-func (self *Storage) SetupStorage(ctx context.Context) (<-chan error) {
-  return util.WrapInChan(nil)
+func (self *Storage) SetupStorage(ctx context.Context) error {
+  return nil
 }
 
 func (self *Storage) DeleteChunks(
-    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error) {
-  if len(chunks) < 1 { return util.WrapInChan(fmt.Errorf("cannot delete 0 keys")) }
-  if ctx.Err() != nil { return util.WrapInChan(ctx.Err()) }
+    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) error {
+  if len(chunks) < 1 { return fmt.Errorf("cannot delete 0 keys") }
+  if ctx.Err() != nil { return ctx.Err() }
   switch impl := self.ChunkIo.(type) {
     case *ChunkIoImpl:
       for _,c := range chunks { delete(impl.Chunks, c.Uuid) }
     default: util.Fatalf("You should have never called into the base class")
   }
-  return util.WrapInChan(nil)
+  return nil
 }
 
 func (self *BaseStorage) ListAllChunks(

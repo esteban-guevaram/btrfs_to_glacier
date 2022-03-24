@@ -171,13 +171,8 @@ func TestSetupSimpleDirMetadata_Simple(t *testing.T) {
   meta_admin,_,clean_f := buildTestSimpleDirMetadata_NilState(t)
   defer clean_f()
   if meta_admin.State != nil { t.Errorf("State already loaded") }
-  done := meta_admin.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-    case <-ctx.Done():
-      t.Fatalf("TestSetupmeta_admin timeout")
-  }
+  err := meta_admin.SetupMetadata(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
 func TestSetupSimpleDirMetadata_Fail(t *testing.T) {
@@ -186,13 +181,8 @@ func TestSetupSimpleDirMetadata_Fail(t *testing.T) {
   meta_admin,_,clean_f := buildTestSimpleDirMetadata_NilState(t)
   defer clean_f()
   meta_admin.DirInfo.MetadataDir = uuid.NewString() // this dir should not exist
-  done := meta_admin.SetupMetadata(ctx)
-  select {
-    case err := <-done:
-      if err == nil { t.Errorf("Expected error in SetupMetadata") }
-    case <-ctx.Done():
-      t.Fatalf("TestSetupmeta_admin timeout")
-  }
+  err := meta_admin.SetupMetadata(ctx)
+  if err == nil { t.Errorf("Expected error in SetupMetadata") }
 }
 
 func TestSetupSimpleDirMetadata_Idempotent(t *testing.T) {
@@ -204,14 +194,9 @@ func TestSetupSimpleDirMetadata_Idempotent(t *testing.T) {
   if err != nil { t.Fatalf("failed to set init state: %v", err) }
 
   for i:=0; i<2; i+=1 {
-    done := meta_admin.SetupMetadata(ctx)
-    select {
-      case err := <-done:
-        if err != nil { t.Errorf("Returned error: %v", err) }
-        if meta_admin.State == nil { t.Errorf("State not loaded") }
-      case <-ctx.Done():
-        t.Fatalf("TestSetupSimpleDirMetadata_Idempotent timeout")
-    }
+    err := meta_admin.SetupMetadata(ctx)
+    if err != nil { t.Errorf("Returned error: %v", err) }
+    if meta_admin.State == nil { t.Errorf("State not loaded") }
   }
 }
 
@@ -222,14 +207,9 @@ func TestSetupSimpleDirMetadata_IdempotentNoState(t *testing.T) {
   defer clean_f()
 
   for i:=0; i<2; i+=1 {
-    done := meta_admin.SetupMetadata(ctx)
-    select {
-      case err := <-done:
-        if err != nil { t.Errorf("Returned error: %v", err) }
-        util.EqualsOrFailTest(t, "Bad state", meta_admin.State, &pb.AllMetadata{})
-      case <-ctx.Done():
-        t.Fatalf("TestSetupSimpleDirMetadata_Idempotent timeout")
-    }
+    err := meta_admin.SetupMetadata(ctx)
+    if err != nil { t.Errorf("Returned error: %v", err) }
+    util.EqualsOrFailTest(t, "Bad state", meta_admin.State, &pb.AllMetadata{})
   }
 }
 

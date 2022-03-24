@@ -93,21 +93,16 @@ func (self *s3StorageAdmin) createLifecycleRule(
 
 // object standard tier
 // object no tags no metadata (that way we only need a simple kv store)
-func (self *s3StorageAdmin) SetupStorage(ctx context.Context) (<-chan error) {
+func (self *s3StorageAdmin) SetupStorage(ctx context.Context) error {
   bucket_name := self.Conf.Aws.S3.StorageBucketName
-  done := make(chan error, 1)
-  go func() {
-    defer close(done)
-    exists, err := self.common.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket_name)
-    if err != nil { done <- err ; return }
-    if exists { return }
+  exists, err := self.common.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket_name)
+  if err != nil { return err }
+  if exists { return nil }
 
-    err = self.common.CreateBucket(ctx, bucket_name)
-    if err != nil { done <- err ; return }
-    err = self.createLifecycleRule(ctx, bucket_name)
-    if err != nil { done <- err ; return }
-  }()
-  return done
+  err = self.common.CreateBucket(ctx, bucket_name)
+  if err != nil { return err }
+  err = self.createLifecycleRule(ctx, bucket_name)
+  return err
 }
 
 // Although operations on objects have read-after-write consistency, that does not apply to buckets.
@@ -159,23 +154,17 @@ func (self *s3StorageAdmin) deleteBatch(
 }
 
 func (self *s3StorageAdmin) DeleteChunks(
-    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) (<-chan error) {
-  if len(chunks) < 1 { return util.WrapInChan(fmt.Errorf("cannot delete 0 keys")) }
-  done := make(chan error, 1)
+    ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) error {
+  if len(chunks) < 1 { return fmt.Errorf("cannot delete 0 keys") }
 
-  go func() {
-    var err error
-    defer close(done)
-    for low_bound:=0; low_bound<len(chunks); low_bound+=delete_objects_max {
-      up_bound := low_bound + delete_objects_max
-      if up_bound > len(chunks) { up_bound = len(chunks) }
-      err := self.deleteBatch(ctx, chunks[low_bound:up_bound])
-      if err != nil { break }
-    }
-    util.Infof("Deleted %d keys: '%s'...'%s'",
-               len(chunks), chunks[0].Uuid, chunks[len(chunks)-1].Uuid)
-    done <- err
-  }()
-  return done
+  for low_bound:=0; low_bound<len(chunks); low_bound+=delete_objects_max {
+    up_bound := low_bound + delete_objects_max
+    if up_bound > len(chunks) { up_bound = len(chunks) }
+    err := self.deleteBatch(ctx, chunks[low_bound:up_bound])
+    if err != nil { return err }
+  }
+  util.Infof("Deleted %d keys: '%s'...'%s'",
+             len(chunks), chunks[0].Uuid, chunks[len(chunks)-1].Uuid)
+  return nil
 }
 

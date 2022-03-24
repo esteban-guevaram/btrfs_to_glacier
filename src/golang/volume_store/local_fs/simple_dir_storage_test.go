@@ -85,14 +85,9 @@ func HelperSetupStorage(t *testing.T, chunk_cnt int) {
     chunkio.Set(key, data)
   }
   chunkio.ChunkIndex = make(map[string]bool)
-  done := storage.SetupStorage(ctx)
-  select {
-    case err := <-done:
-      if err != nil { t.Errorf("Returned error: %v", err) }
-      util.EqualsOrFailTest(t, "Bad loaded state", len(chunkio.ChunkIndex), chunk_cnt)
-    case <-ctx.Done():
-      t.Fatalf("TestSetupStorage timeout")
-  }
+  err := storage.SetupStorage(ctx)
+  if err != nil { t.Errorf("Returned error: %v", err) }
+  util.EqualsOrFailTest(t, "Bad loaded state", len(chunkio.ChunkIndex), chunk_cnt)
 }
 
 func TestSetupStorage_Empty(t *testing.T) {
