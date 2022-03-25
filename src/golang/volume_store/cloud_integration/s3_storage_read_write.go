@@ -116,7 +116,7 @@ func (self *s3StoreReadWriteTester) TestWriteEmptyObject(ctx context.Context) {
   const offset = 0
   read_end := util.ReadEndFromBytes(nil)
   result, err := self.Storage.WriteStream(ctx, offset, read_end)
-  if err != nil { util.Fatalf("Storage.WriteStream: %v", err) }
+  if err == nil { util.Fatalf("empty object should return error") }
   if result != nil {
     if len(result.Chunks) > 0 { util.Fatalf("no chunks should have been returned") }
   }

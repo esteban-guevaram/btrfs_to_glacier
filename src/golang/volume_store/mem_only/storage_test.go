@@ -164,7 +164,7 @@ func TestWriteReadWithRealCodec_ManyChunks(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad chunk count", len(written.Chunks), 3)
 }
 
-func TODOTestWriteStream_PrematureClosure(t *testing.T) {
+func TestWriteStream_PrematureClosure(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageRealCodec(t, 64)

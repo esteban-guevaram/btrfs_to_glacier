@@ -156,7 +156,7 @@ func (self *BaseStorage) WriteStream(
       var err error
       var chunk *pb.SnapshotChunks_Chunk
       chunk, more_data, err = self.ChunkIo.WriteOneChunk(ctx, start_offset, read_pipe)
-      if err != nil { return result, nil }
+      if err != nil { return result, err }
       if chunk != nil {
         result.Chunks = append(result.Chunks, chunk)
         start_offset += chunk.Size
