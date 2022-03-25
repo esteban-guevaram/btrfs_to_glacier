@@ -1,4 +1,4 @@
-package workflow
+package backup_restore_canary
 
 import (
   "bytes"
