@@ -5,12 +5,22 @@ import (
   pb "btrfs_to_glacier/messages"
 )
 
+type SnapshotSeqHead struct {
+  Head *pb.SnapshotSeqHead
+  Cur  *pb.SnapshotSequence
+}
+// Maps the subvolue uuid to the current snapshot sequence.
+type SnapshotSeqHeadMap = map[string]SnapshotSeqHead
+
 // Maintins a small filesystem that can be restored from scratch and validated.
 // Ensures that all stored volumes are still compatible and can be restored.
 type BackupRestoreCanary interface {}
 
 // Handles volume backup from a particular source.
 type BackupManager interface {
+  // Reads all snapshot heads and their current sequence from Metadata.
+  ReadSnapshotSeqHeadMap(ctx context.Context) (SnapshotSeqHeadMap, error)
+  BackupToNewSequence(ctx context.Context, vol_uuid string) (*pb.SubVolume, error)
   BackupToCurrentSequence(ctx context.Context, vol_uuid string) (*pb.SubVolume, error)
 }
 

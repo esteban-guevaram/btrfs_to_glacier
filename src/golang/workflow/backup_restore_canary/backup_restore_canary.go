@@ -23,10 +23,12 @@ const (
 )
 
 type FactoryIf interface {
+  //Meta     types.Metadata
+  //Store    types.Storage
   NewBackupManager(ctx context.Context,
-    conf *pb.Config, src_name string, meta types.Metadata, store types.Storage) (types.BackupManagerAdmin, error)
+    conf *pb.Config, src_name string) (types.BackupManagerAdmin, error)
   NewRestoreManager(ctx context.Context,
-    conf *pb.Config, dst_name string, meta types.Metadata, store types.Storage) (types.RestoreManager, error)
+    conf *pb.Config, dst_name string) (types.RestoreManager, error)
 }
 
 // Fields that may change value during the execution.
@@ -44,8 +46,6 @@ type State struct {
 
 type BackupRestoreCanary struct {
   Conf     *pb.Config
-  Store    types.Storage
-  Meta     types.Metadata
   Btrfs    types.Btrfsutil
   Lnxutil  types.Linuxutil
   Factory  FactoryIf
@@ -54,7 +54,7 @@ type BackupRestoreCanary struct {
 
 // Creates empty btrfs filesystem on loop device.
 // Prepares State to point to the newly created filesystem.
-// Creates a new volume if this `self.Meta` does not contain any.
+// Creates a new volume if this is the first time the canary is run.
 // Prerequisite: Storage and Metadata have previously been setup.
 func (self *BackupRestoreCanary) Setup(ctx context.Context) error {
   if self.State != nil {
@@ -93,10 +93,10 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
 
   self.State.FakeConf = self.BuildFakeConf()
 
-  self.State.BackupMgr, err = self.Factory.NewBackupManager(ctx, self.State.FakeConf, FakeSource, self.Meta, self.Store)
+  self.State.BackupMgr, err = self.Factory.NewBackupManager(ctx, self.State.FakeConf, FakeSource)
   if err != nil { return err }
 
-  self.State.RestoreMgr, err = self.Factory.NewRestoreManager(ctx, self.State.FakeConf, FakeSource, self.Meta, self.Store)
+  self.State.RestoreMgr, err = self.Factory.NewRestoreManager(ctx, self.State.FakeConf, FakeSource)
   if err != nil { return err }
 
   self.State.Uuid, err = self.DetermineVolUuid(ctx)
@@ -119,17 +119,15 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
 }
 
 func (self *BackupRestoreCanary) DetermineVolUuid(ctx context.Context) (string, error) {
-  it, err := self.Meta.ListAllSnapshotSeqHeads(ctx)
+  heads, err := self.State.BackupMgr.ReadSnapshotSeqHeadMap(ctx)
   if err != nil { return "", err }
-  head := &pb.SnapshotSeqHead{}
-  if it.Next(ctx, head) {
-    first_uuid := head.Uuid
-    if it.Next(ctx, head) {
-      return "", fmt.Errorf("Metadata contains more than 1 volume: %v", head)
-    }
-    return first_uuid, it.Err()
+  if len(heads) > 1 {
+    return "", fmt.Errorf("Metadata contains more than 1 volume: %v", len(heads))
   }
-  return "", it.Err()
+  for k,_ := range heads {
+    return k, nil
+  }
+  return "", nil
 }
 
 func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
@@ -198,7 +196,6 @@ func (self *BackupRestoreCanary) CreateFirstValidationChainItem() error {
   return util.Coalesce(err, f.Close())
 }
 
-// Storage and Metadata are persisted.
 // Destroys the loop device and backing file.
 // In case of a partial `Setup()`, attempts to delete any dangling infracstructure.
 func (self *BackupRestoreCanary) TearDown(ctx context.Context) error {
@@ -206,13 +203,12 @@ func (self *BackupRestoreCanary) TearDown(ctx context.Context) error {
     util.Infof("Teardown before calling setup is a noop")
     return nil
   }
-  var persist_err, umount_err, deldev_err error
-  _, persist_err = self.Meta.PersistCurrentMetadataState(ctx)
+  var umount_err, deldev_err error
   if len(self.State.Fs.Mounts) > 0 {
     umount_err = self.Lnxutil.UMount(ctx, self.State.Fs.Uuid)
   }
   deldev_err = self.Lnxutil.DeleteLoopDevice(ctx, self.State.Fs.Devices[0])
-  return util.Coalesce(persist_err, umount_err, deldev_err)
+  return util.Coalesce(umount_err, deldev_err)
 }
 
 // btrfs subvolume snap restores/asubvol.snap.2 clones/asubvol.clone.2
