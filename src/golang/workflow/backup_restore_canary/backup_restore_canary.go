@@ -44,6 +44,8 @@ type State struct {
   RestoreMgr  types.RestoreManager
 }
 
+// Note: this type cannot be abstracted away from btrfs.
+// It needs to perform some operations that are not available in types.VolumeManager.
 type BackupRestoreCanary struct {
   Conf     *pb.Config
   Btrfs    types.Btrfsutil
@@ -106,11 +108,9 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
     self.State.New = true
     err = self.Btrfs.CreateSubvolume(self.State.VolRoot)
     if err != nil { return err }
-    sv, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
-    if err != nil { return err }
     err = self.CreateFirstValidationChainItem()
     if err != nil { return err }
-    _, err = self.State.BackupMgr.BackupToCurrentSequence(ctx, sv.Uuid)
+    _, err = self.State.BackupMgr.BackupAllToCurrentSequences(ctx)
     if err != nil { return err }
     self.State.Uuid, err = self.DetermineVolUuid(ctx)
     if err != nil { return err }
@@ -119,7 +119,7 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
 }
 
 func (self *BackupRestoreCanary) DetermineVolUuid(ctx context.Context) (string, error) {
-  heads, err := self.State.BackupMgr.ReadSnapshotSeqHeadMap(ctx)
+  heads, err := self.State.RestoreMgr.ReadSnapshotSeqHeadMap(ctx)
   if err != nil { return "", err }
   if len(heads) > 1 {
     return "", fmt.Errorf("Metadata contains more than 1 volume: %v", len(heads))
@@ -228,8 +228,8 @@ func (self *BackupRestoreCanary) AppendSnapshotToValidationChain(ctx context.Con
 
   src, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
   if err != nil { return err }
-  _, err = self.State.BackupMgr.BackupToCurrentSequenceUnrelatedVol(ctx,
-                                                                    src.Uuid, self.State.Uuid)
+  // if self.State.New then `src` and self.State.Uuid do share the same parent
+  _, err = self.State.BackupMgr.BackupToCurrentSequenceUnrelatedVol(ctx, src, self.State.Uuid)
   return err
 }
 
