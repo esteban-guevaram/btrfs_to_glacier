@@ -94,13 +94,14 @@ go_debug: go_code
 	pushd "$(MYGOSRC)"
 	echo '
 	#break btrfs_to_glacier/encryption.(*aesGzipCodec).EncryptStream
-	break encryption/aes_gzip_codec.go:226
+	break workflow/backup_manager/backup_manager.go:119
 	continue
 	' > "$(MYDLVINIT)"
 	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
-	  dlv test "btrfs_to_glacier/volume_store/mem_only" --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
-		  -- --test.run='TestWriteReadWithRealCodec$$' --test.v
+	  dlv test "btrfs_to_glacier/workflow/backup_manager" \
+		  --build-flags='-tags=delve' --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
+		  -- --test.run='TestBackupAllToCurrentSequences_NewSeq_NoSnaps_SingleVol$$' --test.v
 
 # Fails with a linker error if missing `c_code`
 go_upgrade_mods: $(GOENV) c_code

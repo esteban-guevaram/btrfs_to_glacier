@@ -1,4 +1,5 @@
 // +build !race
+// +build !delve
 
 package util
 
