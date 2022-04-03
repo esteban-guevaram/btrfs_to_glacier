@@ -28,6 +28,20 @@ type BackupManager struct {
   MinInterval time.Duration
 }
 
+func NewBackupManager(
+    conf *pb.Config, src_name string, meta types.Metadata, store types.Storage, vol_src types.VolumeSource) (types.BackupManager, error) {
+  mgr := &BackupManager{
+    Conf: conf,
+    SrcName: src_name,
+    Meta: meta,
+    Store: store,
+    Source: vol_src,
+    MinInterval: MinIntervalBetweenSnaps,
+  }
+  _, err := mgr.GetSource()
+  return mgr, err
+}
+
 func (self *BackupManager) GetSource() (*pb.Source, error) {
   for _, src := range self.Conf.Sources {
     if src.Name == self.SrcName { return src, nil }

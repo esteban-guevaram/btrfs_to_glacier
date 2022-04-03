@@ -1,12 +1,17 @@
 package mocks
 
 import (
+  "context"
   "fmt"
+  "io"
   fpmod "path/filepath"
+  "os"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+
+  "github.com/google/uuid"
 )
 
 type BtrfsPathJuggler struct {
@@ -60,5 +65,115 @@ func (self *BtrfsPathJuggler) LoadSubVolume(
     self.UuidToFs[sv.Uuid] = fs
     self.UuidToMnt[sv.Uuid] = mnt
   }
+}
+
+type VolumeManager struct {
+  SnapRoot string
+  Err     error
+  Vols    map[string]*pb.SubVolume
+  Snaps   map[string][]*pb.SubVolume
+  Changes map[[2]string]*pb.SnapshotChanges
+}
+
+func NewVolumeManager() *VolumeManager {
+  return &VolumeManager{
+    SnapRoot: fpmod.Join(os.TempDir(), "snap_root"),
+    Err: nil,
+    Vols: make(map[string]*pb.SubVolume),
+    Snaps: make(map[string][]*pb.SubVolume),
+    Changes: make(map[[2]string]*pb.SnapshotChanges),
+  }
+}
+
+func CloneSnaps(snaps []*pb.SubVolume) []*pb.SubVolume {
+  clone_snaps := []*pb.SubVolume{}
+  for _,snap := range snaps {
+    clone := *snap
+    clone_snaps = append(clone_snaps, &clone)
+  }
+  return clone_snaps
+}
+
+func (self *VolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
+  sv, found := self.Vols[path]
+  if !found { return nil, fmt.Errorf("No sv for '%s'", path) }
+  return sv, self.Err
+}
+func (self *VolumeManager) FindVolume(
+    fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
+  for _,sv := range self.Vols {
+    clone := *sv
+    if matcher(sv) { return &clone, self.Err }
+  }
+  return nil, self.Err
+}
+func (self *VolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([]*pb.SubVolume, error) {
+  for vol_uuid,snaps := range self.Snaps {
+    if vol_uuid != subvol.Uuid { continue }
+    return CloneSnaps(snaps), self.Err
+  }
+  return nil, self.Err
+}
+func (self *VolumeManager) GetChangesBetweenSnaps(
+    ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (*pb.SnapshotChanges, error) {
+  key := [2]string{ from.Uuid, to.Uuid }
+  for k,changes := range self.Changes {
+    if k != key { continue }
+    clone := *changes
+    return &clone, self.Err
+  }
+  return nil, fmt.Errorf("No changes for %v", key)
+}
+func (self *VolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, error) {
+  snap := util.DummySnapshot(uuid.NewString(), subvol.Uuid)
+  snap.MountedPath = fpmod.Join(self.SnapRoot, snap.Uuid)
+  snaps := self.Snaps[subvol.Uuid]
+  snaps = append(snaps, snap)
+  self.Snaps[subvol.Uuid] = snaps
+  clone := *snap
+  return &clone, self.Err
+}
+func (self *VolumeManager) GetSnapshotStream(
+    ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (types.ReadEndIf, error) {
+  if from.ParentUuid != to.ParentUuid {
+    return nil, fmt.Errorf("uuid: '%s' != '%s'", from.ParentUuid, to.ParentUuid)
+  }
+  if _,found := self.Snaps[from.ParentUuid]; !found {
+    return nil, fmt.Errorf("self.Snaps[%s] not found", from.ParentUuid)
+  }
+  pipe := NewPreloadedPipe(util.GenerateRandomTextData(32))
+  return pipe.ReadEnd(), self.Err
+}
+func (self *VolumeManager) ReceiveSendStream(
+    ctx context.Context, root_path string, rec_uuid string, read_pipe types.ReadEndIf) (*pb.SubVolume, error) {
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    defer read_pipe.Close()
+    _, err := io.Copy(io.Discard, read_pipe)
+    done <- err
+  }()
+  util.WaitForNoErrorOrDie(ctx, done)
+  // We always consider this is the first restore in a chain (aka has no parent)
+  snap := util.DummySnapshot(uuid.NewString(), "")
+  snap.ReceivedUuid = rec_uuid
+  self.Snaps[snap.Uuid] = []*pb.SubVolume{snap,}
+  clone := *snap
+  return &clone, util.Coalesce(read_pipe.GetErr(), self.Err)
+}
+func (self *VolumeManager) DeleteSnapshot(snap *pb.SubVolume) error {
+  if _,found := self.Snaps[snap.ParentUuid]; !found {
+    return fmt.Errorf("delete unexisting snap: %s", util.AsJson(snap))
+  }
+  delete(self.Snaps, snap.Uuid)
+  return self.Err
+}
+func (self *VolumeManager) TrimOldSnapshots(
+    src_subvol *pb.SubVolume, dry_run bool) ([]*pb.SubVolume, error) {
+  if _,found := self.Snaps[src_subvol.Uuid]; !found {
+    return nil, self.Err
+  }
+  self.Snaps[src_subvol.Uuid] = []*pb.SubVolume{}
+  return nil, self.Err
 }
 

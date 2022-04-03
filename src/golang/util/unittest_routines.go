@@ -92,17 +92,6 @@ func ProduceRandomTextIntoPipe(ctx context.Context, chunk int, iterations int) t
   return pipe.ReadEnd()
 }
 
-func WaitForNoError(t *testing.T, ctx context.Context, done <-chan error) {
-  if done == nil { t.Error("channel is nil"); return }
-  if ctx.Err() != nil { t.Errorf("context expired before select"); return }
-  select {
-    case err,ok := <-done:
-      if !ok { Infof("channel closed") }
-      if err != nil { t.Errorf("Error in channel: %v", err) }
-    case <-ctx.Done(): t.Errorf("WaitForNoError timeout: %v", ctx.Err())
-  }
-}
-
 func WaitDurationForNoError(t *testing.T, duration time.Duration, done <-chan error) {
   if done == nil { t.Error("channel is nil"); return }
   select {
@@ -148,5 +137,15 @@ func WaitDurationForClosure(t *testing.T, duration time.Duration, done <-chan er
       t.Errorf("WaitForClosure timeout."); return nil
   }}
   return nil
+}
+
+func WaitForNoError(t *testing.T, ctx context.Context, done <-chan error) {
+  err := WaitForClosure(t, ctx, done)
+  if err != nil { t.Errorf("Error in channel: %v", err) }
+}
+
+func WaitForNoErrorOrDie(ctx context.Context, done <-chan error) {
+  err := WaitForClosureOrDie(ctx, done)
+  if err != nil { Fatalf("Error in channel: %v", err) }
 }
 
