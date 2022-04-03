@@ -229,6 +229,8 @@ func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
   return nil
 }
 
+// It is an error is there is no parent subvolume in the restore filesystem for an incremental send stream.
+// The first restored subvolume in the chain will be a readonly subvolume **without** ParentUuid.
 func (self *btrfsVolumeManager) ReceiveSendStream(
     ctx context.Context, root_path string, rec_uuid string, read_pipe types.ReadEndIf) (*pb.SubVolume, error) {
   var err error

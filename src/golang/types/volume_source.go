@@ -30,11 +30,12 @@ func ByReceivedUuid(uuid string) func(*pb.SubVolume) bool {
 type VolumeManager interface {
   // `path` must be the root of the volume.
   // If `path` does not point to a snapshot the corresponding fields will be empty.
+  // Returns an error if `path` is not the root of a subvolume. The error may vary depending on `path`.
   GetVolume(path string) (*pb.SubVolume, error)
   // Returns the first subvolume in filesystem owning `fs_path` that matches.
   // Will return nil if nothing was found.
   FindVolume(fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error)
-  // Returns all snapshots whose parent is `subvol`.
+  // Returns all snapshots whose parent is `subvol` (or an empty slice if there are snapshots for `subvol`).
   // Returned snaps are sorted by creation generation (oldest first).
   // `received_uuid` will only be set if the snapshot was effectibely received.
   GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([]*pb.SubVolume, error)
@@ -64,7 +65,9 @@ type VolumeDestination interface {
 
 type VolumeAdmin interface {
   VolumeManager
-  // Deletes a snapshot. Returns an error if attempting to delete a write snapshot or subvolume.
+  // Deletes a snapshot.
+  // Deleting the same snapshot a second time is an error.
+  // Returns an error if attempting to delete a write snapshot or subvolume.
   DeleteSnapshot(snap *pb.SubVolume) error
   // Goes through all snapshots fathered by `src_subvol` and deletes the oldest ones according to the parameters in the config.
   // Returns the list of snapshots deleted.

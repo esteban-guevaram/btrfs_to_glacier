@@ -305,7 +305,7 @@ func (self *btrfsUtilImpl) DeleteSubVolume(subvol string) error {
   c_subvol := C.CString(subvol)
   stx := C.btrfs_util_delete_subvolume(c_subvol, 0)
   if stx != C.BTRFS_UTIL_OK {
-    return fmt.Errorf("btrfs_util_destroy_subvolume_iterator: %s = %d",
+    return fmt.Errorf("btrfs_util_delete_subvolume: %s = %d",
                            C.GoString(C.btrfs_util_strerror(stx)), stx)
   }
   return nil

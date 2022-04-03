@@ -32,7 +32,7 @@ func init() {
   flag.StringVar(&subvol_alt_flag, "subvol-alt",  "", "another mount point only for the subvolume")
   flag.Parse()
   subvol_dir = fpmod.Join(subvol_flag, "adir")
-  not_btrfs_path = "/proc"
+  not_btrfs_path = os.TempDir()
 }
 
 type TestBtrfsUtil struct {
@@ -110,6 +110,9 @@ func (self *TestBtrfsUtil) TestSubVolumeIdForPath(path string, expect_ok bool) {
   if expect_ok && id < shim.BTRFS_FS_TREE_OBJECTID {
     util.Fatalf("SubVolumeIdForPath(%s) invalid id", path)
   }
+  if err != nil {
+    util.Debugf("TestSubVolumeIdForPath(%s): %v", path, err)
+  }
 }
 
 func (self *TestBtrfsUtil) TestIsSubVolumeMountPath(path string, expect_ok bool) {
@@ -131,6 +134,7 @@ func (self *TestBtrfsUtil) TestSubVolumeInfo(path string) {
 func (self *TestBtrfsUtil) TestSubVolumeInfoFail(path string) {
   _, err := self.btrfsutil.SubVolumeInfo(path)
   if err == nil { util.Fatalf("btrfsutil.SubvolumeInfo should have failed for '%s'", path) }
+  util.Debugf("TestSubVolumeInfoFail(%s): %v", path, err)
 }
 
 func (self *TestBtrfsUtil) TestGetSubVolumeTreePath(root string, path string) {
@@ -193,6 +197,10 @@ func (self *TestBtrfsUtil) TestDeleteSubVolume() {
   var subvol *pb.SubVolume
   subvol, err = self.btrfsutil.SubVolumeInfo(snap_path);
   if err == nil { util.Fatalf("btrfsutil.DeleteSubvolume was not deleted: %v", subvol) }
+  util.Debugf("TestDeleteSubVolume(): %v", err)
+
+  err = self.btrfsutil.DeleteSubVolume(snap_path);
+  if err == nil { util.Fatalf("btrfsutil.DeleteSubVolume(%s) twice should have failed") }
 }
 
 const send_stream = `
@@ -257,14 +265,21 @@ func TestBtrfsUtil_AllFuncs(conf *pb.Config, linuxutil types.Linuxutil, btrfsuti
   suite.TestSubVolumeIdForPath(subvol_flag, true)
   suite.TestSubVolumeIdForPath(root_flag, true)
   suite.TestSubVolumeIdForPath(subvol_dir, true)
+  // Error: Could not lookup inode = 13
   suite.TestSubVolumeIdForPath(not_btrfs_path, false)
+  // Error: Could not open = 7
   suite.TestSubVolumeIdForPath(fpmod.Join(subvol_flag, "/not/exist"), false)
   suite.TestIsSubVolumeMountPath(subvol_flag, true)
   suite.TestIsSubVolumeMountPath(root_flag, true)
   suite.TestIsSubVolumeMountPath(subvol_dir, false)
   suite.TestSubVolumeInfo(subvol_flag)
   suite.TestSubVolumeInfo(subvol_alt_flag)
+  // Error: Not a Btrfs subvolume = 5
   suite.TestSubVolumeInfoFail(subvol_dir)
+  // Error: Could not open = 7
+  suite.TestSubVolumeInfoFail(fpmod.Join(subvol_flag, "/not/exist"))
+  // Error: Not a Btrfs filesystem = 4
+  suite.TestSubVolumeInfoFail(not_btrfs_path)
   suite.TestGetSubVolumeTreePath(subvol_flag, subvol_flag)
   suite.TestGetSubVolumeTreePath(subvol_flag, subvol_dir)
   suite.TestListSubVolumesAt(root_flag, true)

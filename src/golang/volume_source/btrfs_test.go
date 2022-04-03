@@ -268,6 +268,8 @@ func TestDeleteSnapshot(t *testing.T) {
   btrfsutil.Snaps[0].MountedPath = fmt.Sprintf("/snaps/%s", btrfsutil.Snaps[0].TreePath)
   err = volmgr.DeleteSnapshot(btrfsutil.Snaps[0])
   if err != nil { t.Errorf("%s", err) }
+  err = volmgr.DeleteSnapshot(btrfsutil.Snaps[0])
+  if err == nil { t.Errorf("idempotency should not work for DeleteSnapshot") }
 }
 
 func TestReceiveSendStream(t *testing.T) {
