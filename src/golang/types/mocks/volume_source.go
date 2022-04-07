@@ -12,6 +12,7 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/google/uuid"
+  "google.golang.org/protobuf/proto"
 )
 
 type BtrfsPathJuggler struct {
@@ -88,8 +89,8 @@ func NewVolumeManager() *VolumeManager {
 func CloneSnaps(snaps []*pb.SubVolume) []*pb.SubVolume {
   clone_snaps := []*pb.SubVolume{}
   for _,snap := range snaps {
-    clone := *snap
-    clone_snaps = append(clone_snaps, &clone)
+    clone := proto.Clone(snap).(*pb.SubVolume)
+    clone_snaps = append(clone_snaps, clone)
   }
   return clone_snaps
 }
@@ -102,8 +103,8 @@ func (self *VolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
 func (self *VolumeManager) FindVolume(
     fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
   for _,sv := range self.Vols {
-    clone := *sv
-    if matcher(sv) { return &clone, self.Err }
+    clone := proto.Clone(sv).(*pb.SubVolume)
+    if matcher(sv) { return clone, self.Err }
   }
   return nil, self.Err
 }
@@ -119,27 +120,28 @@ func (self *VolumeManager) GetChangesBetweenSnaps(
   key := [2]string{ from.Uuid, to.Uuid }
   for k,changes := range self.Changes {
     if k != key { continue }
-    clone := *changes
-    return &clone, self.Err
+    clone := proto.Clone(changes).(*pb.SnapshotChanges)
+    return clone, self.Err
   }
   return nil, fmt.Errorf("No changes for %v", key)
 }
 func (self *VolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, error) {
   snap := util.DummySnapshot(uuid.NewString(), subvol.Uuid)
   snap.MountedPath = fpmod.Join(self.SnapRoot, snap.Uuid)
+  snap.Data = nil
   snaps := self.Snaps[subvol.Uuid]
   snaps = append(snaps, snap)
   self.Snaps[subvol.Uuid] = snaps
-  clone := *snap
-  return &clone, self.Err
+  clone := proto.Clone(snap).(*pb.SubVolume)
+  return clone, self.Err
 }
 func (self *VolumeManager) GetSnapshotStream(
     ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (types.ReadEndIf, error) {
-  if from.ParentUuid != to.ParentUuid {
+  if from != nil && from.ParentUuid != to.ParentUuid {
     return nil, fmt.Errorf("uuid: '%s' != '%s'", from.ParentUuid, to.ParentUuid)
   }
-  if _,found := self.Snaps[from.ParentUuid]; !found {
-    return nil, fmt.Errorf("self.Snaps[%s] not found", from.ParentUuid)
+  if _,found := self.Snaps[to.ParentUuid]; !found {
+    return nil, fmt.Errorf("self.Snaps[%s] not found", to.ParentUuid)
   }
   pipe := NewPreloadedPipe(util.GenerateRandomTextData(32))
   return pipe.ReadEnd(), self.Err
@@ -158,8 +160,8 @@ func (self *VolumeManager) ReceiveSendStream(
   snap := util.DummySnapshot(uuid.NewString(), "")
   snap.ReceivedUuid = rec_uuid
   self.Snaps[snap.Uuid] = []*pb.SubVolume{snap,}
-  clone := *snap
-  return &clone, util.Coalesce(read_pipe.GetErr(), self.Err)
+  clone := proto.Clone(snap).(*pb.SubVolume)
+  return clone, util.Coalesce(read_pipe.GetErr(), self.Err)
 }
 func (self *VolumeManager) DeleteSnapshot(snap *pb.SubVolume) error {
   if _,found := self.Snaps[snap.ParentUuid]; !found {

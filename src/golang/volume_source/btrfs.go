@@ -11,6 +11,8 @@ import (
   "btrfs_to_glacier/shim"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
+
+  "google.golang.org/protobuf/proto"
 )
 
 type btrfsVolumeManager struct {
@@ -55,8 +57,8 @@ func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   if len(subvol.ParentUuid) > 0 && !subvol.ReadOnly {
     return nil, fmt.Errorf("'%s' is a writable snapshot, those are not supported", path)
   }
-  clone := *self.sysinfo
-  subvol.OriginSys = &clone
+  clone := proto.Clone(self.sysinfo).(*pb.SystemInfo)
+  subvol.OriginSys = clone
   return subvol, nil
 }
 

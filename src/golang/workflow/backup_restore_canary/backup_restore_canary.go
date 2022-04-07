@@ -14,6 +14,7 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/google/uuid"
+  "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -131,7 +132,7 @@ func (self *BackupRestoreCanary) DetermineVolUuid(ctx context.Context) (string, 
 }
 
 func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
-  fake_conf := *self.Conf
+  fake_conf := proto.Clone(self.Conf).(*pb.Config)
   fake_conf.Workflows = nil
   fake_conf.Tools = nil
   fake_conf.Stores = nil
@@ -152,7 +153,7 @@ func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
     RootRestorePath: self.State.RestoreRoot,
   }
   fake_conf.Restores = []*pb.Restore{restore,}
-  return &fake_conf
+  return fake_conf
 }
 
 // Structure of filesystem to validate:

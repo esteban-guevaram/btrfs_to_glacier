@@ -83,7 +83,9 @@ func (self *Metadata) AppendChunkToSnapshot(
   new_snap,found :=  self.Snaps[snap.Uuid]
   if !found {
     new_snap = proto.Clone(snap).(*pb.SubVolume)
+    new_snap.Data = proto.Clone(data).(*pb.SnapshotChunks)
     self.Snaps[snap.Uuid] = new_snap
+    return new_snap, nil
   }
   if store.IsFullyContainedInSubvolume(snap, data) {
     return proto.Clone(snap).(*pb.SubVolume), nil
