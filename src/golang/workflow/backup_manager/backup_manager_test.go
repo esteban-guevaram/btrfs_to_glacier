@@ -56,37 +56,41 @@ func (self *Mocks) CountState() *MockCountState {
   }
 }
 
-func (self *MockCountState) IncrementMeta(new_heads int, new_seqs int, new_snaps int) *MockCountState {
-  meta := append([]int{}, self.Meta...)
-  meta[0] += new_heads
-  meta[1] += new_seqs
-  meta[2] += new_snaps
-  store := append([]int{}, self.Store...)
-  store[0] += new_snaps
-  source := append([]int{}, self.Source...)
-  source[2] += new_snaps
+func (self *MockCountState) Clone() *MockCountState {
   return &MockCountState{
-    Meta: meta,
-    Store: store,
-    Source: source,
+    Meta: append([]int{}, self.Meta...),
+    Store: append([]int{}, self.Store...),
+    Source: append([]int{}, self.Source...),
   }
 }
 
+func (self *MockCountState) IncrementMeta(new_heads int, new_seqs int, new_snaps int) *MockCountState {
+  clone := self.Clone()
+  clone.Meta[0] += new_heads
+  clone.Meta[1] += new_seqs
+  clone.Meta[2] += new_snaps
+  clone.Meta[3] += new_heads
+  clone.Store[0] += new_snaps
+  clone.Source[2] += new_snaps
+  return clone
+}
+
+func (self *MockCountState) IncrementVers(add int) *MockCountState {
+  clone := self.Clone()
+  clone.Meta[3] += add
+  return clone
+}
+
 func (self *MockCountState) IncrementAll(add int) *MockCountState {
-  meta := append([]int{}, self.Meta...)
-  meta[0] += add
-  meta[1] += add
-  meta[2] += add
-  store := append([]int{}, self.Store...)
-  store[0] += add
-  source := append([]int{}, self.Source...)
-  source[1] += add
-  source[2] += add
-  return &MockCountState{
-    Meta: meta,
-    Store: store,
-    Source: source,
-  }
+  clone := self.Clone()
+  clone.Meta[0] += add
+  clone.Meta[1] += add
+  clone.Meta[2] += add
+  clone.Meta[3] += add
+  clone.Store[0] += add
+  clone.Source[1] += add
+  clone.Source[2] += add
+  return clone
 }
 
 func (self *Mocks) AddSvAndSnapsFromMetaInSrc() []*pb.SubVolume {
@@ -232,29 +236,7 @@ func ValidateObjectCounts(
                         mocks.Store.ObjCounts(), expect.Store)
 }
 
-func TestBackupAllToCurrentSequences_NewSeq_NoSnaps_SingleVol(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
-  defer cancel()
-
-  mgr, mocks := buildBackupManagerEmpty(1)
-  expect_svs := []*pb.SubVolume{
-    mocks.AddSubVolume(mocks.ConfSrc.Paths[0], uuid.NewString()),
-  }
-  init_state := mocks.CountState()
-  pairs, err := mgr.BackupAllToCurrentSequences(ctx)
-  if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
-
-  ValidateBackupPairs(t, mocks, expect_svs, pairs)
-  ValidateObjectCounts(t, mocks, init_state.IncrementAll(1))
-
-  // Idempotency
-  _, err = mgr.BackupAllToCurrentSequences(ctx)
-  if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
-  ValidateObjectCounts(t, mocks, init_state.IncrementAll(1))
-}
-
-func TestBackupAllToCurrentSequences_NewSeq_NoSnaps_MultiVol(t *testing.T) {
-  const vol_count = 3
+func HelperBackupAllToCurrentSequences_NewSeq_NoSnaps(t *testing.T, vol_count int) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
@@ -268,12 +250,23 @@ func TestBackupAllToCurrentSequences_NewSeq_NoSnaps_MultiVol(t *testing.T) {
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
-  ValidateObjectCounts(t, mocks, init_state.IncrementAll(vol_count))
+  new_state := init_state.IncrementAll(vol_count)
+  ValidateObjectCounts(t, mocks, new_state)
 
   // Idempotency
   _, err = mgr.BackupAllToCurrentSequences(ctx)
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
-  ValidateObjectCounts(t, mocks, init_state.IncrementAll(vol_count))
+  ValidateObjectCounts(t, mocks, new_state.IncrementVers(vol_count))
+}
+
+func TestBackupAllToCurrentSequences_NewSeq_NoSnaps_SingleVol(t *testing.T) {
+  const vol_count = 1
+  HelperBackupAllToCurrentSequences_NewSeq_NoSnaps(t, vol_count)
+}
+
+func TestBackupAllToCurrentSequences_NewSeq_NoSnaps_MultiVol(t *testing.T) {
+  const vol_count = 3
+  HelperBackupAllToCurrentSequences_NewSeq_NoSnaps(t, vol_count)
 }
 
 func TestBackupAllToCurrentSequences_SeqInMetaButNoSnapInSrc(t *testing.T) {
@@ -287,25 +280,7 @@ func TestBackupAllToCurrentSequences_SeqInMetaButNoSnapInSrc(t *testing.T) {
   if !errors.Is(err, ErrSnapsMismatchWithSrc) { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 }
 
-func TestBackupAllToCurrentSequences_NewSeq_OldSnaps_SingleVol(t *testing.T) {
-  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
-  defer cancel()
-
-  meta, store := mocks.DummyMetaAndStorage(1,1,1,1)
-  mgr, mocks := buildBackupManager(meta, store, mocks.NewVolumeManager())
-  expect_svs := mocks.Source.AllVols()
-  mocks.Meta.Clear()
-  mocks.Store.Clear()
-  init_state := mocks.CountState()
-  pairs, err := mgr.BackupAllToCurrentSequences(ctx)
-  if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
-
-  ValidateBackupPairs(t, mocks, expect_svs, pairs)
-  ValidateObjectCounts(t, mocks, init_state.IncrementMeta(1, 1, 1))
-}
-
-func TestBackupAllToCurrentSequences_NewSeq_OldSnaps_MultiVol(t *testing.T) {
-  const vol_count = 3
+func HelperBackupAllToCurrentSequences_NewSeq_OldSnaps(t *testing.T, vol_count int) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
@@ -320,6 +295,16 @@ func TestBackupAllToCurrentSequences_NewSeq_OldSnaps_MultiVol(t *testing.T) {
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
   ValidateObjectCounts(t, mocks, init_state.IncrementMeta(vol_count, vol_count, vol_count))
+}
+
+func TestBackupAllToCurrentSequences_NewSeq_OldSnaps_SingleVol(t *testing.T) {
+  const vol_count = 1
+  HelperBackupAllToCurrentSequences_NewSeq_OldSnaps(t, vol_count)
+}
+
+func TestBackupAllToCurrentSequences_NewSeq_OldSnaps_MultiVol(t *testing.T) {
+  const vol_count = 3
+  HelperBackupAllToCurrentSequences_NewSeq_OldSnaps(t, vol_count)
 }
 
 func TestBackupAllToCurrentSequences_AllNew(t *testing.T) { }

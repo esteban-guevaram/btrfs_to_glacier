@@ -186,6 +186,10 @@ func (self *garbageCollector) CleanUnreachableMetadata(
   if err != nil { return nil, err }
 
   result, err := self.deleteMetaItems_ForwardsArgsInReturn(ctx, dry_run, seqs, snaps)
+  if !dry_run {
+    _, persist_err := self.metadata.PersistCurrentMetadataState(ctx)
+    if persist_err != nil { return nil, persist_err }
+  }
   util.Infof("Deleted (dry_run:%v) metadata:\n%s", dry_run, util.AsJson(result))
   return result, err
 }
@@ -258,9 +262,12 @@ func (self *garbageCollector) DeleteSnapshotSequence(
 
   err = self.deleteStorageItems(ctx, dry_run, to_del_chunks)
   result.Chunks = to_del_chunks
-  if err != nil { return result, err }
+  if !dry_run {
+    _, persist_err := self.metadata.PersistCurrentMetadataState(ctx)
+    if persist_err != nil { return nil, persist_err }
+  }
 
   util.Infof("Deleted (dry_run:%v) sequence:\n%s", dry_run, util.AsJson(result))
-  return result, nil
+  return result, err
 }
 

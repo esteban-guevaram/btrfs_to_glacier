@@ -355,7 +355,7 @@ func (self *Storage) ObjCounts() []int {
 ///////////////////////// Fill out mock ////////////////////////
 
 func (self *Metadata) ObjCounts() []int {
-  return []int{ len(self.Heads), len(self.Seqs), len(self.Snaps), }
+  return []int{ len(self.Heads), len(self.Seqs), len(self.Snaps), len(self.Versions), }
 }
 
 func (self *Metadata) HeadKeys() []string {
