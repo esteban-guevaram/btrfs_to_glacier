@@ -18,6 +18,7 @@ const (
 )
 
 var ErrSnapsMismatchWithSrc = errors.New("snapshot_mismatch_between_meta_and_source")
+var ErrNoIncrementalBackup = errors.New("no_parent_snapshot_for_inc_backup")
 
 // Meta and Store must already been setup
 // Should we handle getting CAP_SYS_ADMIN at this level ?
@@ -175,37 +176,37 @@ func (self *BackupManager) BackupAllToNewSequences(ctx context.Context) ([]types
 }
 
 func (self *BackupManager) BackupToCurrentSequenceUnrelatedVol(
-    ctx context.Context, src *pb.SubVolume, dst_uuid string) (types.BackupPair, error) {
-  backup := types.BackupPair{ Sv: src, }
+    ctx context.Context, src *pb.SubVolume, dst_uuid string) (*pb.SubVolume, error) {
   head, err := self.Meta.ReadSnapshotSeqHead(ctx, dst_uuid)
-  if err != nil { return backup, err }
+  if err != nil { return nil, err }
   seq, err := self.Meta.ReadSnapshotSeq(ctx, head.CurSeqUuid)
-  if err != nil { return backup, err }
+  if err != nil { return nil, err }
 
   old_snaps, snap, err := self.CreateNewSnapshotOrUseRecent(src, /*use_recent=*/false)
-  if err != nil { return backup, err }
-  if len(old_snaps) < 1 { util.Fatalf("A full backup to an unrelated sequence makes no sense") }
+  if err != nil { return nil, err }
+  if len(old_snaps) < 1 {
+    return nil, fmt.Errorf("%w: %s -> %s", ErrNoIncrementalBackup, src.Uuid, dst_uuid)
+  }
+  par_snap := old_snaps[len(old_snaps)-1]
   // Hack to make it look as if it all comes from the same subvolume
   snap.ParentUuid = dst_uuid
-  par_snap := old_snaps[len(old_snaps)-1]
+  par_snap.ParentUuid = dst_uuid
 
   full_snap, err := self.IsBackupAlreadyInStorage(ctx, old_snaps, snap)
-  if err != nil { return backup, err }
+  if err != nil { return nil, err }
   if full_snap != nil {
     _, err = self.PersistSequence(ctx, full_snap, seq)
-    backup.Snap = full_snap
-    return backup, err
+    return full_snap, err
   }
 
   stream, err := self.Source.GetSnapshotStream(ctx, par_snap, snap)
-  if err != nil { return backup, err }
+  if err != nil { return nil, err }
   chunks, err := self.Store.WriteStream(ctx, /*offset=*/0, stream)
-  if err != nil { return backup, err }
+  if err != nil { return nil, err }
   full_snap, err = self.Meta.AppendChunkToSnapshot(ctx, snap, chunks)
-  if err != nil { return backup, err }
+  if err != nil { return nil, err }
   _, err = self.PersistSequence(ctx, full_snap, seq)
-  if err != nil { return backup, err }
-  backup.Snap = full_snap
-  return backup, util.Coalesce(stream.GetErr(), err)
+  if err != nil { return nil, err }
+  return full_snap, util.Coalesce(stream.GetErr(), err)
 }
 

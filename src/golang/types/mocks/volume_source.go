@@ -75,6 +75,7 @@ type VolumeManager struct {
   Vols    map[string]*pb.SubVolume
   Snaps   map[string][]*pb.SubVolume
   Changes map[[2]string]*pb.SnapshotChanges
+  GetSnapshotStreamCalls [][2]string
 }
 
 func NewVolumeManager() *VolumeManager {
@@ -84,6 +85,7 @@ func NewVolumeManager() *VolumeManager {
     Vols: make(map[string]*pb.SubVolume),
     Snaps: make(map[string][]*pb.SubVolume),
     Changes: make(map[[2]string]*pb.SnapshotChanges),
+    GetSnapshotStreamCalls: [][2]string{},
   }
 }
 
@@ -155,6 +157,12 @@ func (self *VolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, 
 }
 func (self *VolumeManager) GetSnapshotStream(
     ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (types.ReadEndIf, error) {
+  if from == nil {
+    self.GetSnapshotStreamCalls = append(self.GetSnapshotStreamCalls, [2]string{ "", to.Uuid, })
+  }
+  /*else*/ if from != nil {
+    self.GetSnapshotStreamCalls = append(self.GetSnapshotStreamCalls, [2]string{ from.Uuid, to.Uuid, })
+  }
   if from != nil && from.ParentUuid != to.ParentUuid {
     return nil, fmt.Errorf("uuid: '%s' != '%s'", from.ParentUuid, to.ParentUuid)
   }

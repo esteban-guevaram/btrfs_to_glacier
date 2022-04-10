@@ -35,6 +35,8 @@ type BackupManager interface {
   // Like `BackupToCurrentSequence` except that:
   // * A **full** backup of the source subvolumes will be stored.
   // * Every call will always create a new `SnapshotSequence`.
+  // Note that several calls to this method may NOT create each a snapshot in metadata or storage.
+  // Rather the created sequences may point to an already stored recent snapshot.
   BackupAllToNewSequences(ctx context.Context) ([]BackupPair, error)
 }
 
@@ -47,10 +49,11 @@ type BackupManagerAdmin interface {
   // Takes a snapshot from `sv` and appends it to the current sequence for SnapshotSeqHead `dst_uuid`.
   // This method expects a SnapshotSequence for `dst_uuid` in the metadata, otherwise it will return an error.
   // A new snapshot will always be created, this method cannot be a noop.
+  // Returns the snapshot created for `sv`, however it will look like it is a snaphost of `dst_uuid`.
   // This is an advanced operation, the caller is responsible for `sv` to be compatible with the sequence.
   // For example `sv` is a clone from a restore of the original subvolume in `dst_uuid`.
   BackupToCurrentSequenceUnrelatedVol(
-    ctx context.Context, sv *pb.SubVolume, dst_uuid string) (BackupPair, error)
+    ctx context.Context, sv *pb.SubVolume, dst_uuid string) (*pb.SubVolume, error)
 }
 
 // Handles volume restores to a particular destination.
