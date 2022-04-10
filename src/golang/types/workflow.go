@@ -28,7 +28,7 @@ type BackupManager interface {
   // * If `vol_uuid` has no recent snapshots, a new one will be created on the fly.
   // If metadata does not contain any data for a given subvolume it will be created on the fly.
   // This operation is a noop for a given subvolume if a recent snapshot has already been backep-up.
-  // Returns the pairs of subvolume and incremental snapshot.
+  // Returns the pairs of (subvolume, incremental snapshot) in unspecified order.
   // An error indicates at least 1 subvolume could not be backep-up but other may have been.
   // (Given the idempotency of this operation, you can simply try again)
   BackupAllToCurrentSequences(ctx context.Context) ([]BackupPair, error)

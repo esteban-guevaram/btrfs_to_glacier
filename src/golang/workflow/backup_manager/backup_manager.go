@@ -17,6 +17,8 @@ const (
   MinIntervalBetweenSnaps = 24 * time.Hour
 )
 
+var ErrSnapsMismatchWithSrc = errors.New("snapshot_mismatch_between_meta_and_source")
+
 // Meta and Store must already been setup
 // Should we handle getting CAP_SYS_ADMIN at this level ?
 type BackupManager struct {
@@ -114,11 +116,11 @@ func (self *BackupManager) DetermineParentForIncremental(
 
 func (self *BackupManager) BackupSingleSvToSequence(
     ctx context.Context, sv *pb.SubVolume, seq *pb.SnapshotSequence) (*pb.SubVolume, error) {
-  old_snaps, snap, err := self.CreateNewSnapshotOrUseRecent(sv, /*use_recent=*/false)
+  old_snaps, snap, err := self.CreateNewSnapshotOrUseRecent(sv, /*use_recent=*/true)
   if err != nil { return nil, err }
   if len(seq.SnapUuids) != 0 && len(old_snaps) == 0 {
     // This may happen if you delete past snapshots too aggresively in the source ?
-    return nil, fmt.Errorf("There are no snapshots in source but some in storage for %s", sv.Uuid)
+    return nil, fmt.Errorf("%w: %s", ErrSnapsMismatchWithSrc, sv.Uuid)
   }
   full_snap, err := self.IsBackupAlreadyInStorage(ctx, old_snaps, snap)
   if err != nil { return nil, err }

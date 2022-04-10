@@ -92,6 +92,7 @@ func CleanLocalFs(local_fs *pb.LocalFs) {
 func LoadTestConfWithLocalFs(local_fs *pb.LocalFs) *pb.Config {
   source := &pb.Source{
     Type: pb.Source_BTRFS,
+    Name: uuid.NewString(),
     Paths: []*pb.Source_VolSnapPathPair{
       &pb.Source_VolSnapPathPair{
         VolPath: "/tmp/subvol1",

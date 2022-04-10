@@ -6,6 +6,7 @@ import (
   "io"
   fpmod "path/filepath"
   "os"
+  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -95,6 +96,22 @@ func CloneSnaps(snaps []*pb.SubVolume) []*pb.SubVolume {
   return clone_snaps
 }
 
+func (self *VolumeManager) ObjCounts() []int {
+  all_snaps := 0
+  for _,seq := range self.Snaps { all_snaps += len(seq) }
+  return []int{ len(self.Vols), len(self.Snaps), all_snaps, }
+}
+
+func (self *VolumeManager) ClearSnaps() {
+  self.Snaps = make(map[string][]*pb.SubVolume)
+}
+
+func (self *VolumeManager) AllVols() []*pb.SubVolume {
+  all := []*pb.SubVolume{}
+  for _,sv := range self.Vols { all = append(all, sv) }
+  return all
+}
+
 func (self *VolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   sv, found := self.Vols[path]
   if !found { return nil, fmt.Errorf("No sv for '%s'", path) }
@@ -128,6 +145,7 @@ func (self *VolumeManager) GetChangesBetweenSnaps(
 func (self *VolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, error) {
   snap := util.DummySnapshot(uuid.NewString(), subvol.Uuid)
   snap.MountedPath = fpmod.Join(self.SnapRoot, snap.Uuid)
+  snap.CreatedTs = uint64(time.Now().Unix())
   snap.Data = nil
   snaps := self.Snaps[subvol.Uuid]
   snaps = append(snaps, snap)

@@ -20,6 +20,7 @@ type Metadata struct {
   Heads map[string]*pb.SnapshotSeqHead
   Seqs map[string]*pb.SnapshotSequence
   Snaps map[string]*pb.SubVolume
+  Versions []string
 }
 
 // In mem metadata storage
@@ -31,19 +32,26 @@ type Storage struct {
 }
 
 func NewMetadata() *Metadata {
-  return &Metadata{
-    Heads: make(map[string]*pb.SnapshotSeqHead),
-    Seqs: make(map[string]*pb.SnapshotSequence),
-    Snaps: make(map[string]*pb.SubVolume),
-  }
+  m := &Metadata{}
+  m.Clear()
+  return m
+}
+func (self *Metadata) Clear() {
+  self.Heads = make(map[string]*pb.SnapshotSeqHead)
+  self.Seqs = make(map[string]*pb.SnapshotSequence)
+  self.Snaps = make(map[string]*pb.SubVolume)
+  self.Versions = []string{}
 }
 
 func NewStorage() *Storage {
-  return &Storage{
-    ChunkLen: 256,
-    Chunks: make(map[string][]byte),
-    Restored: make(map[string]bool),
-  }
+  s := &Storage{}
+  s.Clear()
+  return s
+}
+func (self *Storage) Clear() {
+  self.ChunkLen =  256
+  self.Chunks = make(map[string][]byte)
+  self.Restored = make(map[string]bool)
 }
 
 func (self *Metadata) RecordSnapshotSeqHead(
@@ -228,7 +236,9 @@ func (self *Metadata) ReplaceSnapshotSeqHead(
 }
 
 func (self *Metadata) PersistCurrentMetadataState(ctx context.Context) (string, error) {
-  return uuid_mod.NewString(), nil
+  v := uuid_mod.NewString()
+  self.Versions = append(self.Versions, v)
+  return v, nil
 }
 
 ///////////////////////// Storage //////////////////////////
@@ -338,6 +348,10 @@ func (self *Storage) DeleteChunks(
   return ctx.Err()
 }
 
+func (self *Storage) ObjCounts() []int {
+  return []int{ len(self.Chunks), len(self.Restored), }
+}
+
 ///////////////////////// Fill out mock ////////////////////////
 
 func (self *Metadata) ObjCounts() []int {
@@ -442,7 +456,7 @@ func DummyMetaAndStorage(
 
   var cur_head *pb.SnapshotSeqHead
   for idx,seq_uuid := range seq_uuids {
-    if idx % head_cnt == 0 {
+    if idx % seq_cnt == 0 {
       head_uuid := metadata.Seqs[seq_uuid].Volume.Uuid
       cur_head = &pb.SnapshotSeqHead{
         Uuid: head_uuid,
