@@ -184,4 +184,8 @@ func (self *Btrfsutil) ReceiveSendStream(
   if err != nil { return err }
   return util.Coalesce(self.Err, read_pipe.GetErr())
 }
+// Includes subvolumes and snapshots
+func (self *Btrfsutil) VolCount() int {
+  return len(self.Subvols) + len(self.Snaps)
+}
 

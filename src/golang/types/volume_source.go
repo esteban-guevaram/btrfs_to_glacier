@@ -35,6 +35,8 @@ type VolumeManager interface {
   // Returns the first subvolume in filesystem owning `fs_path` that matches.
   // Will return nil if nothing was found.
   FindVolume(fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error)
+  // Returns the list of subvolumes in filesystem owning `fs_path`.
+  ListVolumes(fs_path string) ([]*pb.SubVolume, error)
   // Returns all snapshots whose parent is `subvol` (or an empty slice if there are snapshots for `subvol`).
   // Returned snaps are sorted by creation generation (oldest first).
   // `received_uuid` will only be set if the snapshot was effectibely received.

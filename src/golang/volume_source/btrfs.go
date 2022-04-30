@@ -95,11 +95,16 @@ func (self *btrfsVolumeManager) FindMountedPath(sv *pb.SubVolume) (string, error
   return from_path, err
 }
 
-func (self *btrfsVolumeManager) FindVolume(fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
+func (self *btrfsVolumeManager) ListVolumes(fs_path string) ([]*pb.SubVolume, error) {
   _,mnt,_,err := self.juggler.FindFsAndTighterMountOwningPath(fs_path)
   if err != nil { return nil, err }
-  vols, err := self.btrfsutil.ListSubVolumesInFs(mnt.MountedPath,
-                                                 mnt.BtrfsVolId == shim.BTRFS_FS_TREE_OBJECTID)
+  return self.btrfsutil.ListSubVolumesInFs(mnt.MountedPath,
+                                           mnt.BtrfsVolId == shim.BTRFS_FS_TREE_OBJECTID)
+}
+
+func (self *btrfsVolumeManager) FindVolume(
+    fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
+  vols, err := self.ListVolumes(fs_path)
   if err != nil { return nil, err }
   for _,vol := range vols {
     if matcher(vol) { return vol, nil }

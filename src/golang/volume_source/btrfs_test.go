@@ -128,6 +128,13 @@ func TestGetVolume(t *testing.T) {
   util.EqualsOrFailTest(t, "Using internal refs", expect_subvol, subvol)
 }
 
+func TestListVolumes(t *testing.T) {
+  volmgr, btrfsutil, _ := buildTestManager()
+  vols, err := volmgr.ListVolumes(defaultVolPath(volmgr.conf))
+  if err != nil { t.Fatalf("%s", err) }
+  util.EqualsOrFailTest(t, "Bad vol list", len(vols), btrfsutil.VolCount())
+}
+
 func TestFindVolume(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
   expect_subvol := CloneSubvol(btrfsutil.Snaps[0])

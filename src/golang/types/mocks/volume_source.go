@@ -119,9 +119,21 @@ func (self *VolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   if !found { return nil, fmt.Errorf("No sv for '%s'", path) }
   return sv, self.Err
 }
+func (self *VolumeManager) ListVolumes(fs_path string) ([]*pb.SubVolume, error) {
+  var vols []*pb.SubVolume
+  for _,sv := range self.Vols {
+    vols = append(vols, proto.Clone(sv).(*pb.SubVolume))
+  }
+  for _,seq := range self.Snaps {
+    for _,snap := range seq { vols = append(vols, proto.Clone(snap).(*pb.SubVolume)) }
+  }
+  return vols, self.Err
+}
 func (self *VolumeManager) FindVolume(
     fs_path string, matcher func(*pb.SubVolume) bool) (*pb.SubVolume, error) {
-  for _,sv := range self.Vols {
+  vols, err := self.ListVolumes(fs_path)
+  if err != nil { return nil, err }
+  for _,sv := range vols {
     clone := proto.Clone(sv).(*pb.SubVolume)
     if matcher(sv) { return clone, self.Err }
   }
