@@ -31,7 +31,7 @@ LDFLAGS           :=
 LDLIBS            :=
 
 headers  := $(wildcard include/*.h)
-go_files := $(shell find "$(MYGOSRC)" -type f -name '*.go')
+go_files := $(shell find "$(MYGOSRC)" -type f -name '*.go' -not -name '*.pb.go')
 c_lib     = bin/$(1).so bin/$(1).a bin/$(1)_test
 
 all: go_code c_code
@@ -94,14 +94,14 @@ go_debug: go_code
 	pushd "$(MYGOSRC)"
 	echo '
 	#break btrfs_to_glacier/encryption.(*aesGzipCodec).EncryptStream
-	break workflow/backup_manager/backup_manager.go:119
+	break workflow/backup_manager/backup_manager.go:180
 	continue
 	' > "$(MYDLVINIT)"
 	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
 	  dlv test "btrfs_to_glacier/workflow/backup_manager" \
 		  --build-flags='-tags=delve' --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
-		  -- --test.run='TestBackupAllToCurrentSequences_NewSeq_NoSnaps_SingleVol$$' --test.v
+		  -- --test.run='TestBackupToCurrentSequenceUnrelatedVol_Normal' --test.v
 
 # Fails with a linker error if missing `c_code`
 go_upgrade_mods: $(GOENV) c_code
@@ -131,7 +131,8 @@ $(STAGE_PATH):
 	[[ -d $(STAGE_PATH) ]] || mkdir $(STAGE_PATH)
 
 $(GO_PROTOC_INSTALL): $(GOENV)
-	GOENV="$(GOENV)" go get google.golang.org/protobuf/cmd/protoc-gen-go
+	pushd "$(MYGOSRC)"
+	GOENV="$(GOENV)" go install google.golang.org/protobuf/cmd/protoc-gen-go
 
 $(MYGOSRC)/messages/%.pb.go: $(PROTOSRC)/%.proto $(GOENV) | $(GO_PROTOC_INSTALL)
 	export PATH="$(PATH):`GOENV="$(GOENV)" go env GOBIN`"
