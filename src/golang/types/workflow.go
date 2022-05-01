@@ -13,6 +13,10 @@ type BackupPair struct {
   Sv   *pb.SubVolume
   Snap *pb.SubVolume
 }
+type RestorePair struct {
+  Src *pb.SubVolume
+  Dst *pb.SubVolume
+}
 // Maps the subvolue uuid to the current snapshot sequence.
 type HeadAndSequenceMap = map[string]HeadAndSequence
 
@@ -63,7 +67,8 @@ type RestoreManager interface {
   // Restores all of the snapshots for the most recent sequence corresponding to `vol_uuid`.
   // If some snapshots are already present at the destination, then only the new ones are restored.
   // If all snapshots have been restored this is a noop.
-  // Returns the list of snapshots (from the source) actually restored to the destination, in the same order as they got restored.
-  RestoreCurrentSequence(ctx context.Context, vol_uuid string) ([]*pb.SubVolume, error)
+  // Returns both the snapshot from Metadata with its corresponding snapshot in the restored filesystem.
+  // The return list follows the order in which each snapshot got restored.
+  RestoreCurrentSequence(ctx context.Context, vol_uuid string) ([]RestorePair, error)
 }
 

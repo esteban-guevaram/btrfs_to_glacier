@@ -170,7 +170,7 @@ func (self *RestoreManager) WaitUntilAvailableAndRestoreSingle(
 }
 
 func (self *RestoreManager) RestoreSequenceHelper(
-    ctx context.Context, seq *pb.SnapshotSequence) ([]*pb.SubVolume, error) {
+    ctx context.Context, seq *pb.SnapshotSequence) ([]types.RestorePair, error) {
   var err error
   uuids, err := self.UuidsToBeRestored_InOrder(ctx, seq)
   if err != nil { return nil, err }
@@ -178,18 +178,19 @@ func (self *RestoreManager) RestoreSequenceHelper(
   from_vols, restore_res, err := self.QueueRestoreChunksForUuids(ctx, uuids)
   if err != nil { return nil, err }
 
-  ok_vols := make([]*pb.SubVolume, 0, len(from_vols))
-  for _, vol := range from_vols {
-    _, err = self.WaitUntilAvailableAndRestoreSingle(ctx, vol, restore_res)
+  ok_pairs := make([]types.RestorePair, 0, len(from_vols))
+  for _, from := range from_vols {
+    var to *pb.SubVolume
+    to, err = self.WaitUntilAvailableAndRestoreSingle(ctx, from, restore_res)
     if err != nil { break }
-    ok_vols = append(ok_vols, vol)
+    ok_pairs = append(ok_pairs, types.RestorePair{Src:from, Dst:to,})
   }
-  util.Infof("Restored %d/%d volumes", len(ok_vols), len(from_vols))
-  return ok_vols, err
+  util.Infof("Restored %d/%d volumes", len(ok_pairs), len(from_vols))
+  return ok_pairs, err
 }
 
 func (self *RestoreManager) RestoreCurrentSequence(
-    ctx context.Context, vol_uuid string) ([]*pb.SubVolume, error) {
+    ctx context.Context, vol_uuid string) ([]types.RestorePair, error) {
   heads, err := self.ReadHeadAndSequenceMap(ctx)
   if err != nil { return nil, err }
   head_seq, found := heads[vol_uuid]

@@ -97,26 +97,31 @@ func TestRestoreCurrentSequence_Empty(t *testing.T) {
   mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
   expect_cnt := mocks.Meta.ObjCounts()
   vol_uuid := mocks.Meta.HeadKeys()[1]
-  snaps, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
+  pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
   if err != nil { util.Fatalf("RestoreCurrentSequence: %v", err) }
 
   util.EqualsOrFailTest(t, "Should not create new objects", mocks.Meta.ObjCounts(), expect_cnt)
-  util.EqualsOrFailTest(t, "Bad restore len", len(snaps), seq_len)
+  util.EqualsOrFailTest(t, "Bad restore len", len(pairs), seq_len)
   util.EqualsOrFailTest(t, "Bad dst objcount", mocks.Destination.ObjCounts(),
                                                []int{/*vols=*/0, /*seqs=*/1, /*snaps=*/seq_len,})
 
-  //cur_uuid := mocks.Meta.Heads[vol_uuid].CurSeqUuid
-  //expect_rec_uuids := make(map[string]int)
-  //for i,u := range mocks.Meta.Seqs[cur_uuid].SnapUuids {
-  //  expect_rec_uuids[u] = i
-  //}
-  //for i,snap := range snaps {
-  //  expect_snap := mocks.Meta.Snaps[snap.ReceivedUuid]
-  //  util.EqualsOrFailTest(t, "bad restored snap (source)", snap, expect_snap)
-  //  expect_i, found := expect_rec_uuids[snap.ReceivedUuid]
-  //  util.EqualsOrFailTest(t, "restored snap in wrong seq", found, true)
-  //  util.EqualsOrFailTest(t, "restored snap in wrong order", i, expect_i)
-  //}
+  cur_uuid := mocks.Meta.Heads[vol_uuid].CurSeqUuid
+  expect_rec_uuids := make(map[string]int)
+  for i,u := range mocks.Meta.Seqs[cur_uuid].SnapUuids {
+    expect_rec_uuids[u] = i
+  }
+  for i,pair := range pairs {
+    expect_src := mocks.Meta.Snaps[pair.Src.Uuid]
+    var expect_dst *pb.SubVolume
+    for _,s := range mocks.Destination.Snaps[pair.Src.ParentUuid] {
+      if s.Uuid == pair.Dst.Uuid { expect_dst = s; break }
+    }
+    util.EqualsOrFailTest(t, "bad metadata snap", pair.Src, expect_src)
+    util.EqualsOrFailTest(t, "bad destination snap", pair.Dst, expect_dst)
+    expect_i, found := expect_rec_uuids[pair.Dst.ReceivedUuid]
+    util.EqualsOrFailTest(t, "restored snap in wrong seq", found, true)
+    util.EqualsOrFailTest(t, "restored snap in wrong order", i, expect_i)
+  }
 }
 
 func TestRestoreCurrentSequence_PreviousRestore(t *testing.T) {

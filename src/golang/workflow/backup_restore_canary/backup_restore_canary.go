@@ -286,30 +286,30 @@ func (self *BackupRestoreCanary) ValidateEmptyChain() error {
 }
 
 func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) error {
-  subvols, err := self.State.RestoreMgr.RestoreCurrentSequence(ctx, self.State.Uuid)
+  pairs, err := self.State.RestoreMgr.RestoreCurrentSequence(ctx, self.State.Uuid)
   if err != nil { return err }
   if self.State.New {
-    if len(subvols) != 1 { util.Fatalf("expected only the initial snapshot, got: %v", subvols) }
+    if len(pairs) != 1 { util.Fatalf("expected only the initial snapshot, got: %v", pairs) }
     return self.ValidateEmptyChain()
   }
 
-  sv_to_validate := subvols[0:len(subvols)-1]
-  last_snap := sv_to_validate[len(sv_to_validate)-1]
+  pairs_to_validate := pairs[0:len(pairs)-1]
+  last_snap := pairs_to_validate[len(pairs_to_validate)-1].Src
   sv_to_hash := make(map[string][]byte)
-  for _,sv := range sv_to_validate {
-    sv_to_hash[sv.Uuid] = HashStr(sv.Uuid)
+  for _,pair := range pairs_to_validate {
+    sv_to_hash[pair.Src.Uuid] = HashStr(pair.Src.Uuid)
   }
 
   content, err := os.ReadFile(self.UuidFile())
   if err != nil { return err }
   lines := strings.Split(strings.TrimSpace(string(content)), "\n")
-  if len(lines) != len(sv_to_validate) {
+  if len(lines) != len(pairs_to_validate) {
     return fmt.Errorf("Volume does not contain a list of all of its ancestors: %d / %d",
-                      len(lines), len(sv_to_validate))
+                      len(lines), len(pairs_to_validate))
   }
   for i,l := range lines {
-    if l != sv_to_validate[i].Uuid {
-      return fmt.Errorf("Snapshot history mismatch: %s / %s", l, sv_to_validate[i].Uuid)
+    if l != pairs_to_validate[i].Src.Uuid {
+      return fmt.Errorf("Snapshot history mismatch: %s / %s", l, pairs_to_validate[i].Src.Uuid)
     }
   }
 
@@ -332,9 +332,9 @@ func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) er
 
   entries, err = os.ReadDir(self.NewDir())
   if err != nil { return err }
-  if len(entries) != len(sv_to_validate) {
+  if len(entries) != len(pairs_to_validate) {
     return fmt.Errorf("NewDir should contain 1 file per snapshot in history: %d / %d",
-                      len(entries), len(sv_to_validate))
+                      len(entries), len(pairs_to_validate))
   }
   for _,entry := range entries {
     if entry.IsDir() { return fmt.Errorf("NewDir should not contain directories, got: %s", entry.Name()) }
@@ -347,7 +347,7 @@ func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) er
     }
   }
 
-  util.Infof("Validated chain of %d items for vol '%s'", len(sv_to_validate), self.State.Uuid)
+  util.Infof("Validated chain of %d items for vol '%s'", len(pairs_to_validate), self.State.Uuid)
   return nil
 }
 
