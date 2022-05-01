@@ -21,18 +21,14 @@ type Mocks struct {
   Destination *mocks.VolumeManager
 }
 
-func (self *Mocks) AddReceivedSnapInDst(rec_uuid string) *pb.SubVolume {
+func (self *Mocks) AddReceivedSnapInDst(src_snap *pb.SubVolume) *pb.SubVolume {
   sv := util.DummySnapshot(uuid.NewString(), "")
   sv.MountedPath = fpmod.Join(self.DstConf.RootRestorePath, sv.Uuid)
-  sv.ReceivedUuid = rec_uuid
+  sv.ReceivedUuid = src_snap.Uuid
   sv.Data = nil
   // Add received snapshot to existing sequence if possible
-  if seq,_,_ := self.Destination.FindSequence(rec_uuid); len(seq) > 0 {
-    sv.ParentUuid = seq[len(seq)-1].Uuid
-    self.Destination.Snaps[seq[0].Uuid] = append(self.Destination.Snaps[seq[0].Uuid], sv)
-  } else {
-    self.Destination.Snaps[sv.Uuid] = append(self.Destination.Snaps[sv.Uuid], sv)
-  }
+  vol_uuid := src_snap.ParentUuid
+  self.Destination.Snaps[vol_uuid] = append(self.Destination.Snaps[vol_uuid], sv)
   clone := proto.Clone(sv).(*pb.SubVolume)
   return clone
 }
@@ -42,7 +38,7 @@ func (self *Mocks) AddFirstSnapsFromMetaInDst(seq_uuid string, count int) []*pb.
   for i,snap_uuid := range self.Meta.Seqs[seq_uuid].SnapUuids {
     if i >= count { break }
     snap := self.Meta.Snaps[snap_uuid]
-    added = append(added, self.AddReceivedSnapInDst(snap.Uuid))
+    added = append(added, self.AddReceivedSnapInDst(snap))
   }
   return added
 }
@@ -107,7 +103,7 @@ func TestRestoreCurrentSequence_Empty(t *testing.T) {
   util.EqualsOrFailTest(t, "Should not create new objects", mocks.Meta.ObjCounts(), expect_cnt)
   util.EqualsOrFailTest(t, "Bad restore len", len(snaps), seq_len)
   util.EqualsOrFailTest(t, "Bad dst objcount", mocks.Destination.ObjCounts(),
-                                               []int{/*vols=*/0, /*seqs=*/seq_len, /*snaps=*/seq_len,})
+                                               []int{/*vols=*/0, /*seqs=*/1, /*snaps=*/seq_len,})
 
   //cur_uuid := mocks.Meta.Heads[vol_uuid].CurSeqUuid
   //expect_rec_uuids := make(map[string]int)

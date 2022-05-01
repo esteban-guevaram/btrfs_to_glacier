@@ -60,9 +60,9 @@ type VolumeDestination interface {
   VolumeManager
   // Reads subvolume data from the pipe and creates a subvolume using `btrfs receive`.
   // Received subvolume will be mounted at `root_path/<basename_src_subvol>`.
-  // As a safety check this method asserts that received uuid equals `rec_uuid`.
+  // As a safety check this method asserts that received snapshot is coherent with `src_snap`.
   // Takes ownership of `read_pipe` and will close it once done.
-  ReceiveSendStream(ctx context.Context, root_path string, rec_uuid string, read_pipe ReadEndIf) (*pb.SubVolume, error)
+  ReceiveSendStream(ctx context.Context, root_path string, src_snap *pb.SubVolume, read_pipe ReadEndIf) (*pb.SubVolume, error)
 }
 
 type VolumeAdmin interface {

@@ -162,7 +162,7 @@ func (self *RestoreManager) WaitUntilAvailableAndRestoreSingle(
   if err != nil { return nil, err}
   to, err := self.Destination.ReceiveSendStream(ctx,
                                                 self.DstConf.RootRestorePath,
-                                                from.Uuid,
+                                                from,
                                                 read_end)
   if err != nil { return nil, util.Coalesce(read_end.GetErr(), err) }
   util.Infof("Restored %s -> %s", from.Uuid, to.Uuid)

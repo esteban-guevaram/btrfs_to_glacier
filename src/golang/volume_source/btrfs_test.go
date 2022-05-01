@@ -100,14 +100,16 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.BtrfsPath
   juggler.LoadSubVolume(fs, mnts[0], mock_subvol)
   juggler.LoadSubVolume(fs, mnts[1], mock_snap2, mock_snap3, mock_snap4, mock_snap5)
 
-  volmgr := &btrfsVolumeManager {
-    btrfsutil,
-    juggler,
-    sys_info,
-    conf,
-    []*types.Filesystem{ fs, },
-  }
-  return volmgr, btrfsutil, juggler
+  linuxutil := &mocks.Linuxutil{ SysInfo: sys_info, }
+
+  volmgr, err := NewVolumeManager(conf, btrfsutil, linuxutil, juggler)
+  if err != nil { util.Fatalf("NewVolumeManager: %v", err) }
+  if _, ok := volmgr.(types.VolumeDestination); !ok { util.Fatalf("cannot cast VolumeDestination") }
+  if _, ok := volmgr.(types.VolumeSource); !ok { util.Fatalf("cannot cast VolumeSource") }
+  if _, ok := volmgr.(types.VolumeAdmin); !ok { util.Fatalf("cannot cast VolumeAdmin") }
+  mgr := volmgr.(*btrfsVolumeManager)
+  mgr.src_fs_list = []*types.Filesystem{ fs, }
+  return mgr, btrfsutil, juggler
 }
 
 func defaultVolPath(conf *pb.Config) string {
@@ -291,28 +293,28 @@ func TestReceiveSendStream(t *testing.T) {
   mock_received.MountedPath = fpmod.Join(recv_path, "recv_snap")
   btrfsutil.Snaps = append(btrfsutil.Snaps, mock_received)
 
-  sv, err := volmgr.ReceiveSendStream(ctx, recv_path, mock_received.ReceivedUuid, read_pipe)
+  sv, err := volmgr.ReceiveSendStream(ctx, recv_path, btrfsutil.Snaps[1], read_pipe)
   if err != nil { t.Errorf("ReceiveSendStream: %v", err) }
   util.EqualsOrFailTest(t, "Bad received subvol", sv, mock_received)
 }
 
 func TestReceiveSendStream_ErrNothingCreated(t *testing.T) {
-  volmgr, _, _ := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   read_pipe := mocks.NewPreloadedPipe([]byte("somedata")).ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
-  _, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)
+  _, err := volmgr.ReceiveSendStream(ctx, "/tmp", btrfsutil.Snaps[1], read_pipe)
   if err == nil { t.Errorf("ReceiveSendStream expected error") }
 }
 
 func TestReceiveSendStream_ErrPropagation(t *testing.T) {
-  volmgr, _, _ := buildTestManager()
+  volmgr, btrfsutil, _ := buildTestManager()
   read_pipe := mocks.NewErrorPipe().ReadEnd()
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
-  _, err := volmgr.ReceiveSendStream(ctx, "/tmp", "uuid", read_pipe)
+  _, err := volmgr.ReceiveSendStream(ctx, "/tmp", btrfsutil.Snaps[1], read_pipe)
   if !errors.Is(err, mocks.ErrIoPipe) {
     t.Errorf("ReceiveSendStream bad error propagation: %v", err)
   }

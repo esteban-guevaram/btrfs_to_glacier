@@ -114,15 +114,6 @@ func (self *VolumeManager) AllVols() []*pb.SubVolume {
   return all
 }
 
-func (self *VolumeManager) FindSequence(uuid_str string) ([]*pb.SubVolume, string, int) {
-  for vol_uuid,seq := range self.Snaps {
-    for i,snap := range seq {
-      if snap.Uuid == uuid_str { return seq, vol_uuid, i }
-    }
-  }
-  return nil, "", 0
-}
-
 func (self *VolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   sv, found := self.Vols[path]
   if !found { return nil, fmt.Errorf("No sv for '%s'", path) }
@@ -194,7 +185,7 @@ func (self *VolumeManager) GetSnapshotStream(
   return pipe.ReadEnd(), self.Err
 }
 func (self *VolumeManager) ReceiveSendStream(
-    ctx context.Context, root_path string, rec_uuid string, read_pipe types.ReadEndIf) (*pb.SubVolume, error) {
+    ctx context.Context, root_path string, src_snap *pb.SubVolume, read_pipe types.ReadEndIf) (*pb.SubVolume, error) {
   done := make(chan error)
   go func() {
     defer close(done)
@@ -203,10 +194,11 @@ func (self *VolumeManager) ReceiveSendStream(
     done <- err
   }()
   util.WaitForNoErrorOrDie(ctx, done)
-  // We always consider this is the first restore in a chain (aka has no parent)
   snap := util.DummySnapshot(uuid.NewString(), "")
-  snap.ReceivedUuid = rec_uuid
-  self.Snaps[snap.Uuid] = []*pb.SubVolume{snap,}
+  snap.ReceivedUuid = src_snap.Uuid
+
+  vol_uuid := src_snap.ParentUuid
+  self.Snaps[vol_uuid] = append(self.Snaps[vol_uuid], snap)
   clone := proto.Clone(snap).(*pb.SubVolume)
   return clone, util.Coalesce(read_pipe.GetErr(), self.Err)
 }
