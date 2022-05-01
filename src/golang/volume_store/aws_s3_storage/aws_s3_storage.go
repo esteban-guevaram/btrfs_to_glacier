@@ -270,6 +270,8 @@ func (self *s3Storage) pollRestoreStatus(ctx context.Context, key string) types.
   return types.ObjRestoreOrErr{ Stx:types.Pending, }
 }
 
+// AFAIK there is no way to ask for several restores at the same time.
+// Same thing for getting the restore status (multiple keys in a HEAD request).
 func (self *s3Storage) QueueRestoreObjects(
     ctx context.Context, keys []string) types.RestoreResult {
   result := make(types.RestoreResult)

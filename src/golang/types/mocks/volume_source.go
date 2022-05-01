@@ -114,6 +114,15 @@ func (self *VolumeManager) AllVols() []*pb.SubVolume {
   return all
 }
 
+func (self *VolumeManager) FindSequence(uuid_str string) ([]*pb.SubVolume, string, int) {
+  for vol_uuid,seq := range self.Snaps {
+    for i,snap := range seq {
+      if snap.Uuid == uuid_str { return seq, vol_uuid, i }
+    }
+  }
+  return nil, "", 0
+}
+
 func (self *VolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   sv, found := self.Vols[path]
   if !found { return nil, fmt.Errorf("No sv for '%s'", path) }

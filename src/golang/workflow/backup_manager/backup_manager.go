@@ -21,10 +21,9 @@ var ErrSnapsMismatchWithSrc = errors.New("snapshot_mismatch_between_meta_and_sou
 var ErrNoIncrementalBackup = errors.New("no_parent_snapshot_for_inc_backup")
 
 // Meta and Store must already been setup
-// Should we handle getting CAP_SYS_ADMIN at this level ?
 type BackupManager struct {
   Conf     *pb.Config
-  SrcName  string
+  SrcConf  *pb.Source
   Meta     types.Metadata
   Store    types.Storage
   Source   types.VolumeSource
@@ -35,21 +34,23 @@ func NewBackupManager(
     conf *pb.Config, src_name string, meta types.Metadata, store types.Storage, vol_src types.VolumeSource) (types.BackupManager, error) {
   mgr := &BackupManager{
     Conf: conf,
-    SrcName: src_name,
     Meta: meta,
     Store: store,
     Source: vol_src,
     MinInterval: MinIntervalBetweenSnaps,
   }
-  _, err := mgr.GetSource()
+  var err error
+  mgr.SrcConf, err = mgr.GetSource(src_name)
   return mgr, err
 }
 
-func (self *BackupManager) GetSource() (*pb.Source, error) {
+func (self *BackupManager) GetSource(src_name string) (*pb.Source, error) {
   for _, src := range self.Conf.Sources {
-    if src.Name == self.SrcName { return src, nil }
+    if src.Name == src_name && src.Type == pb.Source_BTRFS {
+      return src, nil
+    }
   }
-  return nil, fmt.Errorf("Source '%s' is not in configuration", self.SrcName)
+  return nil, fmt.Errorf("Source '%s' is not in configuration", src_name)
 }
 
 // Does NOT write anything to self.Meta: writes should be ordered chunk -> snap -> seq -> head
@@ -149,11 +150,9 @@ func (self *BackupManager) PersistSequence(
 }
 
 func (self *BackupManager) BackupAllHelper(ctx context.Context, new_seq bool) ([]types.BackupPair, error) {
-  backups := []types.BackupPair{}
-  src, err := self.GetSource()
-  if err != nil { return backups, err }
+  backups := make([]types.BackupPair, 0, 10)
 
-  for _, p_pair := range src.Paths {
+  for _, p_pair := range self.SrcConf.Paths {
     sv, err := self.Source.GetVolume(p_pair.VolPath) 
     if err != nil { return backups, err }
     seq, err := self.GetSequenceFor(ctx, sv, new_seq)

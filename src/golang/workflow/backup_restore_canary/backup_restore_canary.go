@@ -120,7 +120,7 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
 }
 
 func (self *BackupRestoreCanary) DetermineVolUuid(ctx context.Context) (string, error) {
-  heads, err := self.State.RestoreMgr.ReadSnapshotSeqHeadMap(ctx)
+  heads, err := self.State.RestoreMgr.ReadHeadAndSequenceMap(ctx)
   if err != nil { return "", err }
   if len(heads) > 1 {
     return "", fmt.Errorf("Metadata contains more than 1 volume: %v", len(heads))

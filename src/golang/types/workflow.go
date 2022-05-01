@@ -5,7 +5,7 @@ import (
   pb "btrfs_to_glacier/messages"
 )
 
-type SnapshotSeqHead struct {
+type HeadAndSequence struct {
   Head *pb.SnapshotSeqHead
   Cur  *pb.SnapshotSequence
 }
@@ -14,7 +14,7 @@ type BackupPair struct {
   Snap *pb.SubVolume
 }
 // Maps the subvolue uuid to the current snapshot sequence.
-type SnapshotSeqHeadMap = map[string]SnapshotSeqHead
+type HeadAndSequenceMap = map[string]HeadAndSequence
 
 // Maintains a small filesystem that can be restored from scratch and validated.
 // Ensures that all stored volumes are still compatible and can be restored.
@@ -59,9 +59,10 @@ type BackupManagerAdmin interface {
 // Handles volume restores to a particular destination.
 type RestoreManager interface {
   // Reads all snapshot heads and their current sequence from Metadata.
-  ReadSnapshotSeqHeadMap(ctx context.Context) (SnapshotSeqHeadMap, error)
+  ReadHeadAndSequenceMap(ctx context.Context) (HeadAndSequenceMap, error)
   // Restores all of the snapshots for the most recent sequence corresponding to `vol_uuid`.
   // If some snapshots are already present at the destination, then only the new ones are restored.
+  // If all snapshots have been restored this is a noop.
   // Returns the list of snapshots (from the source) actually restored to the destination, in the same order as they got restored.
   RestoreCurrentSequence(ctx context.Context, vol_uuid string) ([]*pb.SubVolume, error)
 }
