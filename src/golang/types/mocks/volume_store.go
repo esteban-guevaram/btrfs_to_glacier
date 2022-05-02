@@ -26,9 +26,11 @@ type Metadata struct {
 // In mem metadata storage
 // Simple implementation does not do any input validation.
 type Storage struct {
+  ErrInject func(string) error
   ChunkLen  uint64
   Chunks    map[string][]byte
   Restored  map[string]bool
+  DefRestoreStx types.RestoreStatus
 }
 
 func NewMetadata() *Metadata {
@@ -50,8 +52,10 @@ func NewStorage() *Storage {
 }
 func (self *Storage) Clear() {
   self.ChunkLen =  256
+  self.ErrInject = func(string) error { return nil }
   self.Chunks = make(map[string][]byte)
   self.Restored = make(map[string]bool)
+  self.DefRestoreStx = types.Restored
 }
 
 func (self *Metadata) RecordSnapshotSeqHead(
@@ -271,7 +275,7 @@ func (self *Storage) WriteStream(
     result.Chunks = append(result.Chunks, chunk_pb)
     start += uint64(len(chunk))
   }
-  return result, nil
+  return result, self.ErrInject("WriteStream")
 }
 
 func (self *Storage) QueueRestoreObjects(
@@ -286,7 +290,10 @@ func (self *Storage) QueueRestoreObjects(
     _,found := self.Chunks[uuid]
     if !found { continue }
     self.Restored[uuid] = true
-    result[uuid] = types.ObjRestoreOrErr { Stx: types.Restored, }
+    result[uuid] = types.ObjRestoreOrErr{
+      Stx: self.DefRestoreStx,
+      Err: self.ErrInject("QueueRestoreObjects"),
+    }
   }
   return result
 }
@@ -307,7 +314,7 @@ func (self *Storage) ReadChunksIntoStream(
       if err != nil { return }
     }
   }()
-  return pipe.ReadEnd(), nil
+  return pipe.ReadEnd(), self.ErrInject("ReadChunksIntoStream")
 }
 
 type SnapshotChunksIterator struct {
@@ -332,11 +339,11 @@ func (self *Storage) ListAllChunks(
     idx += 1
     return true
   }
-  return &SnapshotChunksIterator{ next_f }, nil
+  return &SnapshotChunksIterator{ next_f }, self.ErrInject("ListAllChunks")
 }
 
 func (self *Storage) SetupStorage(ctx context.Context) error {
-  return ctx.Err()
+  return util.Coalesce(ctx.Err(), self.ErrInject("SetupStorage"))
 }
 
 func (self *Storage) DeleteChunks(
@@ -345,7 +352,7 @@ func (self *Storage) DeleteChunks(
     delete(self.Chunks, chunk.Uuid)
     delete(self.Restored, chunk.Uuid)
   }
-  return ctx.Err()
+  return util.Coalesce(ctx.Err(), self.ErrInject("DeleteChunks"))
 }
 
 func (self *Storage) ObjCounts() []int {

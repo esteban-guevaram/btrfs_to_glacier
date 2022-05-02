@@ -132,7 +132,7 @@ func mergeMaps(super types.RestoreResult, sub types.RestoreResult) types.Restore
 func (self *RestoreManager) WaitUntilAvailableAndRestoreSingle(
     ctx context.Context, from *pb.SubVolume, restore_res types.RestoreResult) (*pb.SubVolume, error) {
   ticker := time.NewTicker(self.BetweenRestoreChecks)
-	defer ticker.Stop()
+  defer ticker.Stop()
 
   for {
     uuid_unavailable := make([]string, 0, len(restore_res))

@@ -2,16 +2,23 @@ package restore_manager
 
 import (
   "context"
+  "fmt"
   "os"
   fpmod "path/filepath"
   "testing"
+  "time"
 
   pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
 
   "github.com/google/uuid"
   "google.golang.org/protobuf/proto"
+)
+
+const (
+  ChunksPerSnap = 3
 )
 
 type Mocks struct {
@@ -61,7 +68,7 @@ func buildRestoreManager(head_cnt int) (*RestoreManager, *Mocks) {
   const dst_count = 3
   conf := util.LoadTestConf()
   conf.Restores = buildConfRestores(dst_count)
-  meta, store := mocks.DummyMetaAndStorage(head_cnt, head_cnt, head_cnt, head_cnt)
+  meta, store := mocks.DummyMetaAndStorage(head_cnt, head_cnt, head_cnt, ChunksPerSnap)
   dest := mocks.NewVolumeManager()
   mocks := &Mocks{
     DstConf: conf.Restores[0],
@@ -89,56 +96,155 @@ func TestReadHeadAndSequenceMap(t *testing.T) {
   }
 }
 
-func TestRestoreCurrentSequence_Empty(t *testing.T) {
-  const seq_len = 3
+func HelperTestRestoreCurrentSequence_Ok(t *testing.T, seq_len int, prev_len int) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
   mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
   expect_cnt := mocks.Meta.ObjCounts()
   vol_uuid := mocks.Meta.HeadKeys()[1]
+  cur_uuid := mocks.Meta.Heads[vol_uuid].CurSeqUuid
+  mocks.AddFirstSnapsFromMetaInDst(cur_uuid, prev_len)
+
   pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
-  if err != nil { util.Fatalf("RestoreCurrentSequence: %v", err) }
+  if err != nil { t.Fatalf("RestoreCurrentSequence: %v", err) }
 
   util.EqualsOrFailTest(t, "Should not create new objects", mocks.Meta.ObjCounts(), expect_cnt)
-  util.EqualsOrFailTest(t, "Bad restore len", len(pairs), seq_len)
+  util.EqualsOrFailTest(t, "Bad restore len", len(pairs), seq_len - prev_len)
   util.EqualsOrFailTest(t, "Bad dst objcount", mocks.Destination.ObjCounts(),
                                                []int{/*vols=*/0, /*seqs=*/1, /*snaps=*/seq_len,})
+  util.EqualsOrFailTest(t, "Bad restore reqs", mocks.Store.ObjCounts()[1],
+                                               (seq_len - prev_len) * ChunksPerSnap)
 
-  cur_uuid := mocks.Meta.Heads[vol_uuid].CurSeqUuid
   expect_rec_uuids := make(map[string]int)
   for i,u := range mocks.Meta.Seqs[cur_uuid].SnapUuids {
     expect_rec_uuids[u] = i
   }
   for i,pair := range pairs {
     expect_src := mocks.Meta.Snaps[pair.Src.Uuid]
-    var expect_dst *pb.SubVolume
-    for _,s := range mocks.Destination.Snaps[pair.Src.ParentUuid] {
-      if s.Uuid == pair.Dst.Uuid { expect_dst = s; break }
-    }
+    expect_dst := mocks.Destination.Snaps[pair.Src.ParentUuid][prev_len+i]
     util.EqualsOrFailTest(t, "bad metadata snap", pair.Src, expect_src)
     util.EqualsOrFailTest(t, "bad destination snap", pair.Dst, expect_dst)
+
     expect_i, found := expect_rec_uuids[pair.Dst.ReceivedUuid]
     util.EqualsOrFailTest(t, "restored snap in wrong seq", found, true)
-    util.EqualsOrFailTest(t, "restored snap in wrong order", i, expect_i)
+    util.EqualsOrFailTest(t, "restored snap in wrong order", prev_len + i, expect_i)
+
+    for _,chunk := range expect_src.Data.Chunks {
+      if !mocks.Store.Restored[chunk.Uuid] { t.Errorf("chunk %s not restored", chunk.Uuid) }
+    }
   }
 }
 
+func TestRestoreCurrentSequence_Empty(t *testing.T) {
+  const seq_len = 3
+  const prev_len = 0
+  HelperTestRestoreCurrentSequence_Ok(t, seq_len, prev_len)
+}
+
 func TestRestoreCurrentSequence_PreviousRestore(t *testing.T) {
+  const seq_len = 4
+  const prev_len = 2
+  HelperTestRestoreCurrentSequence_Ok(t, seq_len, prev_len)
 }
 
 func TestRestoreCurrentSequence_Noop(t *testing.T) {
+  const seq_len = 2
+  const prev_len = 2
+  HelperTestRestoreCurrentSequence_Ok(t, seq_len, prev_len)
 }
 
 func TestRestoreCurrentSequence_CtxTimeout(t *testing.T) {
+  const seq_len = 3
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+
+  mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
+  vol_uuid := mocks.Meta.HeadKeys()[0]
+  mocks.Store.DefRestoreStx = types.Pending
+
+  done := make(chan error)
+  go func() {
+    defer close(done)
+    _, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
+    done <- err
+  }()
+  select {
+    case <-ctx.Done(): break
+  }
+  select {
+    case err := <-done:
+      if err == nil { t.Errorf("Expected err after timeout") }
+    case <-time.After(util.SmallTimeout):
+      t.Errorf("Ctx Timeout but no return")
+  }
 }
 
 func TestRestoreCurrentSequence_WaitForStorageRestore(t *testing.T) {
+  const seq_len = 3
+  ctx, cancel := context.WithTimeout(context.Background(), util.LargeTimeout)
+  defer cancel()
+
+  mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
+  vol_uuid := mocks.Meta.HeadKeys()[0]
+  mocks.Store.DefRestoreStx = types.Pending
+
+  done := make(chan []types.RestorePair)
+  go func() {
+    defer close(done)
+    pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
+    if err != nil { t.Fatalf("RestoreCurrentSequence: %v", err) }
+    done <- pairs
+  }()
+  select {
+    case <-time.After(util.SmallTimeout): mocks.Store.DefRestoreStx = types.Restored
+    case <-ctx.Done(): t.Errorf("ctx timeout")
+  }
+  select {
+    case pairs := <-done:
+      util.EqualsOrFailTest(t, "Bad restore len", len(pairs), seq_len)
+    case <-ctx.Done(): t.Errorf("ctx timeout")
+  }
 }
 
 func TestRestoreCurrentSequence_PartialBecauseError(t *testing.T) {
+  const seq_len = 3
+  const ok_until = 2
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+
+  call_count := 0
+  err_inject := func(m string) error {
+    if m == "ReadChunksIntoStream" {
+      call_count += 1
+      if call_count > ok_until { return fmt.Errorf("err_inject") }
+    }
+    return nil
+  }
+
+  mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
+  mocks.Store.ErrInject = err_inject
+  vol_uuid := mocks.Meta.HeadKeys()[2]
+
+  pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
+  if err == nil { t.Fatalf("Expected error RestoreCurrentSequence") }
+
+  util.EqualsOrFailTest(t, "Bad restore len", len(pairs), ok_until)
+  util.EqualsOrFailTest(t, "Bad dst objcount", mocks.Destination.ObjCounts(),
+                                               []int{/*vols=*/0, /*seqs=*/1, /*snaps=*/ok_until,})
 }
 
 func TestRestoreCurrentSequence_StorageRestoreFailed(t *testing.T) {
+  const seq_len = 3
+  ctx, cancel := context.WithTimeout(context.Background(), util.LargeTimeout)
+  defer cancel()
+
+  mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
+  vol_uuid := mocks.Meta.HeadKeys()[0]
+  mocks.Store.DefRestoreStx = types.Unknown
+
+  pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
+  if err == nil { t.Fatalf("Expected error RestoreCurrentSequence") }
+  util.EqualsOrFailTest(t, "Bad restore len", len(pairs), 0)
 }
 
