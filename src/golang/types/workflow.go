@@ -22,7 +22,24 @@ type HeadAndSequenceMap = map[string]HeadAndSequence
 
 // Maintains a small filesystem that can be restored from scratch and validated.
 // Ensures that all stored volumes are still compatible and can be restored.
-type BackupRestoreCanary interface {}
+type BackupRestoreCanary interface {
+  // Creates the canary filesystem.
+  // Creates dummy subvolume if there is no data in the Metadata under test.
+  // Calling this method twice is a noop.
+  Setup(ctx context.Context) error
+  // Destroys the canary filesystem.
+  // Calling this method twice or before `Setup()` is a noop.
+  TearDown(ctx context.Context) error
+  // Restores the whole snapshot sequence into the canary filesystem.
+  // Validates the most recent snapshot according to its predecessors.
+  // Calling this method twice is an error since validation will not see the whole history.
+  RestoreChainAndValidate(ctx context.Context) error
+  // Modifies the restored subvolume (by making a clone) and adds another snapshot to the sequence.
+  // Backups the new snapshot into the current sequence.
+  // Must be called after the sequence has been restored.
+  // Returns the snapshot that was backed up.
+  AppendSnapshotToValidationChain(ctx context.Context) (*pb.SubVolume, error)
+}
 
 // Handles volume backup from a particular source.
 type BackupManager interface {

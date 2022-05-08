@@ -4,6 +4,7 @@ import (
   "bytes"
   "context"
   "crypto/md5"
+  "errors"
   "fmt"
   "os"
   fpmod "path/filepath"
@@ -23,9 +24,11 @@ const (
   FakeDestination = "FakeDestination"
 )
 
-type FactoryIf interface {
-  //Meta     types.Metadata
-  //Store    types.Storage
+var ErrCannotCallTwice = errors.New("validate_cannot_be_called_twice")
+var ErrMustRestoreBefore = errors.New("before_add_snap_need_restore")
+
+// Used to lazy initialize specific object to the fake configs created for the fake filesystem loop device.
+type MgrFactoryIf interface {
   NewBackupManager(ctx context.Context,
     conf *pb.Config, src_name string) (types.BackupManagerAdmin, error)
   NewRestoreManager(ctx context.Context,
@@ -41,6 +44,8 @@ type State struct {
   VolRoot     string
   SnapRoot    string
   RestoreRoot string
+  TopSnap     *pb.SubVolume
+  PrevList    []*pb.SubVolume
   BackupMgr   types.BackupManagerAdmin
   RestoreMgr  types.RestoreManager
 }
@@ -51,14 +56,25 @@ type BackupRestoreCanary struct {
   Conf     *pb.Config
   Btrfs    types.Btrfsutil
   Lnxutil  types.Linuxutil
-  Factory  FactoryIf
+  Factory  MgrFactoryIf
   State    *State
+}
+
+func NewBackupRestoreCanary(
+    conf *pb.Config, btrfs types.Btrfsutil, lnxutil types.Linuxutil, factory MgrFactoryIf) (types.BackupRestoreCanary, error) {
+  canary := &BackupRestoreCanary{
+    Conf: conf,
+    Btrfs: btrfs,
+    Lnxutil: lnxutil,
+    Factory: factory,
+    State: nil,
+  }
+  return canary, nil
 }
 
 // Creates empty btrfs filesystem on loop device.
 // Prepares State to point to the newly created filesystem.
 // Creates a new volume if this is the first time the canary is run.
-// Prerequisite: Storage and Metadata have previously been setup.
 func (self *BackupRestoreCanary) Setup(ctx context.Context) error {
   if self.State != nil {
     util.Infof("Setup twice is a noop: %s", self.State.Uuid)
@@ -163,9 +179,9 @@ func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
 // * snapshots/      # new snapshots in the sequence go here
 // * subvol/uuids    # contains all snapshot uuids in history, one per line
 //                   # empty for the first snapshot
-// * subvol/deleted/ # contains a single file named after the most recent snapshot, contains the snapshot uuid hash
+// * subvol/deleted/ # contains a single file named after the most recent snapshot, contains the chain hash
 //                   # no files for the first snapshot
-// * subvol/new/     # contains one file per snapshot, named as its uuid, contains the snapshot uuid hash
+// * subvol/new/     # contains one file per snapshot, named as its uuid, contains the snapshot hash
 //                   # no files for the first snapshot
 func (self *BackupRestoreCanary) SetupPathsInNewFs() error {
   root_vol := self.State.Fs.Mounts[0].MountedPath
@@ -218,54 +234,70 @@ func (self *BackupRestoreCanary) TearDown(ctx context.Context) error {
 // btrfs send -p restores/asubvol.snap.2 restores/asubvol.snap.3 | btrfs receive restore2
 // comm -3 <(find restore2/asubvol.snap.3 -printf "./%P\n") <(find clones/asubvol.clone.2 -printf "./%P\n")
 // # both subvolumes contain the same files
-func (self *BackupRestoreCanary) AppendSnapshotToValidationChain(ctx context.Context, last_snap *pb.SubVolume) error {
+func (self *BackupRestoreCanary) AppendSnapshotToValidationChain(
+    ctx context.Context) (*pb.SubVolume, error) {
+  if self.State.TopSnap == nil { return nil, ErrMustRestoreBefore }
   if !self.State.New {
-    err := self.Btrfs.CreateClone(last_snap.MountedPath, self.State.VolRoot)
-    if err != nil { return err }
+    err := self.Btrfs.CreateClone(self.State.TopSnap.MountedPath, self.State.VolRoot)
+    if err != nil { return nil, err }
   }
 
-  err := self.AppendDataToSnapshot(last_snap)
-  if err != nil { return err }
+  err := self.AppendDataToSnapshot()
+  if err != nil { return nil, err }
 
   src, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
-  if err != nil { return err }
+  if err != nil { return nil, err }
   // if self.State.New then `src` and self.State.Uuid do share the same parent
-  _, err = self.State.BackupMgr.BackupToCurrentSequenceUnrelatedVol(ctx, src, self.State.Uuid)
-  return err
+  snap, err := self.State.BackupMgr.BackupToCurrentSequenceUnrelatedVol(ctx, src, self.State.Uuid)
+  return snap, err
 }
 
-func Hash(content []byte) []byte {
+func Hash(content []byte) string {
   hash := md5.Sum(content)
-  return hash[:]
+  return fmt.Sprintf("%x", hash)
 }
-func HashStr(content string) []byte { return Hash([]byte(content)) }
+func HashFromFile(dir string, file string) (string, error) {
+  path := fpmod.Join(dir, file)
+  content, err := os.ReadFile(path)
+  if err != nil { return "", err }
+  return string(content), nil
+}
+func HashFromSv(sv *pb.SubVolume, chain string) string {
+  buf := new(bytes.Buffer)
+  buf.WriteString(sv.Uuid)
+  // Do not add parent since it changes as we append clones to the sequence
+  //buf.WriteString(sv.ParentUuid)
+  for _,c := range sv.Data.Chunks { buf.WriteString(c.Uuid) }
+  return Hash(buf.Bytes())
+}
 
-func (self *BackupRestoreCanary) AppendDataToSnapshot(last_snap *pb.SubVolume) error {
+func (self *BackupRestoreCanary) AppendDataToSnapshot() error {
+  top_snap := self.State.TopSnap
   f, err := os.OpenFile(self.UuidFile(), os.O_APPEND, 0666)
   if err != nil { return err }
-  _, err_w1 := f.Write([]byte(last_snap.Uuid))
-  _, err_w2 := f.Write([]byte("\n"))
+  _, err_w1 := f.WriteString(fmt.Sprintf("%s\n", top_snap.Uuid))
   err_cl := f.Close()
-  if err = util.Coalesce(err_w1, err_w2, err_cl); err != nil { return err }
+  if err = util.Coalesce(err_w1, err_cl); err != nil { return err }
 
-  content := HashStr(last_snap.Uuid)
-  newpath := fpmod.Join(self.NewDir(), last_snap.Uuid)
+  newpath := fpmod.Join(self.NewDir(), top_snap.Uuid)
   f, err = os.Create(newpath)
   if err != nil { return err }
-  _, err_w1 = f.Write([]byte(fmt.Sprintf("%d", content)))
+  _, err_w1 = f.WriteString(HashFromSv(top_snap, ""))
   err_cl = f.Close()
   if err = util.Coalesce(err_w1, err_cl); err != nil { return err }
 
+  var prev_hash string
   entries, err := os.ReadDir(self.DelDir())
   if err != nil { return err }
   for _,e := range entries {
     path := fpmod.Join(self.DelDir(), e.Name())
+    if prev_hash,err = HashFromFile(self.DelDir(), e.Name()); err != nil { return nil }
     if err = util.RemoveAll(path); err != nil { return err }
   }
-  newpath = fpmod.Join(self.DelDir(), last_snap.Uuid)
-  f, err = os.Create(newpath)
+  delpath := fpmod.Join(self.DelDir(), top_snap.Uuid)
+  f, err = os.Create(delpath)
   if err != nil { return err }
-  _, err_w1 = f.Write([]byte(fmt.Sprintf("%d", content)))
+  _, err_w1 = f.WriteString(HashFromSv(top_snap, prev_hash))
   err_cl = f.Close()
   return util.Coalesce(err_w1, err_cl)
 }
@@ -285,32 +317,29 @@ func (self *BackupRestoreCanary) ValidateEmptyChain() error {
   return nil
 }
 
-func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) error {
-  pairs, err := self.State.RestoreMgr.RestoreCurrentSequence(ctx, self.State.Uuid)
-  if err != nil { return err }
-  if self.State.New {
-    if len(pairs) != 1 { util.Fatalf("expected only the initial snapshot, got: %v", pairs) }
-    return self.ValidateEmptyChain()
-  }
-
-  pairs_to_validate := pairs[0:len(pairs)-1]
-  last_snap := pairs_to_validate[len(pairs_to_validate)-1].Src
-  sv_to_hash := make(map[string][]byte)
-  for _,pair := range pairs_to_validate {
-    sv_to_hash[pair.Src.Uuid] = HashStr(pair.Src.Uuid)
-  }
-
+func (self *BackupRestoreCanary) ValidateUuidFile() error {
+  len_prev := len(self.State.PrevList)
   content, err := os.ReadFile(self.UuidFile())
   if err != nil { return err }
   lines := strings.Split(strings.TrimSpace(string(content)), "\n")
-  if len(lines) != len(pairs_to_validate) {
+  if len(lines) != len_prev {
     return fmt.Errorf("Volume does not contain a list of all of its ancestors: %d / %d",
-                      len(lines), len(pairs_to_validate))
+                      len(lines), len_prev)
   }
   for i,l := range lines {
-    if l != pairs_to_validate[i].Src.Uuid {
-      return fmt.Errorf("Snapshot history mismatch: %s / %s", l, pairs_to_validate[i].Src.Uuid)
+    if l != self.State.PrevList[i].Uuid {
+      return fmt.Errorf("Snapshot history mismatch: %s / %s", l, self.State.PrevList[i].Uuid)
     }
+  }
+  return nil
+}
+
+func (self *BackupRestoreCanary) ValidateDelDir() error {
+  sv_to_hash := make(map[string]string)
+  prev_hash := ""
+  for _,sv := range self.State.PrevList {
+    sv_to_hash[sv.Uuid] = HashFromSv(sv, prev_hash)
+    prev_hash = sv_to_hash[sv.Uuid]
   }
 
   entries, err := os.ReadDir(self.DelDir())
@@ -318,36 +347,65 @@ func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) er
   if len(entries) != 1 {
     return fmt.Errorf("DelDir should contain only 1 file, got: %d", len(entries))
   }
-  if last_snap.Uuid != entries[0].Name() {
+  if self.State.TopSnap.Uuid != entries[0].Name() {
     return fmt.Errorf("DelDir should contain a file named after the most recent snapshot: '%s'",
                       entries[0].Name())
   }
-  content, err = os.ReadFile(fpmod.Join(self.DelDir(), entries[0].Name()))
+  got_hash, err := HashFromFile(self.DelDir(), entries[0].Name())
   if err != nil { return err }
-  got_hash := Hash(content)
-  expect_hash := sv_to_hash[last_snap.Uuid]
-  if bytes.Compare(got_hash, expect_hash) != 0 {
+  expect_hash := sv_to_hash[self.State.TopSnap.Uuid]
+  if strings.Compare(got_hash, expect_hash) != 0 {
     return fmt.Errorf("DelDir file, bad content: %x != %x", got_hash, expect_hash)
   }
+  return nil
+}
 
-  entries, err = os.ReadDir(self.NewDir())
+func (self *BackupRestoreCanary) ValidateNewDir() error {
+  len_prev := len(self.State.PrevList)
+  sv_to_hash := make(map[string]string)
+  for _,sv := range self.State.PrevList { sv_to_hash[sv.Uuid] = HashFromSv(sv, "") }
+
+  entries, err := os.ReadDir(self.NewDir())
   if err != nil { return err }
-  if len(entries) != len(pairs_to_validate) {
+  if len(entries) != len_prev {
     return fmt.Errorf("NewDir should contain 1 file per snapshot in history: %d / %d",
-                      len(entries), len(pairs_to_validate))
+                      len(entries), len_prev)
   }
   for _,entry := range entries {
     if entry.IsDir() { return fmt.Errorf("NewDir should not contain directories, got: %s", entry.Name()) }
-    content, err := os.ReadFile(fpmod.Join(self.NewDir(), entry.Name()))
+    got_hash, err := HashFromFile(self.NewDir(), entry.Name())
     if err != nil { return err }
-    got_hash := Hash(content)
     expect_hash := sv_to_hash[entry.Name()]
-    if bytes.Compare(got_hash, expect_hash) != 0 {
+    if strings.Compare(got_hash, expect_hash) != 0 {
       return fmt.Errorf("NewDir file, bad content: %x != %x", got_hash, expect_hash)
     }
   }
-
-  util.Infof("Validated chain of %d items for vol '%s'", len(pairs_to_validate), self.State.Uuid)
   return nil
+}
+
+func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) error {
+  pairs, err := self.State.RestoreMgr.RestoreCurrentSequence(ctx, self.State.Uuid)
+  if err != nil { return err }
+  if self.State.New {
+    if len(pairs) != 1 { util.Fatalf("expected only the initial snapshot, got: %v", pairs) }
+    return self.ValidateEmptyChain()
+  }
+  if len(pairs) < 2 { util.Fatalf("assert len(pairs) < 2") }
+  if self.State.TopSnap != nil { return ErrCannotCallTwice }
+
+  self.State.PrevList = make([]*pb.SubVolume, 0, len(pairs))
+  for i,pair := range pairs {
+    if i == len(pairs) - 1 { break }
+    self.State.TopSnap = pair.Src
+    self.State.PrevList = append(self.State.PrevList, pair.Src)
+  }
+
+  err_uuid := self.ValidateUuidFile()
+  err_newf := self.ValidateNewDir()
+  err_deld := self.ValidateDelDir()
+
+  util.Infof("Validated chain of %d items for vol '%s'",
+             len(self.State.PrevList), self.State.Uuid)
+  return util.Coalesce(err_uuid, err_newf, err_deld)
 }
 
