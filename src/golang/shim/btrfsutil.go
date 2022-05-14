@@ -253,33 +253,46 @@ func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to 
 }
 
 func (self *btrfsUtilImpl) CreateSubvolume(sv_path string) error {
-  util.Fatalf("not_implemented")
+  if !fpmod.IsAbs(sv_path) {
+    return fmt.Errorf("`sv_path` needs an absolute path, got: %s", sv_path)
+  }
+  c_subvol := C.CString(sv_path)
+  stx := C.btrfs_util_create_subvolume(c_subvol, 0, nil, nil)
+  if stx != C.BTRFS_UTIL_OK {
+    return fmt.Errorf("btrfs_util_create_subvolume(%s): %s = %d",
+                      sv_path, C.GoString(C.btrfs_util_strerror(stx)), stx)
+  }
   return nil
 }
 
-func (self *btrfsUtilImpl) CreateClone(sv_path string, clone_path string) error {
-  util.Fatalf("not_implemented")
-  return nil
-}
-
-func (self *btrfsUtilImpl) CreateSnapshot(subvol string, snap string) error {
-  if !fpmod.IsAbs(subvol) {
-    return fmt.Errorf("'subvol' needs an absolute path, got: %s", subvol)
+func (self *btrfsUtilImpl) HelperCreateSnapshot(
+    sv_path string, snap_path string, flags C.int) error {
+  if !fpmod.IsAbs(sv_path) {
+    return fmt.Errorf("`sv_path` needs an absolute path, got: %s", sv_path)
   }
-  if !fpmod.IsAbs(snap) {
-    return fmt.Errorf("'snap' needs an absolute path, got: %s", snap)
+  if !fpmod.IsAbs(snap_path) {
+    return fmt.Errorf("`snap_path` needs an absolute path, got: %s", snap_path)
   }
-  c_subvol := C.CString(subvol)
-  c_snap := C.CString(snap)
-  var flags C.int = C.BTRFS_UTIL_CREATE_SNAPSHOT_READ_ONLY
+  c_subvol := C.CString(sv_path)
+  c_snap := C.CString(snap_path)
   // Async creation has been deprecated in btrfs 5.7, using `async_transid` arg will f*ck things up.
   // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=15c981d16d70e8a5be297fa4af07a64ab7e080ed
   stx := C.btrfs_util_create_snapshot(c_subvol, c_snap, flags, nil, nil)
   if stx != C.BTRFS_UTIL_OK {
     return fmt.Errorf("btrfs_util_create_snapshot(%s, %s, %d): %s = %d",
-                      subvol, snap, flags, C.GoString(C.btrfs_util_strerror(stx)), stx)
+                      sv_path, snap_path, flags, C.GoString(C.btrfs_util_strerror(stx)), stx)
   }
   return nil
+}
+
+func (self *btrfsUtilImpl) CreateClone(sv_path string, clone_path string) error {
+  var flags C.int = 0
+  return self.HelperCreateSnapshot(sv_path, clone_path, flags)
+}
+
+func (self *btrfsUtilImpl) CreateSnapshot(sv_path string, snap_path string) error {
+  var flags C.int = C.BTRFS_UTIL_CREATE_SNAPSHOT_READ_ONLY
+  return self.HelperCreateSnapshot(sv_path, snap_path, flags)
 }
 
 func (self *btrfsUtilImpl) WaitForTransactionId(root_fs string, tid uint64) error {

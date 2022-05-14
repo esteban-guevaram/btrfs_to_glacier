@@ -178,7 +178,31 @@ func (self *TestBtrfsUtil) TestCreateSnapshot() {
   subvol, err := self.btrfsutil.SubVolumeInfo(snap_path);
   if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
   validateSnapOrDie(subvol, true, self.linuxutil.IsCapSysAdmin())
+  util.Infof("snap = %s\n", subvol)
+}
+
+func (self *TestBtrfsUtil) TestCreateSubvolume() {
+  sv_path := fpmod.Join(root_flag,
+                        fmt.Sprintf("%s.%d", "TestCreateSubvolume", time.Now().Unix()))
+  err := self.btrfsutil.CreateSubvolume(sv_path);
+  if err != nil { util.Fatalf("btrfsutil.CreateSubvolume(%s) failed = %v", sv_path, err) }
+
+  subvol, err := self.btrfsutil.SubVolumeInfo(sv_path);
+  if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
+  validateSubVolOrDie(subvol, true, self.linuxutil.IsCapSysAdmin())
   util.Infof("subvol = %s\n", subvol)
+}
+
+func (self *TestBtrfsUtil) TestCreateClone() {
+  sv_path := fpmod.Join(root_flag,
+                        fmt.Sprintf("%s.%d", "TestCreateClone", time.Now().Unix()))
+  err := self.btrfsutil.CreateClone(subvol_flag, sv_path);
+  if err != nil { util.Fatalf("btrfsutil.CreateClone(%s, %s) failed = %v", subvol_flag, sv_path, err) }
+
+  subvol, err := self.btrfsutil.SubVolumeInfo(sv_path);
+  if err != nil { util.Fatalf("btrfsutil.SubvolumeInfo failed = %v", err) }
+  validateSubVolOrDie(subvol, true, self.linuxutil.IsCapSysAdmin())
+  util.Infof("clone = %s\n", subvol)
 }
 
 // Requires CAP_SYS_ADMIN
@@ -287,6 +311,8 @@ func TestBtrfsUtil_AllFuncs(conf *pb.Config, linuxutil types.Linuxutil, btrfsuti
   suite.TestListSubVolumesAt(subvol_alt_flag, false)
   suite.TestListSubVolumesAt(snap1_flag, false)
   suite.TestCreateSnapshot()
+  suite.TestCreateSubvolume()
+  suite.TestCreateClone()
   suite.TestDeleteSubVolume()
   suite.TestReceiveSendStream()
 }
