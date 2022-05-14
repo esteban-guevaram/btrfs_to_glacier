@@ -24,6 +24,10 @@ message SubVolume {
   // Unix timestamp in seconds (although btrfs docs never mention this clearly)
   fixed64 created_ts = 6;
   // Only snapshots will have this field not empty
+  // The value depends on whether this is a snapshot from an original sbuvolume or a restore.
+  // * Original: contains the UUID of the writable subvolume (all snaps share the same)
+  // * Restored: contains the UUID of the previously restored snapshot
+  //   * It follows that the first restored snapshot in a chain has this empty.
   string  parent_uuid = 7; 
   string  received_uuid = 8; 
   bool    read_only = 9;

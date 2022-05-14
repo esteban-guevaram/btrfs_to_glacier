@@ -177,6 +177,9 @@ func ValidateBackupInVolumeSource(
 
 func ValidateBackupInMetadata(
     t *testing.T, mocks *Mocks, expect_sv *pb.SubVolume, pair types.BackupPair) {
+  if pair.Snap.Data == nil || len(pair.Snap.Data.Chunks) == 0 {
+    t.Fatalf("Bad snap in pair, expect chunk data:\n%s", util.AsJson(pair.Snap))
+  }
   head := mocks.Meta.Heads[expect_sv.Uuid]
   if head == nil {
     t.Fatalf("Bad head state:\n%s", util.AsJson(mocks.Meta))

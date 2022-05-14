@@ -83,7 +83,7 @@ func (self *BackupRestoreCanary) Setup(ctx context.Context) error {
   dev, err := self.Lnxutil.CreateLoopDevice(ctx, LoopDevSizeMb)
   if err != nil { return err }
 
-  // Set an empty state to indicate there is something to tear down.
+  // Set the state to indicate there is something to tear down.
   self.State = &State{
     Fs: &types.Filesystem{ Devices: []*types.Device{dev,}, },
   }
@@ -96,7 +96,6 @@ func (self *BackupRestoreCanary) Setup(ctx context.Context) error {
   target_mnt, err := os.MkdirTemp("", label)
   if err != nil { return err }
   mnt, err := self.Lnxutil.Mount(ctx, fs.Uuid, target_mnt)
-  err = self.SetupPathsInNewFs()
   if err != nil { return err }
 
   util.Infof("Mounted %s subvol %d", fs.Uuid, mnt.BtrfsVolId)
@@ -175,7 +174,7 @@ func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
 // Structure of filesystem to validate:
 // * restores/       # restored snapshots will go here
 // * subvol/         # writable clone of most recent snapshot, used to continue the snap sequence to validate.
-//                   # for first snapshot this will simply be a band new subvolume
+//                   # for first snapshot this will simply be a brand new subvolume
 // * snapshots/      # new snapshots in the sequence go here
 // * subvol/uuids    # contains all snapshot uuids in history, one per line
 //                   # empty for the first snapshot
@@ -186,7 +185,7 @@ func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
 func (self *BackupRestoreCanary) SetupPathsInNewFs() error {
   root_vol := self.State.Fs.Mounts[0].MountedPath
   self.State.VolRoot = fpmod.Join(root_vol, "subvol")
-  if err := os.Mkdir(self.State.VolRoot, 0775); err != nil { return err }
+  if util.Exists(self.State.VolRoot) { return fmt.Errorf("Filesystem is not new: %s", root_vol) }
 
   self.State.RestoreRoot = fpmod.Join(root_vol, "restores")
   if err := os.Mkdir(self.State.RestoreRoot, 0775); err != nil { return err }
@@ -395,8 +394,8 @@ func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) er
 
   self.State.PrevList = make([]*pb.SubVolume, 0, len(pairs))
   for i,pair := range pairs {
-    if i == len(pairs) - 1 { break }
     self.State.TopSnap = pair.Src
+    if i == len(pairs) - 1 { break }
     self.State.PrevList = append(self.State.PrevList, pair.Src)
   }
 

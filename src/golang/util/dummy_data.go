@@ -110,7 +110,7 @@ func DummySnapshot(snap_uuid string, vol_uuid string) *pb.SubVolume {
   vol.ReadOnly = true
   vol.CreatedTs += 111
   vol.GenAtCreation = 777
-  vol.Data = DummyChunks("")
+  vol.Data = DummyChunks(uuid.NewString())
   vol.Data.Chunks = nil
   return vol
 }

@@ -22,6 +22,7 @@ type Linuxutil struct {
   SysInfo *pb.SystemInfo
   Filesystems []*types.Filesystem
   Mounts      []*types.MountEntry
+  Devs        []*types.Device
 }
 func (self *Linuxutil) IsCapSysAdmin() bool { return self.IsAdmin }
 func (self *Linuxutil) LinuxKernelVersion() (uint32, uint32) {
@@ -61,27 +62,40 @@ func (self *Linuxutil) ListBlockDevMounts() ([]*types.MountEntry, error) {
 }
 func (self *Linuxutil) CreateLoopDevice(
     ctx context.Context, size_mb uint64) (*types.Device, error) {
-  return &types.Device{
+  dev := &types.Device{
     Name: "loop1",
     Minor: 0, Major: 213,
     GptUuid: uuid.NewString(),
     LoopFile: uuid.NewString(),
-  }, self.Err
+  }
+  self.Devs = append(self.Devs, dev)
+  return dev, self.Err
 }
-func (self *Linuxutil) DeleteLoopDevice(context.Context, *types.Device) error { return self.Err }
+func (self *Linuxutil) DeleteLoopDevice(ctx context.Context, dev *types.Device) error {
+  for i,d := range self.Devs {
+    if d.LoopFile == dev.LoopFile { self.Devs = append(self.Devs[:i], self.Devs[i+1:]...); break }
+  }
+  return self.Err
+}
 func (self *Linuxutil) CreateBtrfsFilesystem(
     ctx context.Context, dev *types.Device, label string, opts ...string) (*types.Filesystem, error) {
-  return &types.Filesystem{
+  fs := &types.Filesystem{
     Uuid: uuid.NewString(),
     Label: uuid.NewString(),
     Devices: []*types.Device{ dev },
-  }, self.Err
+  }
+  self.Filesystems = append(self.Filesystems, fs)
+  return fs, self.Err
+}
+func (self *Linuxutil) ObjCounts() []int {
+  return []int{ len(self.Filesystems), len(self.Mounts), len(self.Devs), }
 }
 
 
 type Btrfsutil struct {
   Err        error
   DumpErr    error
+  CreateDirs bool
   Subvols    []*pb.SubVolume
   Snaps      []*pb.SubVolume
   DumpOps    *types.SendDumpOperations
@@ -145,6 +159,9 @@ func (self *Btrfsutil) StartSendStream(
   return self.SendStream.ReadEnd(), self.Err
 }
 func (self *Btrfsutil) CreateSubvolume(sv_path string) error {
+  if self.CreateDirs {
+    if err := os.Mkdir(sv_path, fs.ModePerm); err != nil { return err }
+  }
   sv := util.DummySubVolume(uuid.NewString())
   sv.MountedPath = sv_path
   self.Subvols = append(self.Subvols, sv)
@@ -155,6 +172,9 @@ func (self *Btrfsutil) CreateClone(sv_path string, clone_path string) error {
 }
 func (self *Btrfsutil) CreateSnapshot(subvol string, snap string) error {
   if !fpmod.IsAbs(subvol) || !fpmod.IsAbs(snap) { return fmt.Errorf("CreateSnapshot bad args") }
+  if self.CreateDirs {
+    if err := os.Mkdir(snap, fs.ModePerm); err != nil { return err }
+  }
   sv := util.DummySnapshot(uuid.NewString(), subvol)
   sv.MountedPath = snap
   self.Snaps = append(self.Snaps, sv)

@@ -11,9 +11,11 @@ type HeadAndSequence struct {
 }
 type BackupPair struct {
   Sv   *pb.SubVolume
+  // `Snap` should contain information about the chunks stored.
   Snap *pb.SubVolume
 }
 type RestorePair struct {
+  // `Src` should contain information about the chunks stored.
   Src *pb.SubVolume
   Dst *pb.SubVolume
 }
@@ -36,7 +38,7 @@ type BackupRestoreCanary interface {
   RestoreChainAndValidate(ctx context.Context) error
   // Modifies the restored subvolume (by making a clone) and adds another snapshot to the sequence.
   // Backups the new snapshot into the current sequence.
-  // Must be called after the sequence has been restored.
+  // Must be called after the sequence has been restored. Can be called several times, adds a new snapshot each time.
   // Returns the snapshot that was backed up.
   AppendSnapshotToValidationChain(ctx context.Context) (*pb.SubVolume, error)
 }

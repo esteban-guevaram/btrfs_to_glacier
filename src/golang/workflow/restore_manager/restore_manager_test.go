@@ -123,6 +123,9 @@ func HelperTestRestoreCurrentSequence_Ok(t *testing.T, seq_len int, prev_len int
   for i,pair := range pairs {
     expect_src := mocks.Meta.Snaps[pair.Src.Uuid]
     expect_dst := mocks.Destination.Snaps[pair.Src.ParentUuid][prev_len+i]
+    if pair.Src == nil || len(pair.Src.Data.Chunks) == 0 {
+      t.Fatalf("Bad snap in pair, expect chunk data:\n%s", util.AsJson(pair.Src))
+    }
     util.EqualsOrFailTest(t, "bad metadata snap", pair.Src, expect_src)
     util.EqualsOrFailTest(t, "bad destination snap", pair.Dst, expect_dst)
 
