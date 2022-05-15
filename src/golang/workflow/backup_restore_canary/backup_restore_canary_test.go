@@ -149,7 +149,7 @@ func TestBackupRestoreCanary_TearDown_Partial(t *testing.T) {
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
   defer mock.CleanDirs()
-  mock.Lnxutil.ForMethodErrMsg("CreateBtrfsFilesystem", "injected_err")
+  mock.Lnxutil.ForMethodErrMsg(mock.Lnxutil.CreateBtrfsFilesystem, "injected_err")
 
   err := canary.Setup(ctx)
   if err == nil { t.Fatalf("expected error") }

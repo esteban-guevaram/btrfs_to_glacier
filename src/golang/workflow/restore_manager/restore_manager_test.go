@@ -217,23 +217,23 @@ func TestRestoreCurrentSequence_PartialBecauseError(t *testing.T) {
   defer cancel()
 
   call_count := 0
-  err_inject := func(m string) error {
-    if m == "ReadChunksIntoStream" {
+  err_inject := func(m interface{}) error {
+    if mocks.MethodMatch(m, (types.Storage).ReadChunksIntoStream) {
       call_count += 1
       if call_count > ok_until { return fmt.Errorf("err_inject") }
     }
     return nil
   }
 
-  mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
-  mocks.Store.SetErrInject(err_inject)
-  vol_uuid := mocks.Meta.HeadKeys()[2]
+  mgr, mock := buildRestoreManager(/*head_cnt=*/seq_len)
+  mock.Store.SetErrInject(err_inject)
+  vol_uuid := mock.Meta.HeadKeys()[2]
 
   pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
   if err == nil { t.Fatalf("Expected error RestoreCurrentSequence") }
 
   util.EqualsOrFailTest(t, "Bad restore len", len(pairs), ok_until)
-  util.EqualsOrFailTest(t, "Bad dst objcount", mocks.Destination.ObjCounts(),
+  util.EqualsOrFailTest(t, "Bad dst objcount", mock.Destination.ObjCounts(),
                                                []int{/*vols=*/0, /*seqs=*/1, /*snaps=*/ok_until,})
 }
 

@@ -275,7 +275,7 @@ func (self *Storage) WriteStream(
     result.Chunks = append(result.Chunks, chunk_pb)
     start += uint64(len(chunk))
   }
-  return result, self.ErrInject("WriteStream")
+  return result, self.ErrInject(self.WriteStream)
 }
 
 func (self *Storage) QueueRestoreObjects(
@@ -292,7 +292,7 @@ func (self *Storage) QueueRestoreObjects(
     self.Restored[uuid] = true
     result[uuid] = types.ObjRestoreOrErr{
       Stx: self.DefRestoreStx,
-      Err: self.ErrInject("QueueRestoreObjects"),
+      Err: self.ErrInject(self.QueueRestoreObjects),
     }
   }
   return result
@@ -314,7 +314,7 @@ func (self *Storage) ReadChunksIntoStream(
       if err != nil { return }
     }
   }()
-  return pipe.ReadEnd(), self.ErrInject("ReadChunksIntoStream")
+  return pipe.ReadEnd(), self.ErrInject(self.ReadChunksIntoStream)
 }
 
 type SnapshotChunksIterator struct {
@@ -339,11 +339,11 @@ func (self *Storage) ListAllChunks(
     idx += 1
     return true
   }
-  return &SnapshotChunksIterator{ next_f }, self.ErrInject("ListAllChunks")
+  return &SnapshotChunksIterator{ next_f }, self.ErrInject(self.ListAllChunks)
 }
 
 func (self *Storage) SetupStorage(ctx context.Context) error {
-  return util.Coalesce(ctx.Err(), self.ErrInject("SetupStorage"))
+  return util.Coalesce(ctx.Err(), self.ErrInject(self.SetupStorage))
 }
 
 func (self *Storage) DeleteChunks(
@@ -352,7 +352,7 @@ func (self *Storage) DeleteChunks(
     delete(self.Chunks, chunk.Uuid)
     delete(self.Restored, chunk.Uuid)
   }
-  return util.Coalesce(ctx.Err(), self.ErrInject("DeleteChunks"))
+  return util.Coalesce(ctx.Err(), self.ErrInject(self.DeleteChunks))
 }
 
 func (self *Storage) ObjCounts() []int {

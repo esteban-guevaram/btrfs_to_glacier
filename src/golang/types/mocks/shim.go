@@ -39,10 +39,10 @@ func (self *Linuxutil) BtrfsProgsVersion() (uint32, uint32) {
   return self.SysInfo.BtrfsUsrMajor, self.SysInfo.BtrfsUsrMinor
 }
 func (self *Linuxutil) ProjectVersion() string { return self.SysInfo.ToolGitCommit }
-func (self *Linuxutil) DropRoot() (func(), error) { return func() {}, self.ErrInject("DropRoot") }
-func (self *Linuxutil) GetRoot() (func(), error) { return func() {}, self.ErrInject("GetRoot") }
+func (self *Linuxutil) DropRoot() (func(), error) { return func() {}, self.ErrInject(self.DropRoot) }
+func (self *Linuxutil) GetRoot() (func(), error) { return func() {}, self.ErrInject(self.GetRoot) }
 func (self *Linuxutil) ListBtrfsFilesystems() ([]*types.Filesystem, error) {
-  return self.Filesystems, self.ErrInject("ListBtrfsFilesystems")
+  return self.Filesystems, self.ErrInject(self.ListBtrfsFilesystems)
 }
 func (self *Linuxutil) Mount(ctx context.Context, fs_uuid string, target string) (*types.MountEntry, error) {
   if !fpmod.HasPrefix(target, os.TempDir()) {
@@ -56,16 +56,16 @@ func (self *Linuxutil) Mount(ctx context.Context, fs_uuid string, target string)
     MountedPath: target,
   }
   self.Mounts = append(self.Mounts, mnt)
-  return mnt, self.ErrInject("Mount")
+  return mnt, self.ErrInject(self.Mount)
 }
 func (self *Linuxutil) UMount(ctx context.Context, fs_uuid string) error {
   for i,m := range self.Mounts {
     if m.Device.FsUuid == fs_uuid { self.Mounts = append(self.Mounts[:i], self.Mounts[i+1:]...); break }
   }
-  return self.ErrInject("UMount")
+  return self.ErrInject(self.UMount)
 }
 func (self *Linuxutil) ListBlockDevMounts() ([]*types.MountEntry, error) {
-  return self.Mounts, self.ErrInject("ListBlockDevMounts")
+  return self.Mounts, self.ErrInject(self.ListBlockDevMounts)
 }
 func (self *Linuxutil) CreateLoopDevice(
     ctx context.Context, size_mb uint64) (*types.Device, error) {
@@ -76,13 +76,13 @@ func (self *Linuxutil) CreateLoopDevice(
     LoopFile: uuid.NewString(),
   }
   self.Devs = append(self.Devs, dev)
-  return dev, self.ErrInject("CreateLoopDevice")
+  return dev, self.ErrInject(self.CreateLoopDevice)
 }
 func (self *Linuxutil) DeleteLoopDevice(ctx context.Context, dev *types.Device) error {
   for i,d := range self.Devs {
     if d.LoopFile == dev.LoopFile { self.Devs = append(self.Devs[:i], self.Devs[i+1:]...); break }
   }
-  return self.ErrInject("DeleteLoopDevice")
+  return self.ErrInject(self.DeleteLoopDevice)
 }
 func (self *Linuxutil) CreateBtrfsFilesystem(
     ctx context.Context, dev *types.Device, label string, opts ...string) (*types.Filesystem, error) {
@@ -92,7 +92,7 @@ func (self *Linuxutil) CreateBtrfsFilesystem(
     Devices: []*types.Device{ dev },
   }
   self.Filesystems = append(self.Filesystems, fs)
-  return fs, self.ErrInject("CreateBtrfsFilesystem")
+  return fs, self.ErrInject(self.CreateBtrfsFilesystem)
 }
 func (self *Linuxutil) ObjCounts() []int {
   return []int{ len(self.Filesystems), len(self.Mounts), len(self.Devs), }
