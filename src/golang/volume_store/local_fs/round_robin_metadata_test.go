@@ -2,7 +2,6 @@ package local_fs
 
 import (
   "context"
-  "fmt"
   "io"
   "strings"
   "testing"
@@ -31,7 +30,7 @@ func buildTestRoundRobinMetadataWithState(
     SimpleDirMetadata: nil,
     Sink: local_fs.Sinks[0],
     Conf: conf,
-    Linuxutil: &mocks.Linuxutil{},
+    Linuxutil: mocks.NewLinuxutil(),
     PairStorage: nil,
   }
   return meta, clean_f
@@ -169,7 +168,8 @@ func TestSetupRoundRobinMetadata_MountFail(t *testing.T) {
   defer cancel()
   meta,clean_f := buildTestRoundRobinMetadataWithState(t, nil)
   defer clean_f()
-  meta.Linuxutil.(*mocks.Linuxutil).Err = fmt.Errorf("mount_err")
+  lu := meta.Linuxutil.(*mocks.Linuxutil)
+  lu.ForAllErrMsg("mount_err")
 
   err := meta.SetupMetadata(ctx)
   if err == nil { t.Errorf("expected error") }

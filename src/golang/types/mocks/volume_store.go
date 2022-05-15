@@ -26,7 +26,7 @@ type Metadata struct {
 // In mem metadata storage
 // Simple implementation does not do any input validation.
 type Storage struct {
-  ErrInject func(string) error
+  ErrBase
   ChunkLen  uint64
   Chunks    map[string][]byte
   Restored  map[string]bool
@@ -52,7 +52,7 @@ func NewStorage() *Storage {
 }
 func (self *Storage) Clear() {
   self.ChunkLen =  256
-  self.ErrInject = func(string) error { return nil }
+  self.ForAllErr(nil)
   self.Chunks = make(map[string][]byte)
   self.Restored = make(map[string]bool)
   self.DefRestoreStx = types.Restored

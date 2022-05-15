@@ -2,6 +2,7 @@ package backup_restore_canary
 
 import (
   "context"
+  "fmt"
   "testing"
 
   pb "btrfs_to_glacier/messages"
@@ -44,7 +45,7 @@ func buildBackupRestoreCanary(hist_len int) (*BackupRestoreCanary, *Mocks) {
   bkp := mocks.NewBackupManager()
   mock := &Mocks{
     Btrfs: &mocks.Btrfsutil{},
-    Lnxutil: &mocks.Linuxutil{},
+    Lnxutil: mocks.NewLinuxutil(),
     BackupMgr: bkp,
     RestoreMgr: mocks.NewRestoreManager(bkp),
   }
@@ -113,9 +114,53 @@ func TestBackupRestoreCanary_Setup_NewChain(t *testing.T) {
   util.EqualsOrFailTest(t, "State is not new", canary.State.New, true)
 }
 
-func TestBackupRestoreCanary_TearDown_OK(t *testing.T) {}
-func TestBackupRestoreCanary_TearDown_Noop(t *testing.T) {}
-func TestBackupRestoreCanary_TearDown_Partial(t *testing.T) {}
+func TestBackupRestoreCanary_TearDown_Noop(t *testing.T) {
+  const hist_len = 0
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  canary, mock := buildBackupRestoreCanary(hist_len)
+  defer mock.CleanDirs()
+  mock.Lnxutil.ForAllErrMsg("Should not get called")
+  mock.Btrfs.Err = fmt.Errorf("Should not get called")
+
+  err := canary.TearDown(ctx)
+  if err != nil { t.Fatalf("TearDown: %v", err) }
+}
+
+func TestBackupRestoreCanary_TearDown_OK(t *testing.T) {
+  const hist_len = 0
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  canary, mock := buildBackupRestoreCanary(hist_len)
+  defer mock.CleanDirs()
+
+  err := canary.Setup(ctx)
+  if err != nil { t.Fatalf("Setup: %v", err) }
+  err = canary.TearDown(ctx)
+  if err != nil { t.Fatalf("TearDown: %v", err) }
+
+  util.EqualsOrFailTest(t, "Bad fs state", mock.Lnxutil.ObjCounts(),
+                                           []int{ 1, 0, 0, })
+}
+
+func TestBackupRestoreCanary_TearDown_Partial(t *testing.T) {
+  const hist_len = 0
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  canary, mock := buildBackupRestoreCanary(hist_len)
+  defer mock.CleanDirs()
+  mock.Lnxutil.ForMethodErrMsg("CreateBtrfsFilesystem", "injected_err")
+
+  err := canary.Setup(ctx)
+  if err == nil { t.Fatalf("expected error") }
+  util.EqualsOrFailTest(t, "Bad fs state", mock.Lnxutil.ObjCounts(),
+                                           []int{ 1, 0, 1, })
+
+  err = canary.TearDown(ctx)
+  if err != nil { t.Fatalf("TearDown: %v", err) }
+  util.EqualsOrFailTest(t, "Bad fs state", mock.Lnxutil.ObjCounts(),
+                                           []int{ 1, 0, 0, })
+}
 
 func TestAppendSnapshotToValidationChain_NewChain(t *testing.T) {}
 func TestAppendSnapshotToValidationChain_ExistingChain(t *testing.T) {}

@@ -226,7 +226,7 @@ func TestRestoreCurrentSequence_PartialBecauseError(t *testing.T) {
   }
 
   mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
-  mocks.Store.ErrInject = err_inject
+  mocks.Store.SetErrInject(err_inject)
   vol_uuid := mocks.Meta.HeadKeys()[2]
 
   pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)

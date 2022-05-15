@@ -213,7 +213,7 @@ func (self *BackupRestoreCanary) CreateFirstValidationChainItem() error {
 }
 
 // Destroys the loop device and backing file.
-// In case of a partial `Setup()`, attempts to delete any dangling infracstructure.
+// In case of a partial `Setup()`, attempts to delete any dangling infrastructure.
 func (self *BackupRestoreCanary) TearDown(ctx context.Context) error {
   if self.State == nil {
     util.Infof("Teardown before calling setup is a noop")
