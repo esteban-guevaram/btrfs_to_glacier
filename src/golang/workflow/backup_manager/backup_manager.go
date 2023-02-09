@@ -18,7 +18,8 @@ const (
 )
 
 var ErrSnapsMismatchWithSrc = errors.New("snapshot_mismatch_between_meta_and_source")
-var ErrNoIncrementalBackup = errors.New("no_parent_snapshot_for_inc_backup")
+var ErrExpectCloneFromLastRec = errors.New("clone_should_be_issued_from_a_received_snap")
+var ErrCloneShouldHaveNoChild = errors.New("unrelated_clone_must_not_have_previous_snap_children")
 
 // Meta and Store must already been setup
 type BackupManager struct {
@@ -69,27 +70,27 @@ func (self *BackupManager) GetSequenceFor(
   return self.Meta.ReadSnapshotSeq(ctx, head.CurSeqUuid)
 }
 
+// Return value will contain the full sequence of snapshots including the new one created.
 func (self *BackupManager) CreateNewSnapshotOrUseRecent(
-    sv *pb.SubVolume, use_recent bool) ([]*pb.SubVolume, *pb.SubVolume, error) {
-  old_snaps, err := self.Source.GetSnapshotSeqForVolume(sv)
-  if err != nil { return nil, nil, err }
-  if use_recent && len(old_snaps) > 0 {
-    top_snap := old_snaps[len(old_snaps)-1]
+    sv *pb.SubVolume, use_recent bool) ([]*pb.SubVolume, error) {
+  src_snap_seq, err := self.Source.GetSnapshotSeqForVolume(sv)
+  if err != nil { return nil, err }
+  if use_recent && len(src_snap_seq) > 0 {
+    top_snap := src_snap_seq[len(src_snap_seq)-1]
     age := time.Now().Sub(time.Unix(int64(top_snap.CreatedTs), 0))
-    if age <= self.MinInterval { return old_snaps, top_snap, nil }
+    if age <= self.MinInterval { return src_snap_seq, nil }
   }
   snap, err := self.Source.CreateSnapshot(sv)
+  src_snap_seq = append(src_snap_seq, snap)
   util.Debugf("Backup snap %s for subvolume %s", snap.Uuid, sv.Uuid)
-  return old_snaps, snap, err
+  return src_snap_seq, err
 }
 
 // IMPORTANT: this does not check the SnapshotSequence is up-to-date.
 // The sequence should be written independently of this method result.
 // Returns a non-nil snapshot if there is no need to write the snapshot data to storage.
 func (self *BackupManager) IsBackupAlreadyInStorage(
-    ctx context.Context, old_snaps []*pb.SubVolume, snap *pb.SubVolume) (*pb.SubVolume, error) {
-  // We just created snapshot, it cannot be in storage
-  if len(old_snaps) == 0 || old_snaps[len(old_snaps)-1].Uuid != snap.Uuid { return nil, nil }
+    ctx context.Context, snap *pb.SubVolume) (*pb.SubVolume, error) {
   full_snap, err := self.Meta.ReadSnapshot(ctx, snap.Uuid)
   if errors.Is(err, types.ErrNotFound) { return nil, nil }
   if err != nil { return nil, err }
@@ -100,16 +101,22 @@ func (self *BackupManager) IsBackupAlreadyInStorage(
   return full_snap, nil
 }
 
+// Prerequisite: we know the new snapshot has not been persisted yet.
 func (self *BackupManager) DetermineParentForIncremental(
-    old_snaps []*pb.SubVolume, seq *pb.SnapshotSequence) (*pb.SubVolume, error) {
-  if len(seq.SnapUuids) == 0 || len(old_snaps) == 0 { return nil, nil }
+    src_snap_seq []*pb.SubVolume, seq *pb.SnapshotSequence) (*pb.SubVolume, error) {
+  if len(seq.SnapUuids) != 0 && len(src_snap_seq) == 1 {
+    // This may happen if you delete past snapshots too aggresively in the source ?
+    return nil, ErrSnapsMismatchWithSrc
+  }
+  if len(seq.SnapUuids) == 0 { return nil, nil }
+
   for i:=len(seq.SnapUuids)-1; i>=0; i-=1 {
     store_uuid := seq.SnapUuids[i]
-    for j:=len(old_snaps)-1; j>=0; j-=1 {
-      src_uuid := old_snaps[j].Uuid
+    for j:=len(src_snap_seq)-1; j>=0; j-=1 {
+      src_uuid := src_snap_seq[j].Uuid
       if src_uuid == store_uuid {
         util.Debugf("For incremental backup parent: %s", src_uuid)
-        return old_snaps[j], nil
+        return src_snap_seq[j], nil
       }
     }
   }
@@ -118,16 +125,13 @@ func (self *BackupManager) DetermineParentForIncremental(
 
 func (self *BackupManager) BackupSingleSvToSequence(
     ctx context.Context, sv *pb.SubVolume, seq *pb.SnapshotSequence) (*pb.SubVolume, error) {
-  old_snaps, snap, err := self.CreateNewSnapshotOrUseRecent(sv, /*use_recent=*/true)
+  src_snap_seq, err := self.CreateNewSnapshotOrUseRecent(sv, /*use_recent=*/true)
   if err != nil { return nil, err }
-  if len(seq.SnapUuids) != 0 && len(old_snaps) == 0 {
-    // This may happen if you delete past snapshots too aggresively in the source ?
-    return nil, fmt.Errorf("%w: %s", ErrSnapsMismatchWithSrc, sv.Uuid)
-  }
-  full_snap, err := self.IsBackupAlreadyInStorage(ctx, old_snaps, snap)
+  snap := src_snap_seq[len(src_snap_seq)-1]
+  full_snap, err := self.IsBackupAlreadyInStorage(ctx, snap)
   if err != nil { return nil, err }
   if full_snap != nil { return full_snap, nil }
-  par_snap, err := self.DetermineParentForIncremental(old_snaps, seq)
+  par_snap, err := self.DetermineParentForIncremental(src_snap_seq, seq)
   if err != nil { return nil, err }
   stream, err := self.Source.GetSnapshotStream(ctx, par_snap, snap)
   if err != nil { return nil, err }
@@ -174,6 +178,38 @@ func (self *BackupManager) BackupAllToNewSequences(ctx context.Context) ([]types
   return self.BackupAllHelper(ctx, /*new_seq=*/true)
 }
 
+// dd if=/dev/zero of=/tmp/loop.file bs=1M count=64
+// sudo losetup /dev/loop11 /tmp/loop.file
+// sudo mkfs.btrfs -f --mixed --label=btrfs_test /dev/loop11
+// mkdir /tmp/btrfsmount
+// sudo mount /dev/loop11 /tmp/btrfsmount
+// sudo mkdir /tmp/btrfsmount/receives
+// sudo btrfs subvol create /tmp/btrfsmount/subvol1
+// echo subvol1 | sudo tee subvol1/data
+// sudo btrfs subvol snap -r /tmp/btrfsmount/subvol1 /tmp/btrfsmount/snap1
+// echo subvol2 | sudo tee subvol1/data
+// sudo btrfs subvol snap -r /tmp/btrfsmount/subvol1 /tmp/btrfsmount/snap2
+// echo subvol3 | sudo tee subvol1/data
+// sudo btrfs subvol snap -r /tmp/btrfsmount/subvol1 /tmp/btrfsmount/snap3
+// sudo btrfs subvol snap /tmp/btrfsmount/snap3 /tmp/btrfsmount/clone3
+// echo subvol4 | sudo tee -a clone3/data
+// sudo btrfs subvol snap -r /tmp/btrfsmount/clone3 /tmp/btrfsmount/clone_snap4
+// sudo btrfs send /tmp/btrfsmount/snap1 | sudo btrfs receive /tmp/btrfsmount/receives
+// sudo btrfs send -p /tmp/btrfsmount/snap1 /tmp/btrfsmount/snap2 | sudo btrfs receive /tmp/btrfsmount/receives
+// sudo btrfs send -p /tmp/btrfsmount/snap2 /tmp/btrfsmount/snap3 | sudo btrfs receive /tmp/btrfsmount/receives
+// sudo btrfs send -p /tmp/btrfsmount/snap3 /tmp/btrfsmount/clone_snap4 | sudo btrfs receive /tmp/btrfsmount/receives
+// sudo btrfs subvol list -Ruq /tmp/btrfsmount
+//
+// ID 256 par_uuid -                                    rec_uuid -                                    uuid 824e2352-5e72-164e-9d44-b6713c3860d1 path subvol1
+// ID 257 par_uuid 824e2352-5e72-164e-9d44-b6713c3860d1 rec_uuid -                                    uuid b1650f86-38b3-4d41-bd89-315c5ca87426 path snap1
+// ID 258 par_uuid 824e2352-5e72-164e-9d44-b6713c3860d1 rec_uuid -                                    uuid e3067cad-5839-5147-a4a2-e8722e034cf7 path snap2
+// ID 259 par_uuid 824e2352-5e72-164e-9d44-b6713c3860d1 rec_uuid -                                    uuid e3221197-9ba1-1747-b420-2d8f92039645 path snap3
+// ID 260 par_uuid e3221197-9ba1-1747-b420-2d8f92039645 rec_uuid -                                    uuid 969ac62d-994f-bb43-a061-c974e384fbfe path clone3
+// ID 261 par_uuid 969ac62d-994f-bb43-a061-c974e384fbfe rec_uuid -                                    uuid 72e5fba5-31a8-9c4e-baa3-ec1ceaeb4fa2 path clone_snap4
+// ID 262 par_uuid -                                    rec_uuid b1650f86-38b3-4d41-bd89-315c5ca87426 uuid 376ad931-5542-1147-a91d-a05a693635a7 path receives/snap1
+// ID 263 par_uuid 376ad931-5542-1147-a91d-a05a693635a7 rec_uuid e3067cad-5839-5147-a4a2-e8722e034cf7 uuid 8fa4203b-2630-6f43-87d7-f23b8b9ba26a path receives/snap2
+// ID 264 par_uuid 8fa4203b-2630-6f43-87d7-f23b8b9ba26a rec_uuid e3221197-9ba1-1747-b420-2d8f92039645 uuid 5977462a-0d4b-674a-8ed0-1ede4f7da2b3 path receives/snap3
+// ID 265 par_uuid 5977462a-0d4b-674a-8ed0-1ede4f7da2b3 rec_uuid 72e5fba5-31a8-9c4e-baa3-ec1ceaeb4fa2 uuid 22377240-c1a4-404c-8a8a-4d85f23cb1b6 path receives/clone_snap4
 func (self *BackupManager) BackupToCurrentSequenceUnrelatedVol(
     ctx context.Context, src *pb.SubVolume, dst_uuid string) (*pb.SubVolume, error) {
   head, err := self.Meta.ReadSnapshotSeqHead(ctx, dst_uuid)
@@ -181,28 +217,25 @@ func (self *BackupManager) BackupToCurrentSequenceUnrelatedVol(
   seq, err := self.Meta.ReadSnapshotSeq(ctx, head.CurSeqUuid)
   if err != nil { return nil, err }
 
-  old_snaps, snap, err := self.CreateNewSnapshotOrUseRecent(src, /*use_recent=*/false)
-  if err != nil { return nil, err }
-  if len(old_snaps) < 1 {
-    return nil, fmt.Errorf("%w: %s -> %s", ErrNoIncrementalBackup, src.Uuid, dst_uuid)
+  clone_seq, err := self.CreateNewSnapshotOrUseRecent(src, /*use_recent=*/false)
+  if err != nil || len(clone_seq) != 1 {
+    return nil, fmt.Errorf("%w: %v", ErrCloneShouldHaveNoChild, err)
   }
-  par_snap := old_snaps[len(old_snaps)-1]
+  clone_snap := clone_seq[0]
+  last_rec_snap, err := self.Source.FindVolume(src.MountedPath, types.ByUuid(src.ParentUuid))
+  if err != nil || last_rec_snap == nil || len(last_rec_snap.ReceivedUuid) == 0 {
+    return nil, fmt.Errorf("%w: %v", ErrExpectCloneFromLastRec, err)
+  }
+
   // Hack to make it look as if it all comes from the same subvolume
-  snap.ParentUuid = dst_uuid
-  par_snap.ParentUuid = dst_uuid
+  clone_snap.ParentUuid = dst_uuid
+  last_rec_snap.ParentUuid = dst_uuid
 
-  full_snap, err := self.IsBackupAlreadyInStorage(ctx, old_snaps, snap)
-  if err != nil { return nil, err }
-  if full_snap != nil {
-    _, err = self.PersistSequence(ctx, full_snap, seq)
-    return full_snap, err
-  }
-
-  stream, err := self.Source.GetSnapshotStream(ctx, par_snap, snap)
+  stream, err := self.Source.GetSnapshotStream(ctx, last_rec_snap, clone_snap)
   if err != nil { return nil, err }
   chunks, err := self.Store.WriteStream(ctx, /*offset=*/0, stream)
   if err != nil { return nil, err }
-  full_snap, err = self.Meta.AppendChunkToSnapshot(ctx, snap, chunks)
+  full_snap, err := self.Meta.AppendChunkToSnapshot(ctx, clone_snap, chunks)
   if err != nil { return nil, err }
   _, err = self.PersistSequence(ctx, full_snap, seq)
   if err != nil { return nil, err }

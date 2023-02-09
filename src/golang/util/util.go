@@ -4,6 +4,7 @@ import (
   "bytes"
   "compress/gzip"
   "context"
+  "crypto/md5"
   "errors"
   "fmt"
   "io"
@@ -18,6 +19,7 @@ import (
   "unicode/utf8"
 
   "btrfs_to_glacier/types"
+  pb "btrfs_to_glacier/messages"
 
   "google.golang.org/protobuf/proto"
   "golang.org/x/sys/unix"
@@ -338,5 +340,15 @@ func RemoveAll(path string) error {
     return fmt.Errorf("HasPrefix('%s', '%s')", path, tmpdir)
   }
   return os.RemoveAll(path)
+}
+
+func HashFromSv(sv *pb.SubVolume, chain string) string {
+  buf := new(bytes.Buffer)
+  buf.WriteString(chain)
+  buf.WriteString(sv.Uuid)
+  // Do not add parent since it changes as we append clones to the sequence
+  //buf.WriteString(sv.ParentUuid)
+  for _,c := range sv.Data.Chunks { buf.WriteString(c.Uuid) }
+  return fmt.Sprintf("%x", md5.Sum(buf.Bytes()))
 }
 

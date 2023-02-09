@@ -70,11 +70,12 @@ func (self *BtrfsPathJuggler) LoadSubVolume(
 }
 
 type VolumeManager struct {
-  SnapRoot string
-  Err     error
-  Vols    map[string]*pb.SubVolume
-  Snaps   map[string][]*pb.SubVolume
-  Changes map[[2]string]*pb.SnapshotChanges
+  SnapRoot  string
+  Err       error
+  Vols      map[string]*pb.SubVolume
+  Snaps     map[string][]*pb.SubVolume
+  Received  []*pb.SubVolume
+  Changes   map[[2]string]*pb.SnapshotChanges
   GetSnapshotStreamCalls [][2]string
 }
 
@@ -84,6 +85,7 @@ func NewVolumeManager() *VolumeManager {
     Err: nil,
     Vols: make(map[string]*pb.SubVolume),
     Snaps: make(map[string][]*pb.SubVolume),
+    Received: nil,
     Changes: make(map[[2]string]*pb.SnapshotChanges),
     GetSnapshotStreamCalls: [][2]string{},
   }
@@ -98,20 +100,59 @@ func CloneSnaps(snaps []*pb.SubVolume) []*pb.SubVolume {
   return clone_snaps
 }
 
+// Add new counters at the end to remain backward compatible.
 func (self *VolumeManager) ObjCounts() []int {
-  all_snaps := 0
+  all_snaps := len(self.Received)
   for _,seq := range self.Snaps { all_snaps += len(seq) }
-  return []int{ len(self.Vols), len(self.Snaps), all_snaps, }
+  return []int{ len(self.Vols), len(self.Snaps), all_snaps, len(self.Received), }
+}
+
+func (self *VolumeManager) ObjCountsWithNewRec(count int) []int {
+  counts := self.ObjCounts()
+  counts[2] += count
+  counts[3] += count
+  return counts
+}
+
+func (self *VolumeManager) ObjCountsIncrement(
+    cnt_vol int, cnt_seq int, cnt_snap int, cnt_rec int) []int {
+  counts := self.ObjCounts()
+  counts[0] += cnt_vol
+  counts[1] += cnt_seq
+  counts[2] += cnt_snap + cnt_rec
+  counts[3] += cnt_rec
+  return counts
 }
 
 func (self *VolumeManager) ClearSnaps() {
   self.Snaps = make(map[string][]*pb.SubVolume)
+  self.Received = nil
 }
 
 func (self *VolumeManager) AllVols() []*pb.SubVolume {
   all := []*pb.SubVolume{}
   for _,sv := range self.Vols { all = append(all, sv) }
   return all
+}
+
+func (self *VolumeManager) CreateReceivedFrom(snap *pb.SubVolume, mnt_path string) *pb.SubVolume {
+  rec_snap := util.DummySnapshot(uuid.NewString(), "")
+  rec_snap.ReceivedUuid = snap.Uuid
+  rec_snap.Data = nil
+  rec_snap.MountedPath = mnt_path
+  if len(self.Received) > 0 {
+    rec_snap.ParentUuid = self.Received[len(self.Received)-1].Uuid
+  }
+
+  self.Received = append(self.Received, rec_snap)
+  clone := proto.Clone(rec_snap).(*pb.SubVolume)
+  return clone
+}
+
+func (self *VolumeManager) CreateReceivedFromSnap(snap_uuid string) (*pb.SubVolume, error) {
+  snap, err := self.FindVolume("", types.ByUuid(snap_uuid))
+  if snap == nil || err != nil { return nil, fmt.Errorf("No snap for '%s': %v", snap_uuid, err) }
+  return self.CreateReceivedFrom(snap, ""), nil
 }
 
 func (self *VolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
@@ -127,6 +168,7 @@ func (self *VolumeManager) ListVolumes(fs_path string) ([]*pb.SubVolume, error) 
   for _,seq := range self.Snaps {
     for _,snap := range seq { vols = append(vols, proto.Clone(snap).(*pb.SubVolume)) }
   }
+  for _,snap := range self.Received { vols = append(vols, proto.Clone(snap).(*pb.SubVolume)) }
   return vols, self.Err
 }
 func (self *VolumeManager) FindVolume(
@@ -169,17 +211,22 @@ func (self *VolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVolume, 
 }
 func (self *VolumeManager) GetSnapshotStream(
     ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (types.ReadEndIf, error) {
+  found_to, err := self.FindVolume("", types.ByUuid(to.Uuid))
+  if err != nil || found_to == nil {
+    return nil, fmt.Errorf("`to` snap not found in source: %v, %v", found_to, err)
+  }
   if from == nil {
     self.GetSnapshotStreamCalls = append(self.GetSnapshotStreamCalls, [2]string{ "", to.Uuid, })
   }
   /*else*/ if from != nil {
+    found_from, err := self.FindVolume("", types.ByUuid(from.Uuid))
+    if err != nil || found_from == nil {
+      return nil, fmt.Errorf("`from` snap not found in source: %v, %v", found_from, err)
+    }
+    if from.ParentUuid != to.ParentUuid {
+      return nil, fmt.Errorf("uuid: '%s' != '%s'", from.ParentUuid, to.ParentUuid)
+    }
     self.GetSnapshotStreamCalls = append(self.GetSnapshotStreamCalls, [2]string{ from.Uuid, to.Uuid, })
-  }
-  if from != nil && from.ParentUuid != to.ParentUuid {
-    return nil, fmt.Errorf("uuid: '%s' != '%s'", from.ParentUuid, to.ParentUuid)
-  }
-  if _,found := self.Snaps[to.ParentUuid]; !found {
-    return nil, fmt.Errorf("self.Snaps[%s] not found", to.ParentUuid)
   }
   pipe := NewPreloadedPipe(util.GenerateRandomTextData(32))
   return pipe.ReadEnd(), self.Err
@@ -197,17 +244,25 @@ func (self *VolumeManager) ReceiveSendStream(
   snap := util.DummySnapshot(uuid.NewString(), "")
   snap.ReceivedUuid = src_snap.Uuid
 
-  vol_uuid := src_snap.ParentUuid
-  self.Snaps[vol_uuid] = append(self.Snaps[vol_uuid], snap)
+  self.Received = append(self.Received, snap)
   clone := proto.Clone(snap).(*pb.SubVolume)
   return clone, util.Coalesce(read_pipe.GetErr(), self.Err)
 }
 func (self *VolumeManager) DeleteSnapshot(snap *pb.SubVolume) error {
-  if _,found := self.Snaps[snap.ParentUuid]; !found {
-    return fmt.Errorf("delete unexisting snap: %s", util.AsJson(snap))
+  if _,found := self.Snaps[snap.ParentUuid]; found {
+    delete(self.Snaps, snap.Uuid)
+    return self.Err
   }
-  delete(self.Snaps, snap.Uuid)
-  return self.Err
+  var new_rec []*pb.SubVolume
+  for _,s := range self.Received {
+    if s.Uuid == snap.Uuid { continue }
+    new_rec = append(new_rec, s)
+  }
+  if len(new_rec) < len(self.Received) {
+    self.Received = new_rec
+    return self.Err
+  }
+  return fmt.Errorf("delete unexisting snap: %s", util.AsJson(snap))
 }
 func (self *VolumeManager) TrimOldSnapshots(
     src_subvol *pb.SubVolume, dry_run bool) ([]*pb.SubVolume, error) {

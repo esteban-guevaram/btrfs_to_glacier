@@ -35,12 +35,6 @@ func (self *Mocks) NewRestoreManager(ctx context.Context,
   return self.RestoreMgr, nil
 }
 
-func (self *Mocks) CleanDirs() {
-  for _,m := range self.Lnxutil.Mounts {
-    util.RemoveAll(m.MountedPath)
-  }
-}
-
 func buildBackupRestoreCanary(hist_len int) (*BackupRestoreCanary, *Mocks) {
   bkp := mocks.NewBackupManager()
   mock := &Mocks{
@@ -50,6 +44,7 @@ func buildBackupRestoreCanary(hist_len int) (*BackupRestoreCanary, *Mocks) {
     RestoreMgr: mocks.NewRestoreManager(bkp),
   }
   mock.Btrfs.CreateDirs = true
+  mock.RestoreMgr.PopulateRestore = mocks.PopulateRestoreCorrect
   mock.InitBackup = func(bkp *mocks.BackupManager) error {
     for range make([]int, hist_len) {
       _, err := bkp.BackupAllToCurrentSequences(context.Background())
@@ -68,7 +63,7 @@ func TestBackupRestoreCanary_Setup_OK(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
-  defer mock.CleanDirs()
+  defer mock.Lnxutil.CleanMountDirs()
 
   err := canary.Setup(ctx)
   if err != nil { t.Fatalf("Setup: %v", err) }
@@ -89,7 +84,7 @@ func TestBackupRestoreCanary_Setup_Noop(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
-  defer mock.CleanDirs()
+  defer mock.Lnxutil.CleanMountDirs()
 
   err := canary.Setup(ctx)
   if err != nil { t.Fatalf("Setup: %v", err) }
@@ -104,7 +99,7 @@ func TestBackupRestoreCanary_Setup_NewChain(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
-  defer mock.CleanDirs()
+  defer mock.Lnxutil.CleanMountDirs()
 
   err := canary.Setup(ctx)
   if err != nil { t.Fatalf("Setup: %v", err) }
@@ -119,7 +114,7 @@ func TestBackupRestoreCanary_TearDown_Noop(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
-  defer mock.CleanDirs()
+  defer mock.Lnxutil.CleanMountDirs()
   mock.Lnxutil.ForAllErrMsg("Should not get called")
   mock.Btrfs.Err = fmt.Errorf("Should not get called")
 
@@ -132,7 +127,7 @@ func TestBackupRestoreCanary_TearDown_OK(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
-  defer mock.CleanDirs()
+  defer mock.Lnxutil.CleanMountDirs()
 
   err := canary.Setup(ctx)
   if err != nil { t.Fatalf("Setup: %v", err) }
@@ -148,7 +143,7 @@ func TestBackupRestoreCanary_TearDown_Partial(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
-  defer mock.CleanDirs()
+  defer mock.Lnxutil.CleanMountDirs()
   mock.Lnxutil.ForMethodErrMsg(mock.Lnxutil.CreateBtrfsFilesystem, "injected_err")
 
   err := canary.Setup(ctx)
@@ -162,13 +157,36 @@ func TestBackupRestoreCanary_TearDown_Partial(t *testing.T) {
                                            []int{ 1, 0, 0, })
 }
 
+func TestRestoreChainAndValidate_NewChain(t *testing.T) {
+  const hist_len = 0
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  canary, mock := buildBackupRestoreCanary(hist_len)
+  defer mock.Lnxutil.CleanMountDirs()
+  if err := canary.Setup(ctx); err != nil { t.Fatalf("Setup: %v", err) }
+
+  err := canary.RestoreChainAndValidate(ctx)
+  if err != nil { t.Fatalf("RestoreChainAndValidate: %v", err) }
+}
+
+func TestRestoreChainAndValidate_ExistingChain(t *testing.T) {
+  const hist_len = 3
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+  canary, mock := buildBackupRestoreCanary(hist_len)
+  defer mock.Lnxutil.CleanMountDirs()
+  if err := canary.Setup(ctx); err != nil { t.Fatalf("Setup: %v", err) }
+
+  err := canary.RestoreChainAndValidate(ctx)
+  if err != nil { t.Fatalf("RestoreChainAndValidate: %v", err) }
+}
+
 func TestAppendSnapshotToValidationChain_NewChain(t *testing.T) {}
 func TestAppendSnapshotToValidationChain_ExistingChain(t *testing.T) {}
 func TestAppendSnapshotToValidationChain_CallBeforeRestore(t *testing.T) {}
 func TestAppendSnapshotToValidationChain_SeveralCalls(t *testing.T) {}
 
-func TestRestoreChainAndValidate_NewChain(t *testing.T) {}
-func TestRestoreChainAndValidate_ExistingChain(t *testing.T) {}
+func TestRestoreChainAndValidate_NewChain_BadUuidFile(t *testing.T) {}
 func TestRestoreChainAndValidate_BadUuidFile_MissLine(t *testing.T) {}
 func TestRestoreChainAndValidate_BadUuidFile_BadLine(t *testing.T) {}
 func TestRestoreChainAndValidate_BadDelDir_MissFile(t *testing.T) {}

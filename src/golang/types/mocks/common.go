@@ -9,7 +9,7 @@ import (
 
 type InjectT = func(interface{}) error
 type ErrBase struct {
-  ErrInject func(interface{}) error
+  ErrInjectFunc InjectT
 }
 
 var name_rx *regexp.Regexp
@@ -29,20 +29,25 @@ func MethodMatch(m1 interface{}, m2 interface{}) bool {
   return MethodName(m1) == MethodName(m2)
 }
 
+func (self *ErrBase) ErrInject(arg interface{}) error {
+  if self.ErrInjectFunc != nil { return self.ErrInjectFunc(arg) }
+  return nil
+}
+
 func (self *ErrBase) SetErrInject(f InjectT) {
-  self.ErrInject = f
+  self.ErrInjectFunc = f
 }
 
 func (self *ErrBase) ForAllErr(err error) {
-  self.ErrInject = func(interface{}) error { return err }
+  self.ErrInjectFunc = func(interface{}) error { return err }
 }
 
 func (self *ErrBase) ForAllErrMsg(msg string) {
-  self.ErrInject = func(interface{}) error { return fmt.Errorf(msg) }
+  self.ErrInjectFunc = func(interface{}) error { return fmt.Errorf(msg) }
 }
 
 func (self *ErrBase) ForMethodErrMsg(method interface{}, msg string) {
-  self.ErrInject = func(called interface{}) error {
+  self.ErrInjectFunc = func(called interface{}) error {
     if !MethodMatch(method, called) { return nil }
     return fmt.Errorf(msg)
   }

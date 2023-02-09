@@ -67,15 +67,19 @@ func DummyFilesystem(mnts []*types.MountEntry) *types.Filesystem {
   }
 }
 
-func DummyChunks(chunk_uuid string) *pb.SnapshotChunks {
-  chunk := &pb.SnapshotChunks_Chunk {
-    Uuid: chunk_uuid,
-    Start: 0,
-    Size: 3,
+func DummyChunks(chunk_uuids ...string) *pb.SnapshotChunks {
+  chunks := []*pb.SnapshotChunks_Chunk{}
+  for i,u := range chunk_uuids {
+    chunk := &pb.SnapshotChunks_Chunk {
+      Uuid: u,
+      Start: uint64(i*3),
+      Size: uint64((i+1)*3),
+    }
+    chunks = append(chunks, chunk)
   }
   return &pb.SnapshotChunks{
     KeyFingerprint: "fp",
-    Chunks: []*pb.SnapshotChunks_Chunk{chunk},
+    Chunks: chunks,
   }
 }
 

@@ -22,6 +22,7 @@ type Linuxutil struct {
   SysInfo *pb.SystemInfo
   Filesystems []*types.Filesystem
   Mounts      []*types.MountEntry
+  UMounts     []*types.MountEntry
   Devs        []*types.Device
 }
 
@@ -49,7 +50,7 @@ func (self *Linuxutil) Mount(ctx context.Context, fs_uuid string, target string)
     return nil, fmt.Errorf("HasPrefix('%s', '%s')", target, os.TempDir())
   }
   if err := os.MkdirAll(target, fs.ModePerm); err != nil {
-    return nil, fmt.Errorf("failed to create meta dir: %v", err)
+    return nil, fmt.Errorf("failed to create mount dir: %v", err)
   }
   mnt := &types.MountEntry{
     Device: &types.Device{ FsUuid: fs_uuid, },
@@ -60,7 +61,11 @@ func (self *Linuxutil) Mount(ctx context.Context, fs_uuid string, target string)
 }
 func (self *Linuxutil) UMount(ctx context.Context, fs_uuid string) error {
   for i,m := range self.Mounts {
-    if m.Device.FsUuid == fs_uuid { self.Mounts = append(self.Mounts[:i], self.Mounts[i+1:]...); break }
+    if m.Device.FsUuid == fs_uuid {
+      self.UMounts = append(self.UMounts, self.Mounts[i])
+      self.Mounts = append(self.Mounts[:i], self.Mounts[i+1:]...);
+      break
+    }
   }
   return self.ErrInject(self.UMount)
 }
@@ -96,6 +101,10 @@ func (self *Linuxutil) CreateBtrfsFilesystem(
 }
 func (self *Linuxutil) ObjCounts() []int {
   return []int{ len(self.Filesystems), len(self.Mounts), len(self.Devs), }
+}
+func (self *Linuxutil) CleanMountDirs() {
+  for _,m := range self.Mounts { util.RemoveAll(m.MountedPath) }
+  for _,m := range self.UMounts { util.RemoveAll(m.MountedPath) }
 }
 
 
@@ -167,6 +176,7 @@ func (self *Btrfsutil) StartSendStream(
 }
 func (self *Btrfsutil) CreateSubvolume(sv_path string) error {
   if self.CreateDirs {
+    util.Debugf("mock.Btrfsutil.CreateSubvolume: %s", sv_path)
     if err := os.Mkdir(sv_path, fs.ModePerm); err != nil { return err }
   }
   sv := util.DummySubVolume(uuid.NewString())
@@ -180,6 +190,7 @@ func (self *Btrfsutil) CreateClone(sv_path string, clone_path string) error {
 func (self *Btrfsutil) CreateSnapshot(subvol string, snap string) error {
   if !fpmod.IsAbs(subvol) || !fpmod.IsAbs(snap) { return fmt.Errorf("CreateSnapshot bad args") }
   if self.CreateDirs {
+    util.Debugf("mock.Btrfsutil.CreateSnapshot: %s", snap)
     if err := os.Mkdir(snap, fs.ModePerm); err != nil { return err }
   }
   sv := util.DummySnapshot(uuid.NewString(), subvol)

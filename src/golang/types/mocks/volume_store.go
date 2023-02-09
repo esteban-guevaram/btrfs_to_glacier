@@ -97,7 +97,7 @@ func (self *Metadata) AppendChunkToSnapshot(
     new_snap = proto.Clone(snap).(*pb.SubVolume)
     new_snap.Data = proto.Clone(data).(*pb.SnapshotChunks)
     self.Snaps[snap.Uuid] = new_snap
-    return new_snap, nil
+    return proto.Clone(new_snap).(*pb.SubVolume), nil
   }
   if store.IsFullyContainedInSubvolume(snap, data) {
     return proto.Clone(snap).(*pb.SubVolume), nil
@@ -359,10 +359,27 @@ func (self *Storage) ObjCounts() []int {
   return []int{ len(self.Chunks), len(self.Restored), }
 }
 
+func (self *Storage) ObjCountsIncrement(cnt_chunk int, cnt_restored int) []int {
+  counts := self.ObjCounts()
+  counts[0] += cnt_chunk
+  counts[1] += cnt_restored
+  return counts
+}
+
 ///////////////////////// Fill out mock ////////////////////////
 
 func (self *Metadata) ObjCounts() []int {
   return []int{ len(self.Heads), len(self.Seqs), len(self.Snaps), len(self.Versions), }
+}
+
+func (self *Metadata) ObjCountsIncrement(
+    cnt_head int, cnt_seq int, cnt_snap int, cnt_version int) []int {
+  counts := self.ObjCounts()
+  counts[0] += cnt_head
+  counts[1] += cnt_seq
+  counts[2] += cnt_snap
+  counts[3] += cnt_version
+  return counts
 }
 
 func (self *Metadata) HeadKeys() []string {
@@ -387,6 +404,23 @@ func (self *Metadata) CloneHeads() map[string]*pb.SnapshotSeqHead {
   m := make(map[string]*pb.SnapshotSeqHead)
   for k,v := range self.Heads { m[k] = proto.Clone(v).(*pb.SnapshotSeqHead) }
   return m
+}
+
+func (self *Metadata) CurrentSnapsForHead(head_uuid string) []*pb.SubVolume {
+  if head, found := self.Heads[head_uuid] ; found {
+    if seq, found := self.Seqs[head.CurSeqUuid] ; found {
+      var res []*pb.SubVolume
+      for _,u := range seq.SnapUuids {
+        if snap, found := self.Snaps[u] ; found {
+          res = append(res, proto.Clone(snap).(*pb.SubVolume))
+        } else {
+          util.Fatalf("Malformed mock, expected snapshot for uuid in sequence")
+        }
+      }
+      return res
+    }
+  }
+  return nil
 }
 
 // Builds metadata and storage with `head_cnt` heads each containing `seq_cnt` sequences

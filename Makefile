@@ -79,6 +79,7 @@ go_unittest: go_code
 	pushd "$(MYGOSRC)"
 	# add --test.v to get verbose tests
 	# add --test.count=1 to not cache results
+	# add --test.run=filter_rx to choose tests to run
 	pkg_to_test=( `GOENV="$(GOENV)" go list btrfs_to_glacier/... | grep -vE "_integration$$|/types"` )
 	GOENV="$(GOENV)" go test $(GO_TEST_FLAGS) "$${pkg_to_test[@]}"
 
@@ -94,14 +95,14 @@ go_debug: go_code
 	pushd "$(MYGOSRC)"
 	echo '
 	#break btrfs_to_glacier/encryption.(*aesGzipCodec).EncryptStream
-	break workflow/backup_manager/backup_manager.go:180
+	break workflow/backup_restore_canary/backup_restore_canary.go:329
 	continue
 	' > "$(MYDLVINIT)"
 	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
-	  dlv test "btrfs_to_glacier/workflow/backup_manager" \
+	  dlv test "btrfs_to_glacier/workflow/backup_restore_canary" \
 		  --build-flags='-tags=delve' --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
-		  -- --test.run='TestBackupToCurrentSequenceUnrelatedVol_Normal' --test.v
+		  -- --test.run='TestAppendSnapshotToValidationChain_ExistingChain' --test.v
 
 # Fails with a linker error if missing `c_code`
 go_upgrade_mods: $(GOENV) c_code

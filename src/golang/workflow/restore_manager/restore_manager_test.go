@@ -14,7 +14,6 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/google/uuid"
-  "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -28,24 +27,13 @@ type Mocks struct {
   Destination *mocks.VolumeManager
 }
 
-func (self *Mocks) AddReceivedSnapInDst(src_snap *pb.SubVolume) *pb.SubVolume {
-  sv := util.DummySnapshot(uuid.NewString(), "")
-  sv.MountedPath = fpmod.Join(self.DstConf.RootRestorePath, sv.Uuid)
-  sv.ReceivedUuid = src_snap.Uuid
-  sv.Data = nil
-  // Add received snapshot to existing sequence if possible
-  vol_uuid := src_snap.ParentUuid
-  self.Destination.Snaps[vol_uuid] = append(self.Destination.Snaps[vol_uuid], sv)
-  clone := proto.Clone(sv).(*pb.SubVolume)
-  return clone
-}
-
 func (self *Mocks) AddFirstSnapsFromMetaInDst(seq_uuid string, count int) []*pb.SubVolume {
   added := make([]*pb.SubVolume, 0)
   for i,snap_uuid := range self.Meta.Seqs[seq_uuid].SnapUuids {
     if i >= count { break }
     snap := self.Meta.Snaps[snap_uuid]
-    added = append(added, self.AddReceivedSnapInDst(snap))
+    mnt_path := fpmod.Join(self.DstConf.RootRestorePath, snap.Uuid)
+    added = append(added, self.Destination.CreateReceivedFrom(snap, mnt_path))
   }
   return added
 }
@@ -101,20 +89,20 @@ func HelperTestRestoreCurrentSequence_Ok(t *testing.T, seq_len int, prev_len int
   defer cancel()
 
   mgr, mocks := buildRestoreManager(/*head_cnt=*/seq_len)
-  expect_cnt := mocks.Meta.ObjCounts()
+  expect_meta_cnt := mocks.Meta.ObjCounts()
   vol_uuid := mocks.Meta.HeadKeys()[1]
   cur_uuid := mocks.Meta.Heads[vol_uuid].CurSeqUuid
   mocks.AddFirstSnapsFromMetaInDst(cur_uuid, prev_len)
+  expect_dst_cnt := mocks.Destination.ObjCountsWithNewRec(seq_len-prev_len)
 
   pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
   if err != nil { t.Fatalf("RestoreCurrentSequence: %v", err) }
 
-  util.EqualsOrFailTest(t, "Should not create new objects", mocks.Meta.ObjCounts(), expect_cnt)
+  util.EqualsOrFailTest(t, "Should not create new objects", mocks.Meta.ObjCounts(), expect_meta_cnt)
   util.EqualsOrFailTest(t, "Bad restore len", len(pairs), seq_len - prev_len)
-  util.EqualsOrFailTest(t, "Bad dst objcount", mocks.Destination.ObjCounts(),
-                                               []int{/*vols=*/0, /*seqs=*/1, /*snaps=*/seq_len,})
+  util.EqualsOrFailTest(t, "Bad dst objcount", mocks.Destination.ObjCounts(), expect_dst_cnt)
   util.EqualsOrFailTest(t, "Bad restore reqs", mocks.Store.ObjCounts()[1],
-                                               (seq_len - prev_len) * ChunksPerSnap)
+                        (seq_len - prev_len) * ChunksPerSnap)
 
   expect_rec_uuids := make(map[string]int)
   for i,u := range mocks.Meta.Seqs[cur_uuid].SnapUuids {
@@ -122,7 +110,7 @@ func HelperTestRestoreCurrentSequence_Ok(t *testing.T, seq_len int, prev_len int
   }
   for i,pair := range pairs {
     expect_src := mocks.Meta.Snaps[pair.Src.Uuid]
-    expect_dst := mocks.Destination.Snaps[pair.Src.ParentUuid][prev_len+i]
+    expect_dst := mocks.Destination.Received[prev_len+i]
     if pair.Src == nil || len(pair.Src.Data.Chunks) == 0 {
       t.Fatalf("Bad snap in pair, expect chunk data:\n%s", util.AsJson(pair.Src))
     }
@@ -228,13 +216,13 @@ func TestRestoreCurrentSequence_PartialBecauseError(t *testing.T) {
   mgr, mock := buildRestoreManager(/*head_cnt=*/seq_len)
   mock.Store.SetErrInject(err_inject)
   vol_uuid := mock.Meta.HeadKeys()[2]
+  expect_dst_cnt := mock.Destination.ObjCountsWithNewRec(ok_until)
 
   pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
   if err == nil { t.Fatalf("Expected error RestoreCurrentSequence") }
 
   util.EqualsOrFailTest(t, "Bad restore len", len(pairs), ok_until)
-  util.EqualsOrFailTest(t, "Bad dst objcount", mock.Destination.ObjCounts(),
-                                               []int{/*vols=*/0, /*seqs=*/1, /*snaps=*/ok_until,})
+  util.EqualsOrFailTest(t, "Bad dst objcount", mock.Destination.ObjCounts(), expect_dst_cnt)
 }
 
 func TestRestoreCurrentSequence_StorageRestoreFailed(t *testing.T) {

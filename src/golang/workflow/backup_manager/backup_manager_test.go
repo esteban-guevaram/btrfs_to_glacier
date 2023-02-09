@@ -50,6 +50,15 @@ func (self *Mocks) AddSnapshotInSrc(sv *pb.SubVolume, uuid_str string, recent bo
   return clone
 }
 
+func (self *Mocks) AddReceivedSnapFromMostRecentMetaSnap(head_uuid string) *pb.SubVolume {
+  snaps_for_head := self.Meta.CurrentSnapsForHead(head_uuid)
+  if len(snaps_for_head) == 0 { util.Fatalf("Cannot add received snap for unknown head") }
+  last := snaps_for_head[len(snaps_for_head) - 1]
+  rec_snap, err := self.Source.CreateReceivedFromSnap(last.Uuid)
+  if err != nil { util.Fatalf("Source.CreateReceivedFromSnap: %v", err) }
+  return rec_snap
+}
+
 func (self *Mocks) CountState() *MockCountState {
   return &MockCountState{
     Meta: self.Meta.ObjCounts(),
@@ -66,32 +75,33 @@ func (self *MockCountState) Clone() *MockCountState {
   }
 }
 
-func (self *MockCountState) IncMeta(new_heads int, new_seqs int, new_snaps int) *MockCountState {
+func (self *MockCountState) IncMeta(
+    cnt_head int, cnt_seq int, cnt_snap int, cnt_version int) *MockCountState {
   clone := self.Clone()
-  clone.Meta[0] += new_heads
-  clone.Meta[1] += new_seqs
-  clone.Meta[2] += new_snaps
-  clone.Meta[3] += new_heads
-  clone.Store[0] += new_snaps
-  clone.Source[2] += new_snaps
+  //clone.Meta.ObjCountsIncrement(new_heads, new_seqs, new_snaps, new_versions)
+  clone.Meta[0] += cnt_head
+  clone.Meta[1] += cnt_seq
+  clone.Meta[2] += cnt_snap
+  clone.Meta[3] += cnt_version
   return clone
 }
 
-func (self *MockCountState) IncVers(add int) *MockCountState {
+func (self *MockCountState) IncSource(
+    cnt_vol int, cnt_seq int, cnt_snap int, cnt_rec int) *MockCountState {
   clone := self.Clone()
-  clone.Meta[3] += add
+  //clone.Source.ObjCountsIncrement(cnt_vol, cnt_seq, cnt_snap, cnt_rec)
+  clone.Source[0] += cnt_vol
+  clone.Source[1] += cnt_seq
+  clone.Source[2] += cnt_snap + cnt_rec
+  clone.Source[3] += cnt_rec
   return clone
 }
 
-func (self *MockCountState) IncAll(add int) *MockCountState {
+func (self *MockCountState) IncStore(cnt_chunk int, cnt_restored int) *MockCountState {
   clone := self.Clone()
-  clone.Meta[0] += add
-  clone.Meta[1] += add
-  clone.Meta[2] += add
-  clone.Meta[3] += add
-  clone.Store[0] += add
-  clone.Source[1] += add
-  clone.Source[2] += add
+  //clone.Store.ObjCountsIncrement(cnt_chunk, cnt_restored)
+  clone.Store[0] += cnt_chunk
+  clone.Store[1] += cnt_restored
   return clone
 }
 
@@ -273,7 +283,9 @@ func HelperBackupAllToCurrentSequences_NoMetaNoSource(t *testing.T, vol_count in
   for i:=0; i<vol_count; i+=1 {
     expect_svs = append(expect_svs, mocks.AddSubVolumeInSrc(mocks.ConfSrc.Paths[i], uuid.NewString()))
   }
-  init_state := mocks.CountState()
+  new_state := mocks.CountState().IncMeta(vol_count, vol_count, vol_count, vol_count).
+                                  IncStore(vol_count, 0).
+                                  IncSource(0, vol_count, vol_count, 0)
   var pairs []types.BackupPair
   var err error
   if new_seq {
@@ -285,7 +297,6 @@ func HelperBackupAllToCurrentSequences_NoMetaNoSource(t *testing.T, vol_count in
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
-  new_state := init_state.IncAll(vol_count)
   ValidateObjectCounts(t, mocks, new_state)
   for _,args := range mocks.Source.GetSnapshotStreamCalls {
     if len(args[0]) != 0 { t.Errorf("GetSnapshotStream bad args: %v", args) }
@@ -294,7 +305,7 @@ func HelperBackupAllToCurrentSequences_NoMetaNoSource(t *testing.T, vol_count in
   // Idempotency
   _, err = mgr.BackupAllToCurrentSequences(ctx)
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
-  ValidateObjectCounts(t, mocks, new_state.IncVers(vol_count))
+  ValidateObjectCounts(t, mocks, new_state.IncMeta(0,0,0,vol_count))
 }
 
 func TestBackupAllToCurrentSequences_NoMetaNoSource_SingleVol(t *testing.T) {
@@ -327,12 +338,14 @@ func HelperBackupAllToCurrentSequences_NewSeq_OldSnaps(t *testing.T, vol_count i
   expect_svs := mocks.Source.AllVols()
   mocks.Meta.Clear()
   mocks.Store.Clear()
-  init_state := mocks.CountState()
+  expect_state := mocks.CountState().IncMeta(vol_count, vol_count, vol_count, vol_count).
+                                     IncSource(0, 0, vol_count, 0).
+                                     IncStore(vol_count, 0)
   pairs, err := mgr.BackupAllToCurrentSequences(ctx)
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
-  ValidateObjectCounts(t, mocks, init_state.IncMeta(vol_count, vol_count, vol_count))
+  ValidateObjectCounts(t, mocks, expect_state)
 }
 
 func TestBackupAllToCurrentSequences_NewSeq_OldSnaps_SingleVol(t *testing.T) {
@@ -366,12 +379,13 @@ func TestBackupAllToCurrentSequences_PrevSnapsAndMeta(t *testing.T) {
   meta, store := mocks.DummyMetaAndStorage(vol_count,1,seq_len,1)
   mgr, mocks := buildBackupManager(meta, store, mocks.NewVolumeManager())
   expect_svs := mocks.Source.AllVols()
-  init_state := mocks.CountState()
+  new_state := mocks.CountState().IncMeta(0, 0, vol_count, vol_count).
+                                  IncSource(0, 0, vol_count, 0).
+                                  IncStore(vol_count, 0)
   pairs, err := mgr.BackupAllToCurrentSequences(ctx)
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
-  new_state := init_state.IncMeta(0, 0, vol_count).IncVers(vol_count)
   ValidateObjectCounts(t, mocks, new_state)
   expect_args := make(map[[2]string]bool)
   for _,seq := range mocks.Source.Snaps {
@@ -387,7 +401,7 @@ func TestBackupAllToCurrentSequences_PrevSnapsAndMeta(t *testing.T) {
   // Idempotency
   _, err = mgr.BackupAllToCurrentSequences(ctx)
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
-  ValidateObjectCounts(t, mocks, new_state.IncVers(vol_count))
+  ValidateObjectCounts(t, mocks, new_state.IncMeta(0,0,0,vol_count))
 }
 
 func TestBackupAllToCurrentSequences_ReuseRecentSnap(t *testing.T) {
@@ -401,18 +415,14 @@ func TestBackupAllToCurrentSequences_ReuseRecentSnap(t *testing.T) {
   for _,sv := range expect_svs {
     mocks.AddSnapshotInSrc(sv, uuid.NewString(), /*recent=*/true)
   }
-  init_state := mocks.CountState()
+  new_state := mocks.CountState().IncMeta(0, 0, vol_count, vol_count).
+                                  IncSource(0, 0, 0, 0).
+                                  IncStore(vol_count, 0)
   pairs, err := mgr.BackupAllToCurrentSequences(ctx)
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
-  new_state := init_state.IncMeta(0, 0, vol_count).IncVers(vol_count)
-  util.EqualsOrFailTest(t, "bad obj count [volume source]",
-                        mocks.Source.ObjCounts(), init_state.Source)
-  util.EqualsOrFailTest(t, "bad obj count [metadata]",
-                        mocks.Meta.ObjCounts(), new_state.Meta)
-  util.EqualsOrFailTest(t, "bad obj count [storage]",
-                        mocks.Store.ObjCounts(), new_state.Store)
+  ValidateObjectCounts(t, mocks, new_state)
 }
 
 func TestBackupAllToNewSequences_NoMetaNoSource(t *testing.T) {
@@ -428,18 +438,19 @@ func TestBackupAllToNewSequences_PrevSnapsAndMeta(t *testing.T) {
   meta, store := mocks.DummyMetaAndStorage(vol_count,1,1,1)
   mgr, mocks := buildBackupManager(meta, store, mocks.NewVolumeManager())
   expect_svs := mocks.Source.AllVols()
-  init_state := mocks.CountState()
+  new_state := mocks.CountState().IncMeta(0, vol_count, vol_count, vol_count).
+                                  IncSource(0, 0, vol_count, 0).
+                                  IncStore(vol_count, 0)
   pairs, err := mgr.BackupAllToNewSequences(ctx)
   if err != nil { util.Fatalf("BackupAllToNewSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
-  new_state := init_state.IncMeta(0, vol_count, vol_count).IncVers(vol_count)
   ValidateObjectCounts(t, mocks, new_state)
 
   // NON Idempotency (but re-use recent snaps in source)
   _, err = mgr.BackupAllToNewSequences(ctx)
   if err != nil { util.Fatalf("BackupAllToNewSequences: %v", err) }
-  new_state = new_state.IncMeta(0, vol_count, 0).IncVers(vol_count)
+  new_state = new_state.IncMeta(0, vol_count, 0, vol_count)
   ValidateObjectCounts(t, mocks, new_state)
 
   // Never do incremental backups
@@ -454,7 +465,7 @@ func TestBackupAllToNewSequences_PrevSnapsAndMeta(t *testing.T) {
   t.Logf("meta.Seqs:\n%s", util.AsJson(mocks.Meta.Seqs))
 }
 
-func TestBackupToCurrentSequenceUnrelatedVol_NoSeqFail(t *testing.T) {
+func TestBackupToCurrentSequenceUnrelatedVol_NoSeqInMetaFail(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
@@ -469,7 +480,7 @@ func TestBackupToCurrentSequenceUnrelatedVol_NoSeqFail(t *testing.T) {
   }
 }
 
-func TestBackupToCurrentSequenceUnrelatedVol_NoSnapFail(t *testing.T) {
+func TestBackupToCurrentSequenceUnrelatedVol_NoParInSrcFail(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
@@ -478,7 +489,22 @@ func TestBackupToCurrentSequenceUnrelatedVol_NoSnapFail(t *testing.T) {
   prev_uuid := mocks.Meta.HeadKeys()[0]
   sv := mocks.AddSubVolumeInSrc(mocks.ConfSrc.Paths[0], uuid.NewString())
   _, err := mgr.BackupToCurrentSequenceUnrelatedVol(ctx, sv, prev_uuid)
-  if !errors.Is(err, ErrNoIncrementalBackup) {
+  if !errors.Is(err, ErrExpectCloneFromLastRec) {
+    util.Fatalf("BackupToCurrentSequenceUnrelatedVol: %v", err)
+  }
+}
+
+func TestBackupToCurrentSequenceUnrelatedVol_CloneChildInSrc(t *testing.T) {
+  ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+
+  meta, store := mocks.DummyMetaAndStorage(1,1,1,1)
+  mgr, mocks := buildBackupManager(meta, store, mocks.NewVolumeManager())
+  prev_uuid := mocks.Meta.HeadKeys()[0]
+  sv := mocks.AddSubVolumeInSrc(mocks.ConfSrc.Paths[0], uuid.NewString())
+  mocks.AddSnapshotInSrc(sv, uuid.NewString(), /*recent=*/true)
+  _, err := mgr.BackupToCurrentSequenceUnrelatedVol(ctx, sv, prev_uuid)
+  if !errors.Is(err, ErrCloneShouldHaveNoChild) {
     util.Fatalf("BackupToCurrentSequenceUnrelatedVol: %v", err)
   }
 }
@@ -489,40 +515,34 @@ func TestBackupToCurrentSequenceUnrelatedVol_Normal(t *testing.T) {
 
   meta, store := mocks.DummyMetaAndStorage(1,1,1,1)
   mgr, mocks := buildBackupManager(meta, store, mocks.NewVolumeManager())
-  prev_uuid := mocks.Meta.HeadKeys()[0]
-  sv := mocks.AddSubVolumeInSrc(mocks.ConfSrc.Paths[0], uuid.NewString())
-  old_snap := mocks.AddSnapshotInSrc(sv, uuid.NewString(), /*recent=*/true)
-  init_state := mocks.CountState()
+  uuid_for_backup := mocks.Meta.HeadKeys()[0]
 
-  snap, err := mgr.BackupToCurrentSequenceUnrelatedVol(ctx, sv, prev_uuid)
+  last_rec_snap := mocks.AddReceivedSnapFromMostRecentMetaSnap(uuid_for_backup)
+  sv := mocks.AddSubVolumeInSrc(mocks.ConfSrc.Paths[0], uuid.NewString())
+  sv.ParentUuid = last_rec_snap.Uuid
+  new_state := mocks.CountState().IncMeta(0, 0, 1, 1).
+                                  IncSource(0, 1, 1, 0).
+                                  IncStore(1, 0)
+
+  snap, err := mgr.BackupToCurrentSequenceUnrelatedVol(ctx, sv, uuid_for_backup)
   if err != nil { util.Fatalf("BackupToCurrentSequenceUnrelatedVol: %v", err) }
 
-  ValidateUnrelatedBackupSnap(t, mocks, sv, snap, prev_uuid)
-  new_state := init_state.IncMeta(0, 0, 1).IncVers(1)
+  ValidateUnrelatedBackupSnap(t, mocks, sv, snap, uuid_for_backup)
   ValidateObjectCounts(t, mocks, new_state)
   if len(mocks.Source.GetSnapshotStreamCalls) != 1 {
     t.Errorf("Bad number of GetSnapshotStream calls: %d",
              len(mocks.Source.GetSnapshotStreamCalls))
   }
   args := mocks.Source.GetSnapshotStreamCalls[0]
-  expect_args := [2]string{ old_snap.Uuid, snap.Uuid, }
+  expect_args := [2]string{ last_rec_snap.Uuid, snap.Uuid, }
   util.EqualsOrFailTest(t, "bad GetSnapshotStream args", args, expect_args)
 
   // NON Idempotency
   // Contrary to BackupAllToCurrentSequences, we never reuse any subvolume from
   // the volume source, metadata or storage.
-  snd_snap, err := mgr.BackupToCurrentSequenceUnrelatedVol(ctx, sv, prev_uuid)
-  if err != nil { util.Fatalf("BackupToCurrentSequenceUnrelatedVol: %v", err) }
-
-  ValidateUnrelatedBackupSnap(t, mocks, sv, snd_snap, prev_uuid)
-  new_state = new_state.IncMeta(0, 0, 1).IncVers(1)
-  ValidateObjectCounts(t, mocks, new_state)
-  if len(mocks.Source.GetSnapshotStreamCalls) != 2 {
-    t.Errorf("Bad number of GetSnapshotStream calls: %d",
-             len(mocks.Source.GetSnapshotStreamCalls))
+  _, err = mgr.BackupToCurrentSequenceUnrelatedVol(ctx, sv, uuid_for_backup)
+  if !errors.Is(err, ErrCloneShouldHaveNoChild) {
+    t.Errorf("BackupToCurrentSequenceUnrelatedVol: %v", err)
   }
-  args = mocks.Source.GetSnapshotStreamCalls[1]
-  expect_args = [2]string{ snap.Uuid, snd_snap.Uuid, }
-  util.EqualsOrFailTest(t, "bad GetSnapshotStream args", args, expect_args)
 }
 

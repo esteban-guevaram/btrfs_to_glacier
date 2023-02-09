@@ -21,6 +21,9 @@ type RestorePair struct {
 }
 // Maps the subvolue uuid to the current snapshot sequence.
 type HeadAndSequenceMap = map[string]HeadAndSequence
+const KCanaryDelDir = "deleted"
+const KCanaryNewDir = "new"
+const KCanaryUuidFile = "uuids"
 
 // Maintains a small filesystem that can be restored from scratch and validated.
 // Ensures that all stored volumes are still compatible and can be restored.
@@ -71,8 +74,9 @@ type BackupManagerAdmin interface {
   // Used to append to a sequence a snapshot which is not related to the original subvolume.
   // Takes a snapshot from `sv` and appends it to the current sequence for SnapshotSeqHead `dst_uuid`.
   // This method expects a SnapshotSequence for `dst_uuid` in the metadata, otherwise it will return an error.
-  // A new snapshot will always be created, this method cannot be a noop.
   // Returns the snapshot created for `sv`, however it will look like it is a snaphost of `dst_uuid`.
+  // NON idempotent, the unrelated volume cannot have any pre-existing child snapshots.
+  //
   // This is an advanced operation, the caller is responsible for `sv` to be compatible with the sequence.
   // For example `sv` is a clone from a restore of the original subvolume in `dst_uuid`.
   BackupToCurrentSequenceUnrelatedVol(
