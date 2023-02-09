@@ -23,6 +23,10 @@ type Metadata struct {
   Versions []string
 }
 
+type MetaCounts struct {
+  Heads, Seqs, Snaps, Versions int
+}
+
 // In mem metadata storage
 // Simple implementation does not do any input validation.
 type Storage struct {
@@ -31,6 +35,10 @@ type Storage struct {
   Chunks    map[string][]byte
   Restored  map[string]bool
   DefRestoreStx types.RestoreStatus
+}
+
+type StorageCounts struct {
+  Chunks, Restored int
 }
 
 func NewMetadata() *Metadata {
@@ -355,31 +363,32 @@ func (self *Storage) DeleteChunks(
   return util.Coalesce(ctx.Err(), self.ErrInject(self.DeleteChunks))
 }
 
-func (self *Storage) ObjCounts() []int {
-  return []int{ len(self.Chunks), len(self.Restored), }
+func (self *Storage) ObjCounts() StorageCounts {
+  return StorageCounts{ Chunks:len(self.Chunks), Restored:len(self.Restored), }
 }
 
-func (self *Storage) ObjCountsIncrement(cnt_chunk int, cnt_restored int) []int {
-  counts := self.ObjCounts()
-  counts[0] += cnt_chunk
-  counts[1] += cnt_restored
-  return counts
+func (self StorageCounts) Increment(cnt_chunk int, cnt_restored int) StorageCounts {
+  self.Chunks += cnt_chunk
+  self.Restored += cnt_restored
+  return self
 }
 
 ///////////////////////// Fill out mock ////////////////////////
 
-func (self *Metadata) ObjCounts() []int {
-  return []int{ len(self.Heads), len(self.Seqs), len(self.Snaps), len(self.Versions), }
+func (self *Metadata) ObjCounts() MetaCounts {
+  return MetaCounts{ Heads:len(self.Heads),
+                     Seqs:len(self.Seqs),
+                     Snaps:len(self.Snaps),
+                     Versions:len(self.Versions), }
 }
 
-func (self *Metadata) ObjCountsIncrement(
-    cnt_head int, cnt_seq int, cnt_snap int, cnt_version int) []int {
-  counts := self.ObjCounts()
-  counts[0] += cnt_head
-  counts[1] += cnt_seq
-  counts[2] += cnt_snap
-  counts[3] += cnt_version
-  return counts
+func (self MetaCounts) Increment(
+    cnt_head int, cnt_seq int, cnt_snap int, cnt_version int) MetaCounts {
+  self.Heads += cnt_head
+  self.Seqs += cnt_seq
+  self.Snaps += cnt_snap
+  self.Versions += cnt_version
+  return self
 }
 
 func (self *Metadata) HeadKeys() []string {

@@ -26,6 +26,10 @@ type Linuxutil struct {
   Devs        []*types.Device
 }
 
+type LinuxCounts struct {
+   Filesystems, Mounts, Devs int
+}
+
 func NewLinuxutil() *Linuxutil {
   lu := &Linuxutil{}
   lu.ForAllErr(nil)
@@ -99,12 +103,21 @@ func (self *Linuxutil) CreateBtrfsFilesystem(
   self.Filesystems = append(self.Filesystems, fs)
   return fs, self.ErrInject(self.CreateBtrfsFilesystem)
 }
-func (self *Linuxutil) ObjCounts() []int {
-  return []int{ len(self.Filesystems), len(self.Mounts), len(self.Devs), }
+func (self *Linuxutil) ObjCounts() LinuxCounts {
+  return LinuxCounts{ Filesystems:len(self.Filesystems),
+                      Mounts:len(self.Mounts),
+                      Devs:len(self.Devs), }
 }
 func (self *Linuxutil) CleanMountDirs() {
   for _,m := range self.Mounts { util.RemoveAll(m.MountedPath) }
   for _,m := range self.UMounts { util.RemoveAll(m.MountedPath) }
+}
+func (self LinuxCounts) Increment(
+    filesystems int, mounts int, devs int) LinuxCounts {
+  self.Filesystems += filesystems
+  self.Mounts += mounts
+  self.Devs += devs
+  return self
 }
 
 

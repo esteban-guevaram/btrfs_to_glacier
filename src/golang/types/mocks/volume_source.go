@@ -79,6 +79,10 @@ type VolumeManager struct {
   GetSnapshotStreamCalls [][2]string
 }
 
+type VolMgrCounts struct {
+  Vols, Seqs, Received, AllSnaps int
+}
+
 func NewVolumeManager() *VolumeManager {
   return &VolumeManager{
     SnapRoot: fpmod.Join(os.TempDir(), "snap_root"),
@@ -100,28 +104,28 @@ func CloneSnaps(snaps []*pb.SubVolume) []*pb.SubVolume {
   return clone_snaps
 }
 
-// Add new counters at the end to remain backward compatible.
-func (self *VolumeManager) ObjCounts() []int {
+func (self *VolumeManager) ObjCounts() VolMgrCounts {
   all_snaps := len(self.Received)
   for _,seq := range self.Snaps { all_snaps += len(seq) }
-  return []int{ len(self.Vols), len(self.Snaps), all_snaps, len(self.Received), }
+  return VolMgrCounts{ Vols:len(self.Vols),
+                       Seqs:len(self.Snaps),
+                       Received:len(self.Received),
+                       AllSnaps:all_snaps, }
 }
 
-func (self *VolumeManager) ObjCountsWithNewRec(count int) []int {
-  counts := self.ObjCounts()
-  counts[2] += count
-  counts[3] += count
-  return counts
+func (self VolMgrCounts) IncReceived(count int) VolMgrCounts {
+  self.Received += count
+  self.AllSnaps += count
+  return self
 }
 
-func (self *VolumeManager) ObjCountsIncrement(
-    cnt_vol int, cnt_seq int, cnt_snap int, cnt_rec int) []int {
-  counts := self.ObjCounts()
-  counts[0] += cnt_vol
-  counts[1] += cnt_seq
-  counts[2] += cnt_snap + cnt_rec
-  counts[3] += cnt_rec
-  return counts
+func (self VolMgrCounts) Increment(
+    cnt_vol int, cnt_seq int, cnt_snap int, cnt_rec int) VolMgrCounts {
+  self.Vols += cnt_vol
+  self.Seqs += cnt_seq
+  self.Received += cnt_rec
+  self.AllSnaps += cnt_snap + cnt_rec
+  return self
 }
 
 func (self *VolumeManager) ClearSnaps() {

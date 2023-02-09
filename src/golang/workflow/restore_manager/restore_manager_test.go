@@ -93,7 +93,7 @@ func HelperTestRestoreCurrentSequence_Ok(t *testing.T, seq_len int, prev_len int
   vol_uuid := mocks.Meta.HeadKeys()[1]
   cur_uuid := mocks.Meta.Heads[vol_uuid].CurSeqUuid
   mocks.AddFirstSnapsFromMetaInDst(cur_uuid, prev_len)
-  expect_dst_cnt := mocks.Destination.ObjCountsWithNewRec(seq_len-prev_len)
+  expect_dst_cnt := mocks.Destination.ObjCounts().IncReceived(seq_len-prev_len)
 
   pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
   if err != nil { t.Fatalf("RestoreCurrentSequence: %v", err) }
@@ -101,7 +101,7 @@ func HelperTestRestoreCurrentSequence_Ok(t *testing.T, seq_len int, prev_len int
   util.EqualsOrFailTest(t, "Should not create new objects", mocks.Meta.ObjCounts(), expect_meta_cnt)
   util.EqualsOrFailTest(t, "Bad restore len", len(pairs), seq_len - prev_len)
   util.EqualsOrFailTest(t, "Bad dst objcount", mocks.Destination.ObjCounts(), expect_dst_cnt)
-  util.EqualsOrFailTest(t, "Bad restore reqs", mocks.Store.ObjCounts()[1],
+  util.EqualsOrFailTest(t, "Bad restore reqs", mocks.Store.ObjCounts().Restored,
                         (seq_len - prev_len) * ChunksPerSnap)
 
   expect_rec_uuids := make(map[string]int)
@@ -216,7 +216,7 @@ func TestRestoreCurrentSequence_PartialBecauseError(t *testing.T) {
   mgr, mock := buildRestoreManager(/*head_cnt=*/seq_len)
   mock.Store.SetErrInject(err_inject)
   vol_uuid := mock.Meta.HeadKeys()[2]
-  expect_dst_cnt := mock.Destination.ObjCountsWithNewRec(ok_until)
+  expect_dst_cnt := mock.Destination.ObjCounts().IncReceived(ok_until)
 
   pairs, err := mgr.RestoreCurrentSequence(ctx, vol_uuid)
   if err == nil { t.Fatalf("Expected error RestoreCurrentSequence") }

@@ -35,12 +35,6 @@ func TestDummyDataProperties(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad snap count", len(meta.Snaps), 1)
 }
 
-func metaCountIncVersion(meta *mocks.Metadata) []int {
-  counts := meta.ObjCounts()
-  counts[3] += 1
-  return counts
-}
-
 func buildTestGarbageCollector(t *testing.T, branch_factor int) (*mocks.Metadata, *mocks.Storage, *garbageCollector) {
   conf := util.LoadTestConf()
   meta, store := mocks.DummyMetaAndStorage(branch_factor, branch_factor, branch_factor, branch_factor)
@@ -155,7 +149,7 @@ func TestCleanUnreachableMetadata_NothingToClean(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
-  expect_cnt := metaCountIncVersion(meta)
+  expect_cnt := meta.ObjCounts().Increment(0,0,0,1)
   expect_result := &types.DeletedItems{}
 
   got_result, err := gc.CleanUnreachableMetadata(ctx, false)
@@ -170,8 +164,7 @@ func TestCleanUnreachableMetadata_CleanSnaps(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
-  expect_cnt := metaCountIncVersion(meta)
-  expect_cnt[2] -= len(meta.Seqs)
+  expect_cnt := meta.ObjCounts().Increment(0,0,-len(meta.Seqs),1)
   expect_result := &types.DeletedItems{}
   for _,seq := range meta.Seqs {
     expect_result.Snaps = append(expect_result.Snaps, &pb.SubVolume{ Uuid:seq.SnapUuids[0], })
@@ -204,9 +197,10 @@ func TestCleanUnreachableMetadata_CleanSeqs(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
-  expect_cnt := metaCountIncVersion(meta)
-  expect_cnt[1] -= len(meta.Heads)
-  expect_cnt[2] = (len(meta.Heads)-1) * 3 * 3
+  expect_cnt := meta.ObjCounts().Increment(0,
+                                           -len(meta.Heads),
+                                           -3 * 3,
+                                           1)
   expect_result := &types.DeletedItems{}
   for _,head := range meta.Heads {
     expect_result.Seqs = append(expect_result.Seqs, &pb.SnapshotSequence{ Uuid:head.PrevSeqUuid[0], })
@@ -228,10 +222,10 @@ func TestCleanUnreachableMetadata_CleanAllHeadChildren(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, _, gc := buildTestGarbageCollector(t, 3)
-  expect_cnt := metaCountIncVersion(meta)
-  expect_cnt[0] -= 1
-  expect_cnt[2] -= len(meta.Seqs)
-  expect_cnt[1] -= len(meta.Heads)
+  expect_cnt := meta.ObjCounts().Increment(-1,
+                                           -len(meta.Heads),
+                                           -len(meta.Seqs),
+                                           1)
   delete(meta.Heads, meta.HeadKeys()[0])
 
   _, err := gc.CleanUnreachableMetadata(ctx, false)
@@ -282,9 +276,7 @@ func TestDeleteSnapshotSeqHead_Simple(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta, store, gc := buildTestGarbageCollector(t, 3)
-  expect_meta_cnt := metaCountIncVersion(meta)
-  expect_meta_cnt[1] -= 1
-  expect_meta_cnt[2] -= 3
+  expect_meta_cnt := meta.ObjCounts().Increment(0,-1,-3,1)
   expect_store_cnt := len(store.Chunks) - 9
 
   head_uuid := meta.HeadKeys()[1]

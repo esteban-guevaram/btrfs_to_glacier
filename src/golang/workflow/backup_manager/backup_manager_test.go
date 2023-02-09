@@ -24,9 +24,9 @@ type Mocks struct {
 }
 
 type MockCountState struct {
-  Meta []int
-  Store []int
-  Source []int
+  Meta mocks.MetaCounts
+  Store mocks.StorageCounts
+  Source mocks.VolMgrCounts
 }
 
 func (self *Mocks) AddSubVolumeInSrc(ppair *pb.Source_VolSnapPathPair, uuid_str string) *pb.SubVolume {
@@ -59,50 +59,29 @@ func (self *Mocks) AddReceivedSnapFromMostRecentMetaSnap(head_uuid string) *pb.S
   return rec_snap
 }
 
-func (self *Mocks) CountState() *MockCountState {
-  return &MockCountState{
+func (self *Mocks) CountState() MockCountState {
+  return MockCountState{
     Meta: self.Meta.ObjCounts(),
     Store: self.Store.ObjCounts(),
     Source: self.Source.ObjCounts(),
   }
 }
 
-func (self *MockCountState) Clone() *MockCountState {
-  return &MockCountState{
-    Meta: append([]int{}, self.Meta...),
-    Store: append([]int{}, self.Store...),
-    Source: append([]int{}, self.Source...),
-  }
+func (self MockCountState) IncMeta(
+    cnt_head int, cnt_seq int, cnt_snap int, cnt_version int) MockCountState {
+  self.Meta = self.Meta.Increment(cnt_head, cnt_seq, cnt_snap, cnt_version)
+  return self
 }
 
-func (self *MockCountState) IncMeta(
-    cnt_head int, cnt_seq int, cnt_snap int, cnt_version int) *MockCountState {
-  clone := self.Clone()
-  //clone.Meta.ObjCountsIncrement(new_heads, new_seqs, new_snaps, new_versions)
-  clone.Meta[0] += cnt_head
-  clone.Meta[1] += cnt_seq
-  clone.Meta[2] += cnt_snap
-  clone.Meta[3] += cnt_version
-  return clone
+func (self MockCountState) IncSource(
+    cnt_vol int, cnt_seq int, cnt_snap int, cnt_rec int) MockCountState {
+  self.Source = self.Source.Increment(cnt_vol, cnt_seq, cnt_snap, cnt_rec)
+  return self
 }
 
-func (self *MockCountState) IncSource(
-    cnt_vol int, cnt_seq int, cnt_snap int, cnt_rec int) *MockCountState {
-  clone := self.Clone()
-  //clone.Source.ObjCountsIncrement(cnt_vol, cnt_seq, cnt_snap, cnt_rec)
-  clone.Source[0] += cnt_vol
-  clone.Source[1] += cnt_seq
-  clone.Source[2] += cnt_snap + cnt_rec
-  clone.Source[3] += cnt_rec
-  return clone
-}
-
-func (self *MockCountState) IncStore(cnt_chunk int, cnt_restored int) *MockCountState {
-  clone := self.Clone()
-  //clone.Store.ObjCountsIncrement(cnt_chunk, cnt_restored)
-  clone.Store[0] += cnt_chunk
-  clone.Store[1] += cnt_restored
-  return clone
+func (self MockCountState) IncStore(cnt_chunk int, cnt_restored int) MockCountState {
+  self.Store = self.Store.Increment(cnt_chunk, cnt_restored)
+  return self
 }
 
 func (self *Mocks) AddSvAndSnapsFromMetaInSrc() []*pb.SubVolume {
@@ -265,7 +244,7 @@ func ValidateUnrelatedBackupSnap(
 }
 
 func ValidateObjectCounts(
-    t *testing.T, mocks *Mocks, expect *MockCountState) {
+    t *testing.T, mocks *Mocks, expect MockCountState) {
   util.EqualsOrFailTest(t, "bad obj count [volume source]",
                         mocks.Source.ObjCounts(), expect.Source)
   util.EqualsOrFailTest(t, "bad obj count [metadata]",
