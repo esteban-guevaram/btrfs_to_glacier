@@ -64,7 +64,7 @@ shim_integ: all | $(SUBVOL_PATH)
 		--destvol="$(MOUNT_TESTVOL_DST)" \
 		--snap1="$(SNAP1_PATH)" --snap2="$(SNAP2_PATH)"
 
-test: go_unittest cloud_integ btrfs_integ
+test: go_unittest cloud_integ shim_integ
 
 $(SUBVOL_PATH) fs_init &:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
