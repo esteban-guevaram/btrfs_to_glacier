@@ -106,7 +106,7 @@ func (self *ChunkIoImpl) ReadOneChunk(
   }
 
   read_wrap := util.WrapPlainReaderCloser(f)
-  err := self.ParCodec.DecryptStreamInto(ctx, key_fp, read_wrap, output)
+  err := self.ParCodec.DecryptStreamLeaveSinkOpen(ctx, key_fp, read_wrap, output)
   return err
 }
 

@@ -242,8 +242,8 @@ func TestEncryptStreamInto_SmallMsg(t *testing.T) {
     pipe := util.NewInMemPipe(ctx)
     go func() {
       defer pipe.WriteEnd().Close()
-      err := codec.DecryptStreamInto(ctx, key_fp, input, pipe.WriteEnd())
-      if err != nil { util.Fatalf("codec.DecryptStreamInto: %v", err) }
+      err := codec.DecryptStreamLeaveSinkOpen(ctx, key_fp, input, pipe.WriteEnd())
+      if err != nil { util.Fatalf("codec.DecryptStreamLeaveSinkOpen: %v", err) }
     }()
     return pipe.ReadEnd(), nil
   }
@@ -268,8 +268,8 @@ func TestEncryptStreamInto_MoreData(t *testing.T) {
     pipe := util.NewInMemPipe(ctx)
     go func() {
       defer pipe.WriteEnd().Close()
-      err := codec.DecryptStreamInto(ctx, key_fp, input, pipe.WriteEnd())
-      if err != nil { util.Fatalf("codec.DecryptStreamInto: %v", err) }
+      err := codec.DecryptStreamLeaveSinkOpen(ctx, key_fp, input, pipe.WriteEnd())
+      if err != nil { util.Fatalf("codec.DecryptStreamLeaveSinkOpen: %v", err) }
     }()
     return pipe.ReadEnd(), nil
   }
@@ -277,13 +277,13 @@ func TestEncryptStreamInto_MoreData(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad encryption len", len(data), 4096*32)
 }
 
-func TestDecryptStreamInto_OutputRemainsOpen(t *testing.T) {
+func TestDecryptStreamLeaveSinkOpen_OutputRemainsOpen(t *testing.T) {
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 32, 1)
   pipe := util.NewFileBasedPipe(context.TODO()) // we use a file to avoid blocking on the last write
   decrypt_lambda := func(
       codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
     reader := util.NewLimitedReadEnd(pipe.ReadEnd(), 32) 
-    codec.DecryptStreamInto(ctx, key_fp, input, pipe.WriteEnd())
+    codec.DecryptStreamLeaveSinkOpen(ctx, key_fp, input, pipe.WriteEnd())
     return reader, nil
   }
   testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
@@ -298,7 +298,7 @@ func testStream_TimeoutContinousReadUntilDeadline_Helper(t *testing.T, stream_f 
   defer cancel()
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
 
-  timely_close := make(chan bool, 1)
+  timely_close := make(chan bool)
 
   out, err := stream_f(ctx, read_pipe)
   if err != nil { t.Fatalf("Could process stream: %v", err) }
@@ -315,7 +315,7 @@ func testStream_TimeoutContinousReadUntilDeadline_Helper(t *testing.T, stream_f 
   select {
     case <-timely_close:
     case <-time.After(util.LargeTimeout):
-      t.Fatalf("codec did not react to context timeout.")
+      t.Fatalf("codec did not react to context timeout: %v", ctx.Err())
   }
 }
 
@@ -366,25 +366,25 @@ func TestDecryptStream_TimeoutContinousReads(t *testing.T) {
   testStream_TimeoutContinousReadUntilDeadline_Helper(t, stream_f)
 }
 
-func TestDecryptStreamInto_TimeoutBlockingWrite(t *testing.T) {
+func TestDecryptStreamLeaveSinkOpen_TimeoutBlockingWrite(t *testing.T) {
   codec := buildTestCodec(t)
   stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     write_end := util.NewWriteEndBlock(ctx, util.TestTimeout * 2)
-    err := codec.DecryptStreamInto(ctx, types.CurKeyFp, in, write_end)
-    if err == nil { util.Fatalf("codec.DecryptStreamInto should return err on blocking write") }
+    err := codec.DecryptStreamLeaveSinkOpen(ctx, types.CurKeyFp, in, write_end)
+    if err == nil { util.Fatalf("codec.DecryptStreamLeaveSinkOpen should return err on blocking write") }
     return util.ReadEndFromBytes(nil), nil
   }
   testStream_TimeoutContinousReadUntilDeadline_Helper(t, stream_f)
 }
 
-func TestDecryptStreamInto_TimeoutContinousReads(t *testing.T) {
+func TestDecryptStreamLeaveSinkOpen_TimeoutContinousReads(t *testing.T) {
   codec := buildTestCodec(t)
   stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
     go func() {
       if ctx.Err() != nil { util.Fatalf("wtf") }
-      if codec.DecryptStreamInto(ctx, types.CurKeyFp, in, pipe.WriteEnd()) == nil {
-        util.Fatalf("codec.DecryptStreamInto should return err, ctx: %v", ctx.Err())
+      if codec.DecryptStreamLeaveSinkOpen(ctx, types.CurKeyFp, in, pipe.WriteEnd()) == nil {
+        util.Fatalf("codec.DecryptStreamLeaveSinkOpen should return err, ctx: %v", ctx.Err())
       }
     }()
     return pipe.ReadEnd(), nil
@@ -408,13 +408,13 @@ func TestDecryptStream_TimeoutReadAfterClose(t *testing.T) {
   testStream_TimeoutReadAfterClose_Helper(t, stream_f)
 }
 
-func TestDecryptStreamInto_TimeoutReadAfterClose(t *testing.T) {
+func TestDecryptStreamLeaveSinkOpen_TimeoutReadAfterClose(t *testing.T) {
   codec := buildTestCodec(t)
   stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
     go func() {
-      err := codec.DecryptStreamInto(ctx, types.CurKeyFp, in, pipe.WriteEnd())
-      if err == nil { util.Fatalf("codec.DecryptStreamInto reading after timeout should return error") }
+      err := codec.DecryptStreamLeaveSinkOpen(ctx, types.CurKeyFp, in, pipe.WriteEnd())
+      if err == nil { util.Fatalf("codec.DecryptStreamLeaveSinkOpen reading after timeout should return error") }
     }()
     return pipe.ReadEnd(), nil
   }
@@ -512,7 +512,7 @@ func TestDecryptStream_WriteEndError(t *testing.T) {
   HelperDecryptStream_ErrPropagation(t, err_injector)
 }
 
-func HelperDecryptStreamInto_ErrPropagation(t *testing.T, err_injector func(types.Pipe)) {
+func HelperDecryptStreamLeaveSinkOpen_ErrPropagation(t *testing.T, err_injector func(types.Pipe)) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
 
@@ -521,17 +521,17 @@ func HelperDecryptStreamInto_ErrPropagation(t *testing.T, err_injector func(type
   err_injector(pipe)
   codec := buildTestCodec(t)
 
-  err := codec.DecryptStreamInto(ctx, types.CurKeyFp, pipe.ReadEnd(), sink)
+  err := codec.DecryptStreamLeaveSinkOpen(ctx, types.CurKeyFp, pipe.ReadEnd(), sink)
   if err == nil { t.Errorf("Expected error propagation: %v", err) }
   // Cannot guarantee an error will prevent garbage to be written
   if sink.Len() > 0 { t.Logf("Wrote %d bytes despite closed input", sink.Len()) }
 }
-func TestDecryptStreamInto_PrematurelyClosedInput(t *testing.T) {
+func TestDecryptStreamLeaveSinkOpen_PrematurelyClosedInput(t *testing.T) {
   err_injector := func(p types.Pipe) { p.ReadEnd().Close() }
-  HelperDecryptStreamInto_ErrPropagation(t, err_injector)
+  HelperDecryptStreamLeaveSinkOpen_ErrPropagation(t, err_injector)
 }
-func TestDecryptStreamInto_WriteEndError(t *testing.T) {
+func TestDecryptStreamLeaveSinkOpen_WriteEndError(t *testing.T) {
   err_injector := func(p types.Pipe) { p.WriteEnd().SetErr(fmt.Errorf("inject_err")) }
-  HelperDecryptStreamInto_ErrPropagation(t, err_injector)
+  HelperDecryptStreamLeaveSinkOpen_ErrPropagation(t, err_injector)
 }
 

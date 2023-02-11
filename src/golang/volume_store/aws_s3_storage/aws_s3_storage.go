@@ -122,7 +122,7 @@ func (self *ChunkIoImpl) ReadOneChunk(
     return fmt.Errorf("mismatched length with metadata: %d != %d", get_out.ContentLength, chunk.Size)
   }
   read_wrap := util.WrapPlainReaderCloser(get_out.Body)
-  err = self.Parent.Codec.DecryptStreamInto(ctx, key_fp, read_wrap, output)
+  err = self.Parent.Codec.DecryptStreamLeaveSinkOpen(ctx, key_fp, read_wrap, output)
   return err
 }
 

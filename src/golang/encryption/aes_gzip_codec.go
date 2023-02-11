@@ -310,7 +310,7 @@ func (self *aesGzipCodec) DecryptStream(
   return pipe.ReadEnd(), input.GetErr()
 }
 
-func (self *aesGzipCodec) DecryptStreamInto(
+func (self *aesGzipCodec) DecryptStreamLeaveSinkOpen(
     ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) error {
   var err error
   defer func() { util.CloseWithError(input, err) }()

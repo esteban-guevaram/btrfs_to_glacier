@@ -75,7 +75,7 @@ func (self *ChunkIoImpl) ReadOneChunk(
     return fmt.Errorf("mismatched length with metadata: %d != %d", len(data), chunk.Size)
   }
   input := util.ReadEndFromBytes(data)
-  err := self.ParCodec.DecryptStreamInto(ctx, key_fp, input, output)
+  err := self.ParCodec.DecryptStreamLeaveSinkOpen(ctx, key_fp, input, output)
   return err
 }
 

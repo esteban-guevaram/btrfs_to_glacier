@@ -55,6 +55,6 @@ type Codec interface {
   // Takes ownership of `input` and will close it once done.
   // `output` will NOT be closed (unless there is an error) so that it can be reused.
   // Returns when the whole stream has been decrypted.
-  DecryptStreamInto(ctx context.Context, key_fp PersistableString, input ReadEndIf, output io.WriteCloser) error
+  DecryptStreamLeaveSinkOpen(ctx context.Context, key_fp PersistableString, input ReadEndIf, output io.WriteCloser) error
 }
 

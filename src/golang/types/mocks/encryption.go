@@ -57,7 +57,7 @@ func (self *Codec) DecryptStream(
   return self.EncryptStream(ctx, input)
 }
 
-func (self *Codec) DecryptStreamInto(
+func (self *Codec) DecryptStreamLeaveSinkOpen(
     ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) error {
   if self.Err != nil { return self.Err }
   var err error
