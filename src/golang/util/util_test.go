@@ -135,35 +135,165 @@ func TestPipePropagateClosure_Fuzzer(t *testing.T) {
   EqualsOrFailTest(t, "message bytes", data, message)
 }
 
-func TestClosedReadEndBehavior(t *testing.T) {
-  ctx,cancel := context.WithTimeout(context.Background(), TestTimeout)
-  defer cancel()
+func TestLimitReadExhaustedThenCloseBehavior(t *testing.T) {
+  const message = "coucou_salut"
+  const limit_len = len(message) - 2
   close_test_f := func(scope string, writer io.WriteCloser, reader io.ReadCloser) {
+    ctx,cancel := context.WithTimeout(context.Background(), TestTimeout)
+    defer cancel()
+    read_done := make(chan error)
+    write_done := make(chan error)
+    go func() {
+      defer close(write_done)
+      var err error
+      for err == nil {
+        _, err = writer.Write([]byte(message))
+      }
+    }()
+    go func() {
+      defer close(read_done)
+      defer reader.Close()
+      buffer := make([]byte, 2*len(message))
+      cnt,err := reader.Read(buffer)
+      // BE CAREFUL IT IS A TRAP !
+      // Even if we exhaust the limited reader capacity on a single read, it will not return io.EOF
+      // Documented in https://pkg.go.dev/io#Reader
+      if err != nil || cnt != limit_len {
+        t.Fatalf("Read failed prematurely: scope:%s, count:%d, err:%v", scope, cnt, err)
+      }
+      cnt,err = reader.Read(buffer)
+      if err != io.EOF || cnt != 0 {
+        t.Fatalf("Cannot read after the limit: %s", scope)
+      }
+    }()
+    for done_cnt:=0; done_cnt != 2; {
+      select {
+        case <-read_done:  done_cnt+=1 ; read_done = nil
+        case <-write_done: done_cnt+=1 ; write_done = nil
+        case <-ctx.Done():
+          t.Fatalf("Context expired while running test '%s'", scope)
+      }
+    }
+  }
+
+  pipe_3 := NewInMemPipe(context.Background())
+  close_test_f("pipe_3", pipe_3.WriteEnd(),
+               NewPropagatingLimitedReadEnd(pipe_3.ReadEnd(), uint64(limit_len)))
+  pipe_4 := NewFileBasedPipe(context.Background())
+  close_test_f("pipe_4", pipe_4.WriteEnd(),
+               NewPropagatingLimitedReadEnd(pipe_4.ReadEnd(), uint64(limit_len)))
+}
+
+func TestReadExhaustedThenCloseBehavior(t *testing.T) {
+  const message = "coucou_salut"
+  close_test_f := func(scope string, writer io.WriteCloser, reader io.ReadCloser) {
+    ctx,cancel := context.WithTimeout(context.Background(), TestTimeout)
+    defer cancel()
+    read_done := make(chan error)
+    write_done := make(chan error)
+    go func() {
+      defer close(write_done)
+      var err error
+      for err == nil {
+        _, err = writer.Write([]byte(message))
+      }
+    }()
+    go func() {
+      defer close(read_done)
+      defer reader.Close()
+      buffer := make([]byte, 3+len(message)) // unaligned read and writes
+      for i:=0;i<7;i+=1 {
+        cnt,err := reader.Read(buffer)
+        if err != nil || cnt < len(message) {
+          t.Fatalf("Read failed prematurely: scope:%s, count:%d, err:%v", scope, cnt, err)
+        }
+      }
+    }()
+    for done_cnt:=0; done_cnt != 2; {
+      select {
+        case <-read_done:  done_cnt+=1 ; read_done = nil
+        case <-write_done: done_cnt+=1 ; write_done = nil
+        case <-ctx.Done():
+          t.Fatalf("Context expired while running test '%s'", scope)
+      }
+    }
+  }
+
+  pipe_1 := NewInMemPipe(context.Background())
+  close_test_f("pipe_1", pipe_1.WriteEnd(), pipe_1.ReadEnd())
+  pipe_2 := NewFileBasedPipe(context.Background())
+  close_test_f("pipe_2", pipe_2.WriteEnd(), pipe_2.ReadEnd())
+}
+
+func TestClosedReadEndBehavior(t *testing.T) {
+  close_test_f := func(scope string, writer io.WriteCloser, reader io.ReadCloser) {
+    ctx,cancel := context.WithTimeout(context.Background(), TestTimeout)
+    defer cancel()
     done := make(chan error)
     reader.Close()
-    go func() { writer.Write([]byte("coucou")) }()
+    go func() {
+      count,err := writer.Write([]byte("coucou"))
+      if count != 0 || err == nil {
+        t.Fatalf("Expected write to closed-read-end pipe to fail: count:%d, err:%v", count, err)
+      }
+    }()
     go func() {
       defer close(done)
-      cnt,err := reader.Read(make([]byte,1))
+      cnt,err := reader.Read(make([]byte,64))
       if err == nil || err == io.EOF || cnt > 0 {
         t.Fatalf("%s.ReadEnd().Read should fail on a closed read end", scope)
       }
     }()
     WaitForClosure(t, ctx, done)
   }
-  limit_wrap := func(reader io.ReadCloser) io.ReadCloser {
-    reader.Close()
-    return io.NopCloser(&io.LimitedReader{ R:reader, N:1, })
-  }
 
-  pipe_1 := NewInMemPipe(ctx)
+  pipe_1 := NewInMemPipe(context.Background())
   close_test_f("pipe_1", pipe_1.WriteEnd(), pipe_1.ReadEnd())
-  pipe_2 := NewFileBasedPipe(ctx)
+  pipe_2 := NewFileBasedPipe(context.Background())
   close_test_f("pipe_2", pipe_2.WriteEnd(), pipe_2.ReadEnd())
-  pipe_3 := NewInMemPipe(ctx)
-  close_test_f("pipe_3", pipe_3.WriteEnd(), limit_wrap(pipe_3.ReadEnd()))
-  pipe_4 := NewFileBasedPipe(ctx)
-  close_test_f("pipe_4", pipe_4.WriteEnd(), limit_wrap(pipe_4.ReadEnd()))
+  pipe_3 := NewInMemPipe(context.Background())
+  close_test_f("pipe_3", pipe_3.WriteEnd(), NewPropagatingLimitedReadEnd(pipe_3.ReadEnd(), 1))
+  pipe_4 := NewFileBasedPipe(context.Background())
+  close_test_f("pipe_4", pipe_4.WriteEnd(), NewPropagatingLimitedReadEnd(pipe_4.ReadEnd(), 1))
+}
+
+func TestNonPropagatingLimitedReadEnd(t *testing.T) {
+  const message = "coucou_salut"
+  const limit_len = len(message) - 2
+
+  ctx,cancel := context.WithTimeout(context.Background(), TestTimeout)
+  defer cancel()
+
+  pipe := NewInMemPipe(context.Background())
+  limit_reader := NewLimitedReadEnd(pipe.ReadEnd(), uint64(limit_len))
+
+  done := make(chan bool)
+  defer close(done)
+  go func() {
+    select {
+      case <-done:
+      case <-ctx.Done():
+        t.Fatalf("timedout while testing")
+    }
+  }()
+
+  go func() {
+    count,err := pipe.WriteEnd().Write([]byte(message))
+    if count != len(message) || err != nil {
+      t.Errorf("Expected to write the whole message: count:%d, err:%v", count, err)
+    }
+  }()
+
+  buffer := make([]byte, 2*len(message))
+  count, err := limit_reader.Read(buffer)
+  if count != limit_len || err != nil {
+    t.Errorf("limit_reader.Read(buffer): count:%d, err:%v", count, err)
+  }
+  if err = limit_reader.Close(); err != nil { t.Errorf("limit_reader.Close(): %v", err) }
+  count, err = pipe.ReadEnd().Read(buffer)
+  if count != (len(message) - limit_len) || err != nil {
+    t.Errorf("pipe.ReadEnd().Read(buffer): count:%d, err:%v", count, err)
+  }
 }
 
 func TestStartCmdWithPipedOutput_Echo(t *testing.T) {

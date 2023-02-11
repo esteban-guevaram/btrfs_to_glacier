@@ -15,6 +15,7 @@ import (
   "reflect"
   "strings"
   "sync"
+  "time"
   "unicode"
   "unicode/utf8"
 
@@ -29,36 +30,66 @@ type WriteEndImpl struct {
   io.WriteCloser
   parent *PipeImpl
 }
+
 type WriteEndFile struct {
   *os.File
   parent *PipeImpl
 }
+
 type WriteEndBuffer struct { *bytes.Buffer }
+
+// Writing will block until the context or timeout expires
+type WriteEndBlock struct {
+  ctx context.Context
+  timeout time.Duration
+}
+
 func (self *WriteEndImpl) SetErr(err error) {
   if err == nil { return }
   self.parent.mutex.Lock()
   defer self.parent.mutex.Unlock()
   self.parent.err = err
 }
+
 func (self *WriteEndImpl) CloseWithError(err error) error {
   self.SetErr(err)
   return CloseWithError(self.WriteCloser, err)
 }
+
 func (self *WriteEndFile) SetErr(err error) {
   if err == nil { return }
   self.parent.mutex.Lock()
   defer self.parent.mutex.Unlock()
   self.parent.err = err
 }
+
 func (self *WriteEndFile) CloseWithError(err error) error {
   self.SetErr(err)
   return CloseWithError(self.File, err)
 }
+
 func (self *WriteEndBuffer) SetErr(err error) {}
 func (self *WriteEndBuffer) CloseWithError(err error) error { return nil }
 func (self *WriteEndBuffer) Close() error { return nil }
 func NewBufferWriteEnd() *WriteEndBuffer {
   return &WriteEndBuffer{ Buffer:new(bytes.Buffer), }
+}
+
+func (self *WriteEndBlock) SetErr(err error) {}
+func (self *WriteEndBlock) CloseWithError(err error) error { return nil }
+func (self *WriteEndBlock) Close() error { return nil }
+func (self *WriteEndBlock) Write(p []byte) (n int, err error) {
+  select {
+    case <-self.ctx.Done():
+      if self.ctx.Err() == nil { Fatalf("WriteEndBlock self.ctx.Err() should have error") }
+      return 0, self.ctx.Err()
+    case <-time.After(self.timeout):
+      Fatalf("WriteEndBlock timedout: %v", self.timeout)
+  }
+  return 0, fmt.Errorf("WriteEndBlock wtf")
+}
+func NewWriteEndBlock(ctx context.Context, timeout time.Duration) *WriteEndBlock {
+  return &WriteEndBlock{ ctx:ctx, timeout:timeout, }
 }
 
 type ReadEndImpl struct {
@@ -71,7 +102,8 @@ type ReadEndFile struct {
 }
 type ReadEndLimitedImpl struct {
   *io.LimitedReader
-  inner  types.ReadEndIf
+  inner types.ReadEndIf
+  propagate_close bool
 }
 type ReadEndNoErrWrapper struct { io.ReadCloser }
 func (self *ReadEndImpl) GetErr() error {
@@ -92,10 +124,17 @@ func ReadEndFromBytes(data []byte) types.ReadEndIf {
   return &ReadEndNoErrWrapper{ ReadCloser: io.NopCloser(bytes.NewBuffer(data)), }
 }
 func (self *ReadEndLimitedImpl) GetErr() error { return self.inner.GetErr() }
-func (self *ReadEndLimitedImpl) Close()  error { return nil }
+func (self *ReadEndLimitedImpl) Close()  error {
+  if self.propagate_close { return self.inner.Close() }
+  return nil
+}
 func NewLimitedReadEnd(inner types.ReadEndIf, limit uint64) *ReadEndLimitedImpl {
   limited := &io.LimitedReader{ R:inner, N:int64(limit), }
-  return &ReadEndLimitedImpl{ LimitedReader:limited, inner:inner, }
+  return &ReadEndLimitedImpl{ LimitedReader:limited, inner:inner, propagate_close:false, }
+}
+func NewPropagatingLimitedReadEnd(inner types.ReadEndIf, limit uint64) *ReadEndLimitedImpl {
+  limited := &io.LimitedReader{ R:inner, N:int64(limit), }
+  return &ReadEndLimitedImpl{ LimitedReader:limited, inner:inner, propagate_close:true, }
 }
 
 

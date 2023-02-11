@@ -239,15 +239,16 @@ func (self *aesGzipCodec) EncryptStream(
     _, err = pipe.WriteEnd().Write(first_block)
     if err != nil { return }
 
-    for !done && ctx.Err() == nil {
+    for !done && err == nil && ctx.Err() == nil {
       var count int
       count, err = input.Read(block_buffer)
       if err != nil && err != io.EOF { return }
+      if count == 0 && err == nil { continue }
+      if count == 0 && err == io.EOF { err = nil; return }
       done = (err == io.EOF)
 
       stream.XORKeyStream(block_buffer[:count], block_buffer[:count])
       _, err = pipe.WriteEnd().Write(block_buffer[:count])
-      if err != nil { return }
       //util.Debugf("encrypt count=%d done=%v bytes=%x", count, done, block_buffer[:count])
     }
   }()
@@ -256,18 +257,18 @@ func (self *aesGzipCodec) EncryptStream(
 
 func (self *aesGzipCodec) decryptBlock_Helper(buffer []byte, stream cipher.Stream, input io.Reader, output io.Writer) (bool, int, error) {
   count, err := input.Read(buffer)
-  done := (err == io.EOF)
   if err != nil && err != io.EOF {
     return true, count, fmt.Errorf("DecryptStream failed reading: %v", err)
   }
-  if count < 1 { return done, count, nil }
+  if count == 0 && err == nil { return false, 0, nil }
+  if count == 0 && err == io.EOF { return true, 0, nil }
   // it is valid to reuse slice for output if offsets are the same
   stream.XORKeyStream(buffer, buffer)
 
   _, err = output.Write(buffer[:count])
   if err != nil { return true, count, err }
   //util.Debugf("decrypt count=%d done=%v bytes=%x", count, done, buffer[:count])
-  return done, count, nil
+  return (err == io.EOF), count, nil
 }
 
 func (self *aesGzipCodec) decryptStream_BlockIterator(
@@ -284,11 +285,10 @@ func (self *aesGzipCodec) decryptStream_BlockIterator(
     return fmt.Errorf("First block not written correctly: %v", err)
   }
 
-  for !done && ctx.Err() == nil {
+  for !done && err == nil && ctx.Err() == nil {
     done, _, err = self.decryptBlock_Helper(block_buffer, stream, input, output)
-    if err != nil { return err }
   }
-  return nil
+  return ctx.Err()
 }
 
 func (self *aesGzipCodec) DecryptStream(
@@ -314,13 +314,13 @@ func (self *aesGzipCodec) DecryptStreamInto(
     ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf, output io.WriteCloser) error {
   var err error
   defer func() { util.CloseWithError(input, err) }()
+  // We do not close on purpose, so that `output` can contain the chained streams from multiple calls.
   defer func() { util.OnlyCloseWhenError(output, err) }()
 
   block, stream, err := self.getStreamDecrypter(key_fp)
   if err != nil { return err }
 
   err = self.decryptStream_BlockIterator(ctx, stream, block.BlockSize(), input, output)
-  err = util.Coalesce(input.GetErr(), err)
-  return err
+  return util.Coalesce(input.GetErr(), err)
 }
 

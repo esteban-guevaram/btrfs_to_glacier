@@ -240,12 +240,12 @@ func TestEncryptStreamInto_SmallMsg(t *testing.T) {
   decrypt_lambda := func(
       codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
-    reader := util.NewLimitedReadEnd(pipe.ReadEnd(), uint64(len(expect_msg)))
     go func() {
+      defer pipe.WriteEnd().Close()
       err := codec.DecryptStreamInto(ctx, key_fp, input, pipe.WriteEnd())
       if err != nil { util.Fatalf("codec.DecryptStreamInto: %v", err) }
     }()
-    return reader, nil
+    return pipe.ReadEnd(), nil
   }
   data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
   util.EqualsOrFailTest(t, "Bad encryption", data, expect_msg)
@@ -266,12 +266,12 @@ func TestEncryptStreamInto_MoreData(t *testing.T) {
   decrypt_lambda := func(
       codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
-    reader := util.NewLimitedReadEnd(pipe.ReadEnd(), 4096*32) 
     go func() {
+      defer pipe.WriteEnd().Close()
       err := codec.DecryptStreamInto(ctx, key_fp, input, pipe.WriteEnd())
       if err != nil { util.Fatalf("codec.DecryptStreamInto: %v", err) }
     }()
-    return reader, nil
+    return pipe.ReadEnd(), nil
   }
   data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
   util.EqualsOrFailTest(t, "Bad encryption len", len(data), 4096*32)
@@ -299,13 +299,6 @@ func testStream_TimeoutContinousReadUntilDeadline_Helper(t *testing.T, stream_f 
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
 
   timely_close := make(chan bool, 1)
-  timedout := make(chan bool, 1)
-  go func() {
-    select {
-      case <-timely_close: return
-      case <-time.After(util.LargeTimeout): close(timedout)
-    }
-  }()
 
   out, err := stream_f(ctx, read_pipe)
   if err != nil { t.Fatalf("Could process stream: %v", err) }
@@ -321,7 +314,7 @@ func testStream_TimeoutContinousReadUntilDeadline_Helper(t *testing.T, stream_f 
 
   select {
     case <-timely_close:
-    case <-timedout:
+    case <-time.After(util.LargeTimeout):
       t.Fatalf("codec did not react to context timeout.")
   }
 }
@@ -373,13 +366,26 @@ func TestDecryptStream_TimeoutContinousReads(t *testing.T) {
   testStream_TimeoutContinousReadUntilDeadline_Helper(t, stream_f)
 }
 
+func TestDecryptStreamInto_TimeoutBlockingWrite(t *testing.T) {
+  codec := buildTestCodec(t)
+  stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
+    write_end := util.NewWriteEndBlock(ctx, util.TestTimeout * 2)
+    err := codec.DecryptStreamInto(ctx, types.CurKeyFp, in, write_end)
+    if err == nil { util.Fatalf("codec.DecryptStreamInto should return err on blocking write") }
+    return util.ReadEndFromBytes(nil), nil
+  }
+  testStream_TimeoutContinousReadUntilDeadline_Helper(t, stream_f)
+}
+
 func TestDecryptStreamInto_TimeoutContinousReads(t *testing.T) {
   codec := buildTestCodec(t)
   stream_f := func(ctx context.Context, in types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
     go func() {
-      err := codec.DecryptStreamInto(ctx, types.CurKeyFp, in, pipe.WriteEnd())
-      if err == nil { util.Fatalf("codec.DecryptStreamInto should return err when ctx expires") }
+      if ctx.Err() != nil { util.Fatalf("wtf") }
+      if codec.DecryptStreamInto(ctx, types.CurKeyFp, in, pipe.WriteEnd()) == nil {
+        util.Fatalf("codec.DecryptStreamInto should return err, ctx: %v", ctx.Err())
+      }
     }()
     return pipe.ReadEnd(), nil
   }
