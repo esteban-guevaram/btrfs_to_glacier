@@ -17,7 +17,7 @@ import (
 
 type s3AdminStoreTester struct { *s3StoreReadWriteTester }
 
-func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
+func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminBackupContent) {
   bucket := conf.Aws.S3.StorageBucketName
   err := DeleteBucket(ctx, client, bucket)
 
@@ -37,10 +37,10 @@ func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client,
   done := make(chan bool)
   go func() {
     defer close(done)
-    err := storage.SetupStorage(ctx)
-    if err != nil { util.Fatalf("storage.SetupStorage: %v", err) }
+    err := storage.SetupBackupContent(ctx)
+    if err != nil { util.Fatalf("storage.SetupBackupContent: %v", err) }
     util.Infof("Bucket '%s' created OK", bucket)
-    err = storage.SetupStorage(ctx)
+    err = storage.SetupBackupContent(ctx)
     if err != nil { util.Fatalf("Not idempotent %v", err) }
   }()
   select {
@@ -95,7 +95,7 @@ func (self *s3AdminStoreTester) TestDeleteChunks_NoSuchKey(ctx context.Context) 
   if err != nil { util.Fatalf("delete of unexisting object should be a noop: %v", err) }
 }
 
-func TestAllS3StoreDelete(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
+func TestAllS3StoreDelete(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminBackupContent) {
   suite := s3AdminStoreTester{
     &s3StoreReadWriteTester{ Conf:conf, Client:client, Storage:storage, },
   }

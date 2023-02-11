@@ -43,15 +43,15 @@ func callSetupMetadataSync(t *testing.T, meta *RoundRobinMetadata) {
   if err != nil { t.Fatalf("SetupMetadata err: %v", err) }
 }
 
-func getPairStorageAndSetup(t *testing.T, meta *RoundRobinMetadata) (types.AdminStorage, *ChunkIoForTestImpl) {
+func getPairStorageAndSetup(t *testing.T, meta *RoundRobinMetadata) (types.AdminBackupContent, *ChunkIoForTestImpl) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
   storage, err := meta.GetPairStorage(codec)
   if err != nil { t.Fatalf("meta.GetPairStorage: %v", err) }
-  err = storage.SetupStorage(ctx)
-  if err != nil { t.Fatalf("SetupStorage err: %v", err) }
+  err = storage.SetupBackupContent(ctx)
+  if err != nil { t.Fatalf("SetupBackupContent err: %v", err) }
   chunkio := GetChunkIoForTest(storage)
   if !strings.HasPrefix(chunkio.ChunkDir, meta.DirInfo.MountRoot) {
     t.Fatalf("Different fs between metadata and storage: '%s', '%s'", chunkio.ChunkDir, meta.DirInfo.MountRoot)

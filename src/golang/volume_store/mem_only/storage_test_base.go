@@ -23,14 +23,14 @@ type ChunkIoForTest interface {
   ChunkIoIf
   Get(uuid string) ([]byte, bool)
   Set(uuid string, data []byte)
-  AlwaysReturnErr(storage types.Storage, err error)
+  AlwaysReturnErr(storage types.BackupContent, err error)
   Len() int
   SetCodecFp(string)
   GetCodecFp() types.PersistableString
 }
 
-type StorageCtor = func(*testing.T, uint64) (types.Storage, ChunkIoForTest)
-type AdminCtor   = func(*testing.T, uint64) (types.AdminStorage, ChunkIoForTest)
+type StorageCtor = func(*testing.T, uint64) (types.BackupContent, ChunkIoForTest)
+type AdminCtor   = func(*testing.T, uint64) (types.AdminBackupContent, ChunkIoForTest)
 type TearDown    = func(*testing.T)
 type Fixture struct {
   Ctx         context.Context

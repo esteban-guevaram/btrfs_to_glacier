@@ -350,8 +350,8 @@ func (self *Storage) ListAllChunks(
   return &SnapshotChunksIterator{ next_f }, self.ErrInject(self.ListAllChunks)
 }
 
-func (self *Storage) SetupStorage(ctx context.Context) error {
-  return util.Coalesce(ctx.Err(), self.ErrInject(self.SetupStorage))
+func (self *Storage) SetupBackupContent(ctx context.Context) error {
+  return util.Coalesce(ctx.Err(), self.ErrInject(self.SetupBackupContent))
 }
 
 func (self *Storage) DeleteChunks(
@@ -522,11 +522,11 @@ func DummyMetaAndStorage(
 }
 
 type ChunkIoImpl struct {
-  Parent types.Storage
+  Parent types.BackupContent
   Err error
 }
 
-func AlwaysErrChunkIo(par types.Storage, err error) *ChunkIoImpl {
+func AlwaysErrChunkIo(par types.BackupContent, err error) *ChunkIoImpl {
   return &ChunkIoImpl{ Parent:par, Err: err, }
 }
 func (self *ChunkIoImpl) ReadOneChunk(

@@ -21,22 +21,22 @@ var ErrSnapsMismatchWithSrc = errors.New("snapshot_mismatch_between_meta_and_sou
 var ErrExpectCloneFromLastRec = errors.New("clone_should_be_issued_from_a_received_snap")
 var ErrCloneShouldHaveNoChild = errors.New("unrelated_clone_must_not_have_previous_snap_children")
 
-// Meta and Store must already been setup
+// Meta and Content must already been setup
 type BackupManager struct {
   Conf     *pb.Config
   SrcConf  *pb.Source
   Meta     types.Metadata
-  Store    types.Storage
+  Content    types.BackupContent
   Source   types.VolumeSource
   MinInterval time.Duration
 }
 
 func NewBackupManager(
-    conf *pb.Config, src_name string, meta types.Metadata, store types.Storage, vol_src types.VolumeSource) (types.BackupManager, error) {
+    conf *pb.Config, src_name string, meta types.Metadata, content types.BackupContent, vol_src types.VolumeSource) (types.BackupManager, error) {
   mgr := &BackupManager{
     Conf: conf,
     Meta: meta,
-    Store: store,
+    Content: content,
     Source: vol_src,
     MinInterval: MinIntervalBetweenSnaps,
   }
@@ -135,7 +135,7 @@ func (self *BackupManager) BackupSingleSvToSequence(
   if err != nil { return nil, err }
   stream, err := self.Source.GetSnapshotStream(ctx, par_snap, snap)
   if err != nil { return nil, err }
-  chunks, err := self.Store.WriteStream(ctx, /*offset=*/0, stream)
+  chunks, err := self.Content.WriteStream(ctx, /*offset=*/0, stream)
   if err != nil { return nil, err }
   full_snap, err = self.Meta.AppendChunkToSnapshot(ctx, snap, chunks)
   return full_snap, util.Coalesce(stream.GetErr(), err)
@@ -233,7 +233,7 @@ func (self *BackupManager) BackupToCurrentSequenceUnrelatedVol(
 
   stream, err := self.Source.GetSnapshotStream(ctx, last_rec_snap, clone_snap)
   if err != nil { return nil, err }
-  chunks, err := self.Store.WriteStream(ctx, /*offset=*/0, stream)
+  chunks, err := self.Content.WriteStream(ctx, /*offset=*/0, stream)
   if err != nil { return nil, err }
   full_snap, err := self.Meta.AppendChunkToSnapshot(ctx, clone_snap, chunks)
   if err != nil { return nil, err }

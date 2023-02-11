@@ -47,7 +47,7 @@ func (self *ChunkIoForTestImpl) SetCodecFp(fp string) {
 func (self *ChunkIoForTestImpl) GetCodecFp() types.PersistableString {
   return self.ParCodec.(*mocks.Codec).CurrentKeyFingerprint()
 }
-func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.Storage, err error) {
+func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.BackupContent, err error) {
   base_storage := storage.(*SimpleDirStorage).BaseStorage
   base_storage.ChunkIo = mocks.AlwaysErrChunkIo(storage, err)
 }
@@ -70,11 +70,11 @@ func buildTestSimpleDirStorageWithChunkLen(
   return buildTestSimpleDirStorage(t, chunk_len, codec)
 }
 
-func GetChunkIoForTest(storage types.Storage) *ChunkIoForTestImpl {
+func GetChunkIoForTest(storage types.BackupContent) *ChunkIoForTestImpl {
   return &ChunkIoForTestImpl{ ChunkIoImpl: storage.(*SimpleDirStorage).ChunkIo.(*ChunkIoImpl) }
 }
 
-func HelperSetupStorage(t *testing.T, chunk_cnt int) {
+func HelperSetupBackupContent(t *testing.T, chunk_cnt int) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,chunkio,clean_f := buildTestSimpleDirStorageWithChunkLen(t, 16)
@@ -85,22 +85,22 @@ func HelperSetupStorage(t *testing.T, chunk_cnt int) {
     chunkio.Set(key, data)
   }
   chunkio.ChunkIndex = make(map[string]bool)
-  err := storage.SetupStorage(ctx)
+  err := storage.SetupBackupContent(ctx)
   if err != nil { t.Errorf("Returned error: %v", err) }
   util.EqualsOrFailTest(t, "Bad loaded state", len(chunkio.ChunkIndex), chunk_cnt)
 }
 
-func TestSetupStorage_Empty(t *testing.T) {
-  HelperSetupStorage(t, 0)
+func TestSetupBackupContent_Empty(t *testing.T) {
+  HelperSetupBackupContent(t, 0)
 }
 
-func TestSetupStorage_Simple(t *testing.T) {
-  HelperSetupStorage(t, 3)
+func TestSetupBackupContent_Simple(t *testing.T) {
+  HelperSetupBackupContent(t, 3)
 }
 
-func TestSetupStorage_Idempotent(t *testing.T) {
-  HelperSetupStorage(t, 3)
-  HelperSetupStorage(t, 3)
+func TestSetupBackupContent_Idempotent(t *testing.T) {
+  HelperSetupBackupContent(t, 3)
+  HelperSetupBackupContent(t, 3)
 }
 
 func TestAllSimpleDirStorage(t *testing.T) {
@@ -108,10 +108,10 @@ func TestAllSimpleDirStorage(t *testing.T) {
     Fixture: &mem_only.Fixture{},
     CleanF: func() {},
   }
-  fixture.StorageCtor = func(t *testing.T, chunk_len uint64) (types.Storage, mem_only.ChunkIoForTest) {
+  fixture.StorageCtor = func(t *testing.T, chunk_len uint64) (types.BackupContent, mem_only.ChunkIoForTest) {
     return fixture.AdminCtor(t, chunk_len)
   }
-  fixture.AdminCtor = func(t *testing.T, chunk_len uint64) (types.AdminStorage, mem_only.ChunkIoForTest) {
+  fixture.AdminCtor = func(t *testing.T, chunk_len uint64) (types.AdminBackupContent, mem_only.ChunkIoForTest) {
     storage, chunkio, clean_f := buildTestSimpleDirStorageWithChunkLen(t, chunk_len)
     fixture.CleanF = clean_f
     return storage, chunkio

@@ -25,7 +25,7 @@ import (
 type s3StoreReadWriteTester struct {
   Conf *pb.Config
   Client *s3.Client
-  Storage types.AdminStorage
+  Storage types.AdminBackupContent
 }
 
 func (self *s3StoreReadWriteTester) getObject(ctx context.Context, key string) ([]byte, error) {
@@ -293,7 +293,7 @@ func TestS3GenericRead_UnknownKey(ctx context.Context, conf *pb.Config, client *
 }
 
 // we do not test with offsets, that should be covered by the unittests
-func TestAllS3StoreReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminStorage) {
+func TestAllS3StoreReadWrite(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminBackupContent) {
   suite := s3StoreReadWriteTester{
     Conf: conf, Client: client, Storage: storage,
   }

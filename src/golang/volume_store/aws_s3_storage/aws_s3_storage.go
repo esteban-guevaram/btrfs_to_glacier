@@ -73,7 +73,7 @@ type s3Storage struct {
   common     *s3_common.S3Common
 }
 
-func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.Storage, error) {
+func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.BackupContent, error) {
   client := s3.NewFromConfig(*aws_conf)
   // Uploading a non-seekable stream, parallelism is useless
   uploader := s3mgr.NewUploader(client,

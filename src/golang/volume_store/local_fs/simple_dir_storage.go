@@ -48,7 +48,7 @@ func NewChunkIoImpl(part *pb.LocalFs_Partition, codec types.Codec) *ChunkIoImpl 
   }
 }
 
-func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string) (types.AdminStorage, error) {
+func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string) (types.AdminBackupContent, error) {
   var part *pb.LocalFs_Partition
   for _,g := range conf.LocalFs.Sinks {
   for _,p := range g.Partitions {
@@ -65,7 +65,7 @@ func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string
   return &SimpleDirStorage{ inner_storage }, nil
 }
 
-func NewSimpleDirStorage(conf *pb.Config, codec types.Codec, fs_uuid string) (types.Storage, error) {
+func NewSimpleDirStorage(conf *pb.Config, codec types.Codec, fs_uuid string) (types.BackupContent, error) {
   return NewSimpleDirStorageAdmin(conf, codec, fs_uuid)
 }
 
@@ -172,7 +172,7 @@ func (self *ChunkIoImpl) ListChunks(
 func (self *SimpleDirStorage) ChunkDir() string { return self.ChunkIo.(*ChunkIoImpl).ChunkDir }
 func (self *SimpleDirStorage) ChunkIndex() map[string]bool { return self.ChunkIo.(*ChunkIoImpl).ChunkIndex }
 
-func (self *SimpleDirStorage) SetupStorage(ctx context.Context) error {
+func (self *SimpleDirStorage) SetupBackupContent(ctx context.Context) error {
   if !util.IsDir(self.ChunkDir()) {
     return fmt.Errorf("'%s' is not a directory", self.ChunkDir())
   }

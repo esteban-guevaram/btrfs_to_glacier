@@ -29,7 +29,7 @@ type s3StorageAdmin struct {
   rule_name_suffix        string
 }
 
-func NewStorageAdmin(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.AdminStorage, error) {
+func NewStorageAdmin(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.AdminBackupContent, error) {
   storage, err := NewStorage(conf, aws_conf, codec)
   if err != nil { return nil, err }
 
@@ -93,7 +93,7 @@ func (self *s3StorageAdmin) createLifecycleRule(
 
 // object standard tier
 // object no tags no metadata (that way we only need a simple kv store)
-func (self *s3StorageAdmin) SetupStorage(ctx context.Context) error {
+func (self *s3StorageAdmin) SetupBackupContent(ctx context.Context) error {
   bucket_name := self.Conf.Aws.S3.StorageBucketName
   exists, err := self.common.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket_name)
   if err != nil { return err }
@@ -109,7 +109,7 @@ func (self *s3StorageAdmin) SetupStorage(ctx context.Context) error {
 // Deleting and creating buckets in quick succession and reading objects on that bucket
 // with a **different client object** may return NoSuchBucket errors.
 // https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel
-func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Client {
+func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.BackupContent) *s3.Client {
   s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl") }
   client,ok := s3_impl.Client.(*s3.Client)
@@ -117,7 +117,7 @@ func TestOnlyGetInnerClientToAvoidConsistencyFails(storage types.Storage) *s3.Cl
   return client
 }
 
-func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
+func TestOnlySwapConf(storage types.BackupContent, conf *pb.Config) func() {
   s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
   old_conf := s3_impl.Conf
@@ -126,7 +126,7 @@ func TestOnlySwapConf(storage types.Storage, conf *pb.Config) func() {
   return func() { common_restore(); s3_impl.Conf = old_conf }
 }
 
-func TestOnlyChangeIterationSize(storage types.Storage, size int32) func() {
+func TestOnlyChangeIterationSize(storage types.BackupContent, size int32) func() {
   s3_impl,ok := storage.(*s3StorageAdmin)
   if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
   chunkio := s3_impl.ChunkIo.(*ChunkIoImpl)

@@ -16,7 +16,7 @@ type RoundRobinMetadata struct {
   Sink        *pb.LocalFs_RoundRobin
   Conf        *pb.Config
   Linuxutil   types.Linuxutil
-  PairStorage types.AdminStorage
+  PairStorage types.AdminBackupContent
 }
 
 // Does not initialize inner SimpleDirMetadata because filesystem may not be mounted yet.
@@ -116,8 +116,8 @@ func (self *RoundRobinMetadata) SetupMetadata(ctx context.Context) error {
 }
 
 // Storage should always be tied to the same metadata partition.
-// Caller should call `SetupStorage` afterwards.
-func (self *RoundRobinMetadata) GetPairStorage(codec types.Codec) (types.AdminStorage, error) {
+// Caller should call `SetupBackupContent` afterwards.
+func (self *RoundRobinMetadata) GetPairStorage(codec types.Codec) (types.AdminBackupContent, error) {
   if self.SimpleDirMetadata == nil { util.Fatalf("Call SetupMetadata first") }
   if self.PairStorage != nil { return self.PairStorage, nil }
   fs_uuid := self.DirInfo.FsUuid

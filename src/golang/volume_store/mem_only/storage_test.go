@@ -24,7 +24,7 @@ func (self *ChunkIoForTestImpl) SetCodecFp(fp string) {
 func (self *ChunkIoForTestImpl) GetCodecFp() types.PersistableString {
   return self.ParCodec.(*mocks.Codec).CurrentKeyFingerprint()
 }
-func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.Storage, err error) {
+func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.BackupContent, err error) {
   base_storage := storage.(*Storage).BaseStorage
   base_storage.ChunkIo = mocks.AlwaysErrChunkIo(storage, err)
 }
@@ -64,19 +64,19 @@ func buildTestStorageRealCodec(t *testing.T, chunk_len uint64) (*Storage, *Chunk
   return buildTestStorage(t, chunk_len, codec)
 }
 
-func TestSetupStorage(t *testing.T) {
+func TestSetupBackupContent(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   storage,_ := buildTestStorageWithChunkLen(t, 16)
-  err := storage.SetupStorage(ctx)
+  err := storage.SetupBackupContent(ctx)
   if err != nil { t.Errorf("Returned error: %v", err) }
 }
 
 func TestAllMemOnlyStorage(t *testing.T) {
-  storage_ctor := func(t *testing.T, chunk_len uint64) (types.Storage, ChunkIoForTest) {
+  storage_ctor := func(t *testing.T, chunk_len uint64) (types.BackupContent, ChunkIoForTest) {
     return buildTestStorageWithChunkLen(t, chunk_len)
   }
-  admin_ctor := func(t *testing.T, chunk_len uint64) (types.AdminStorage, ChunkIoForTest) {
+  admin_ctor := func(t *testing.T, chunk_len uint64) (types.AdminBackupContent, ChunkIoForTest) {
     return buildTestStorageWithChunkLen(t, chunk_len)
   }
   fixture := &Fixture{

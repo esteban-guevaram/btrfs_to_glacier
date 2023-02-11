@@ -22,22 +22,22 @@ var ErrNothingToRestore = errors.New("nothing_to_restore_sequence_empty")
 var ErrEmptySnapshot = errors.New("snapshot_contains_no_chunks")
 var ErrUnavailableChunks = errors.New("could_not_restore_missing_chunks")
 
-// Meta and Store must already been setup
+// Meta and Content must already been setup
 type RestoreManager struct {
   Conf        *pb.Config
   DstConf     *pb.Restore
   Meta        types.Metadata
-  Store       types.Storage
+  Content       types.BackupContent
   Destination types.VolumeDestination
   BetweenRestoreChecks time.Duration
 }
 
 func NewRestoreManager(
-    conf *pb.Config, dst_name string, meta types.Metadata, store types.Storage, vol_dst types.VolumeDestination) (types.RestoreManager, error) {
+    conf *pb.Config, dst_name string, meta types.Metadata, content types.BackupContent, vol_dst types.VolumeDestination) (types.RestoreManager, error) {
   mgr := &RestoreManager{
     Conf: conf,
     Meta: meta,
-    Store: store,
+    Content: content,
     Destination: vol_dst,
     BetweenRestoreChecks: BetweenRestoreChecks,
   }
@@ -115,7 +115,7 @@ func (self *RestoreManager) QueueRestoreChunksForUuids(
     }
     from_vols = append(from_vols, vol)
   }
-  restore_res := self.Store.QueueRestoreObjects(ctx, to_queue)
+  restore_res := self.Content.QueueRestoreObjects(ctx, to_queue)
   return from_vols, restore_res, nil
 }
 
@@ -152,13 +152,13 @@ func (self *RestoreManager) WaitUntilAvailableAndRestoreSingle(
     select {
       case <- ticker.C:
         restore_res = mergeMaps(restore_res,
-                                self.Store.QueueRestoreObjects(ctx, uuid_unavailable))
+                                self.Content.QueueRestoreObjects(ctx, uuid_unavailable))
         util.Debugf("Checking chunks available for %s", from.Uuid)
       case <-ctx.Done(): return nil, ctx.Err()
     }
   }
 
-  read_end, err := self.Store.ReadChunksIntoStream(ctx, from.Data)
+  read_end, err := self.Content.ReadChunksIntoStream(ctx, from.Data)
   if err != nil { return nil, err}
   to, err := self.Destination.ReceiveSendStream(ctx,
                                                 self.DstConf.RootRestorePath,

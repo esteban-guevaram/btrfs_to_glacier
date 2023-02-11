@@ -15,11 +15,11 @@ import (
 type garbageCollector struct {
   conf *pb.Config
   metadata types.AdminMetadata
-  storage types.AdminStorage
+  storage types.AdminBackupContent
 }
 
 func NewGarbageCollector(
-    conf *pb.Config, metadata types.AdminMetadata, storage types.AdminStorage) (types.GarbageCollector, error) {
+    conf *pb.Config, metadata types.AdminMetadata, storage types.AdminBackupContent) (types.GarbageCollector, error) {
   collector := &garbageCollector{
     conf: conf,
     metadata: metadata,

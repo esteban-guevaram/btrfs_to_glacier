@@ -206,7 +206,7 @@ func TestRestoreCurrentSequence_PartialBecauseError(t *testing.T) {
 
   call_count := 0
   err_inject := func(m interface{}) error {
-    if mocks.MethodMatch(m, (types.Storage).ReadChunksIntoStream) {
+    if mocks.MethodMatch(m, (types.BackupContent).ReadChunksIntoStream) {
       call_count += 1
       if call_count > ok_until { return fmt.Errorf("err_inject") }
     }

@@ -32,7 +32,7 @@ func (self *ChunkIoForTestImpl) SetCodecFp(fp string) {
 func (self *ChunkIoForTestImpl) GetCodecFp() types.PersistableString {
   return self.Parent.Codec.(*mocks.Codec).CurrentKeyFingerprint()
 }
-func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.Storage, err error) {
+func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.BackupContent, err error) {
   base_storage := storage.(*s3Storage).BaseStorage
   base_storage.ChunkIo = mocks.AlwaysErrChunkIo(storage, err)
 }
@@ -95,12 +95,12 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3StorageAdmin, *
 }
 
 func TestAllS3Storage(t *testing.T) {
-  admin_ctor := func(t *testing.T, chunk_len uint64) (types.AdminStorage, mem_only.ChunkIoForTest) {
+  admin_ctor := func(t *testing.T, chunk_len uint64) (types.AdminBackupContent, mem_only.ChunkIoForTest) {
     storage,_ := buildTestAdminStorageWithChunkLen(t, chunk_len)
     for_test := &ChunkIoForTestImpl{ ChunkIoImpl: storage.ChunkIo.(*ChunkIoImpl) }
     return storage, for_test
   }
-  storage_ctor := func(t *testing.T, chunk_len uint64) (types.Storage, mem_only.ChunkIoForTest) {
+  storage_ctor := func(t *testing.T, chunk_len uint64) (types.BackupContent, mem_only.ChunkIoForTest) {
     del_storage,_ := buildTestAdminStorageWithChunkLen(t, chunk_len)
     for_test := &ChunkIoForTestImpl{ ChunkIoImpl: del_storage.ChunkIo.(*ChunkIoImpl) }
     return del_storage.s3Storage, for_test

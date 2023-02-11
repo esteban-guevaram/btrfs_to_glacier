@@ -5,7 +5,7 @@ import "errors"
 import pb "btrfs_to_glacier/messages"
 
 var ErrNotFound = errors.New("key_not_found_in_metadata")
-var ErrChunkFound = errors.New("chunk_not_found_in_storage")
+var ErrChunkFound = errors.New("chunk_not_found_in_content")
 
 type RestoreStatus int
 const (
@@ -113,7 +113,7 @@ type AdminMetadata interface {
   ReplaceSnapshotSeqHead(ctx context.Context, head *pb.SnapshotSeqHead) (*pb.SnapshotSeqHead, error)
 }
 
-type Storage interface {
+type BackupContent interface {
   // Reads `read_pipe` and uploads its content in equally sized chunks.
   // If `offset` > 0 then the first part of the stream is dropped and the rest will be uploaded.
   // Data may be filtered by a codec depending on the implementation.
@@ -143,13 +143,13 @@ type Storage interface {
   ListAllChunks(ctx context.Context) (SnapshotChunksIterator, error)
 }
 
-// Separate from `Storage` since it contains dangerous operations that should only be invoked by admins.
-type AdminStorage interface {
-  Storage
+// Separate from `BackupContent` since it contains dangerous operations that should only be invoked by admins.
+type AdminBackupContent interface {
+  BackupContent
 
-  // Creates the infrastructure (depend on implementation) that will contain the storage.
+  // Creates the infrastructure (depend on implementation) that will contain the backup content.
   // Calling this method twice is a noop.
-  SetupStorage(ctx context.Context) error
+  SetupBackupContent(ctx context.Context) error
 
   // Deletes all objects in `chunks`.
   // Objects not found (already deleted?) should be a noop.
@@ -158,7 +158,7 @@ type AdminStorage interface {
 }
 
 type GarbageCollector interface {
-  // Remove from storage all chunks that are not linked to any snapshot in the metadata.
+  // Remove from the backup all chunks that are not linked to any snapshot in the metadata.
   // Returns the list of **potentially** deleted chunks and any error that may have interrupted the cleaning.
   // In dry-run mode, nothing will be deleted.
   CleanUnreachableChunks(context.Context, bool) ([]*pb.SnapshotChunks_Chunk, error)
@@ -172,7 +172,7 @@ type GarbageCollector interface {
   CleanUnreachableMetadata(context.Context, bool) (*DeletedItems, error)
 
   // Cascade removal of all objects reachable from a SnapshotSequence.
-  // Returns the list of **potentially** deleted metadata and storage objects and any error that may have interrupted the cleaning.
+  // Returns the list of **potentially** deleted metadata and content objects and any error that may have interrupted the cleaning.
   // In dry-run mode, nothing will be deleted. If the sequence does not exists this is a noop.
   DeleteSnapshotSequence(context.Context, bool, string) (*DeletedItems, error)
 }
