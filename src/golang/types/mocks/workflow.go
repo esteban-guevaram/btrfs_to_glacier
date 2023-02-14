@@ -19,7 +19,7 @@ type BackupManager struct {
   ErrBase
   SrcVols     map[string]*pb.SubVolume
   PairsByCall [][]types.BackupPair
-  CloneSnaps  []*pb.SubVolume
+  ClonePairs  []types.BackupPair
 }
 
 func NewBackupManager() *BackupManager {
@@ -51,7 +51,16 @@ func (self *BackupManager) SeqForUuid(vol_uuid string) []*pb.SubVolume {
       snap_seq = append(snap_seq, proto.Clone(pair.Snap).(*pb.SubVolume))
     }
   }
-  util.Debugf("SeqForUuid: %s -> %d", vol_uuid, len(snap_seq))
+  //util.Debugf("SeqForUuid: %s -> %d", vol_uuid, len(snap_seq))
+  return snap_seq
+}
+
+func (self *BackupManager) SeqForCloneUuid(vol_uuid string) []*pb.SubVolume {
+  snap_seq := []*pb.SubVolume{}
+  for _,pair := range self.ClonePairs {
+    if pair.Sv.Uuid != vol_uuid { continue }
+    snap_seq = append(snap_seq, proto.Clone(pair.Snap).(*pb.SubVolume))
+  }
   return snap_seq
 }
 
@@ -93,19 +102,26 @@ func (self *BackupManager) BackupAllToNewSequences(
 
 func (self *BackupManager) BackupToCurrentSequenceUnrelatedVol(
     ctx context.Context, sv *pb.SubVolume, dst_uuid string) (*pb.SubVolume, error) {
-  sv, err := self.OrigForUuid(dst_uuid)
-  if err != nil { return nil, err }
-  if sv.Uuid == dst_uuid { return nil, fmt.Errorf("expected a clone") }
+  if sv.Uuid == dst_uuid { return nil, fmt.Errorf("expected a clone: %+v", sv) }
+  if _, err := self.OrigForUuid(dst_uuid); err != nil { return nil, err }
   snap := util.DummySnapshot(uuid.NewString(), dst_uuid)
-  self.CloneSnaps = append(self.CloneSnaps, proto.Clone(snap).(*pb.SubVolume))
+  self.ClonePairs = append(self.ClonePairs, types.BackupPair{
+                           Sv:proto.Clone(sv).(*pb.SubVolume),
+                           Snap:proto.Clone(snap).(*pb.SubVolume),})
   return snap, self.ErrInject(self.BackupToCurrentSequenceUnrelatedVol)
 }
 
 type PopulateRestoreF = func(orig *pb.SubVolume, pairs []types.RestorePair) error
 type RestoreManager struct {
+  ErrBase
   RestoreRoot      string
   BackupMgr        *BackupManager
   PopulateRestore  PopulateRestoreF
+  RestoreCallVols  []string        // add vol_uuid for each call to RestoreCurrentSequence
+  RestoredSnaps    []*pb.SubVolume // all volumes restored so far
+}
+type RestoreCounts struct {
+  RestoreCallVols, RestoredSnaps int
 }
 
 func DelDir(sv *pb.SubVolume) string {
@@ -162,7 +178,7 @@ func NewRestoreManager(bck *BackupManager) *RestoreManager {
 }
 
 func (self *RestoreManager) InitFromConfRestore(dst *pb.Restore) {
-  util.Debugf("RestoreRoot: '%s'", dst.RootRestorePath)
+  //util.Debugf("RestoreRoot: '%s'", dst.RootRestorePath)
   self.RestoreRoot = dst.RootRestorePath
 }
 
@@ -180,11 +196,12 @@ func (self *RestoreManager) ReadHeadAndSequenceMap(
     head := util.DummySnapshotSeqHead(seq)
     heads[head.Uuid] = types.HeadAndSequence{ Head:head, Cur:seq, }
   }
-  return heads, nil
+  return heads, self.ErrInject(self.ReadHeadAndSequenceMap)
 }
 
 func (self *RestoreManager) RestoreCurrentSequence(
     ctx context.Context, vol_uuid string) ([]types.RestorePair, error) {
+  self.RestoreCallVols = append(self.RestoreCallVols, vol_uuid)
   seq := self.BackupMgr.SeqForUuid(vol_uuid)
   orig, err := self.BackupMgr.OrigForUuid(vol_uuid)
   if err != nil { return nil, err }
@@ -199,6 +216,7 @@ func (self *RestoreManager) RestoreCurrentSequence(
 
     pair := types.RestorePair{ Src:src, Dst:dst, }
     pairs = append(pairs, pair)
+    self.RestoredSnaps = append(self.RestoredSnaps, proto.Clone(dst).(*pb.SubVolume))
     last_uuid = dst.Uuid
 
     if err := os.Mkdir(dst.MountedPath, fs.ModePerm); err != nil { return nil, err }
@@ -207,6 +225,16 @@ func (self *RestoreManager) RestoreCurrentSequence(
     }
     //util.PbDebugf("RestoreCurrentSequence:\n%s\n%s", pair.Src, pair.Dst)
   }
-  return pairs, nil
+  return pairs, self.ErrInject(self.RestoreCurrentSequence)
+}
+
+func (self *RestoreManager) ObjCounts() RestoreCounts {
+  return RestoreCounts{ RestoreCallVols:len(self.RestoreCallVols),
+                        RestoredSnaps:len(self.RestoredSnaps), }
+}
+func (self RestoreCounts) Increment(calls int, rest_snaps int) RestoreCounts {
+  self.RestoreCallVols += calls
+  self.RestoredSnaps += rest_snaps
+  return self
 }
 

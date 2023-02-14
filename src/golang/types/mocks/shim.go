@@ -14,6 +14,7 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/google/uuid"
+  "google.golang.org/protobuf/proto"
 )
 
 type Linuxutil struct {
@@ -103,14 +104,15 @@ func (self *Linuxutil) CreateBtrfsFilesystem(
   self.Filesystems = append(self.Filesystems, fs)
   return fs, self.ErrInject(self.CreateBtrfsFilesystem)
 }
+func (self *Linuxutil) CleanMountDirs() {
+  for _,m := range self.Mounts { util.RemoveAll(m.MountedPath) }
+  for _,m := range self.UMounts { util.RemoveAll(m.MountedPath) }
+}
+
 func (self *Linuxutil) ObjCounts() LinuxCounts {
   return LinuxCounts{ Filesystems:len(self.Filesystems),
                       Mounts:len(self.Mounts),
                       Devs:len(self.Devs), }
-}
-func (self *Linuxutil) CleanMountDirs() {
-  for _,m := range self.Mounts { util.RemoveAll(m.MountedPath) }
-  for _,m := range self.UMounts { util.RemoveAll(m.MountedPath) }
 }
 func (self LinuxCounts) Increment(
     filesystems int, mounts int, devs int) LinuxCounts {
@@ -129,7 +131,12 @@ type Btrfsutil struct {
   Snaps      []*pb.SubVolume
   DumpOps    *types.SendDumpOperations
   SendStream types.Pipe
+  SubvolCreateCallback func(*pb.SubVolume) error
 }
+type BtrfsCounts struct {
+  Subvols, Snaps int
+}
+
 func (self *Btrfsutil) GetSubVolumeTreePath(subvol *pb.SubVolume) (string, error) {
   if !fpmod.IsAbs(subvol.MountedPath) { return "", fmt.Errorf("GetSubvolumeTreePath bad args") }
   return fpmod.Base(subvol.MountedPath), self.Err
@@ -168,16 +175,20 @@ func (self *Btrfsutil) IsSubVolumeMountPath(path string) error {
 func (self *Btrfsutil) SubVolumeInfo(path string) (*pb.SubVolume, error) {
   if !fpmod.IsAbs(path) { return nil, fmt.Errorf("SubvolumeInfo bad args") }
   for _,sv := range self.Subvols {
-    if path == sv.MountedPath { return sv, self.Err }
+    if path == sv.MountedPath { return proto.Clone(sv).(*pb.SubVolume), self.Err }
   }
   for _,snap := range self.Snaps {
-    if path == snap.MountedPath { return snap, self.Err }
+    if path == snap.MountedPath { return proto.Clone(snap).(*pb.SubVolume), self.Err }
   }
   return nil, fmt.Errorf("SubvolumeInfo nothing found for '%s'", path)
 }
 func (self *Btrfsutil) ListSubVolumesInFs(path string, is_root_fs bool) ([]*pb.SubVolume, error) {
   if !fpmod.IsAbs(path) { return nil, fmt.Errorf("ListSubVolumesInFs bad args") }
-  return append(self.Subvols, self.Snaps...), self.Err
+  list := append(self.Subvols, self.Snaps...)
+  for i,sv := range list {
+    list[i] = proto.Clone(sv).(*pb.SubVolume)
+  }
+  return list, self.Err
 }
 func (self *Btrfsutil) ReadAndProcessSendStream(dump types.ReadEndIf) (*types.SendDumpOperations, error) {
   return self.DumpOps, util.Coalesce(self.DumpErr, dump.GetErr())
@@ -188,13 +199,16 @@ func (self *Btrfsutil) StartSendStream(
   return self.SendStream.ReadEnd(), self.Err
 }
 func (self *Btrfsutil) CreateSubvolume(sv_path string) error {
-  if self.CreateDirs {
-    util.Debugf("mock.Btrfsutil.CreateSubvolume: %s", sv_path)
-    if err := os.Mkdir(sv_path, fs.ModePerm); err != nil { return err }
-  }
   sv := util.DummySubVolume(uuid.NewString())
   sv.MountedPath = sv_path
+  if self.CreateDirs {
+    if err := os.Mkdir(sv_path, fs.ModePerm); err != nil { return err }
+    if self.SubvolCreateCallback != nil {
+      if err := self.SubvolCreateCallback(sv); err != nil { return err }
+    }
+  }
   self.Subvols = append(self.Subvols, sv)
+  //util.Debugf("mock.Btrfsutil.CreateSubvolume: %s", sv_path)
   return self.Err
 }
 func (self *Btrfsutil) CreateClone(sv_path string, clone_path string) error {
@@ -202,12 +216,13 @@ func (self *Btrfsutil) CreateClone(sv_path string, clone_path string) error {
 }
 func (self *Btrfsutil) CreateSnapshot(subvol string, snap string) error {
   if !fpmod.IsAbs(subvol) || !fpmod.IsAbs(snap) { return fmt.Errorf("CreateSnapshot bad args") }
-  if self.CreateDirs {
-    util.Debugf("mock.Btrfsutil.CreateSnapshot: %s", snap)
-    if err := os.Mkdir(snap, fs.ModePerm); err != nil { return err }
-  }
   sv := util.DummySnapshot(uuid.NewString(), subvol)
   sv.MountedPath = snap
+  if self.CreateDirs {
+    //util.Debugf("mock.Btrfsutil.CreateSnapshot: %s", snap)
+    if err := os.Mkdir(snap, fs.ModePerm); err != nil { return err }
+    if self.SubvolCreateCallback != nil { return self.SubvolCreateCallback(sv) }
+  }
   self.Snaps = append(self.Snaps, sv)
   return self.Err
 }
@@ -238,5 +253,15 @@ func (self *Btrfsutil) ReceiveSendStream(
 // Includes subvolumes and snapshots
 func (self *Btrfsutil) VolCount() int {
   return len(self.Subvols) + len(self.Snaps)
+}
+
+func (self *Btrfsutil) ObjCounts() BtrfsCounts {
+  return BtrfsCounts{ Subvols:len(self.Subvols),
+                      Snaps:len(self.Snaps), }
+}
+func (self BtrfsCounts) Increment(subvols int, snaps int) BtrfsCounts {
+  self.Subvols += subvols
+  self.Snaps += snaps
+  return self
 }
 

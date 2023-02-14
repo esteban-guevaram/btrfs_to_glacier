@@ -83,6 +83,7 @@ type Btrfsutil interface {
   // Get the `struct btrfs_util_subvolume_info` for a btrfs subvolume.
   // If `path` does not point to a snapshot the corresponding fields will be empty.
   // @path must be the root of the subvolume.
+  // if @path does not point to a btrfs subvolume and error will be returned.
   SubVolumeInfo(path string) (*pb.SubVolume, error)
   // Returns the btrfs filesystem ID for the subvolume that owns `path`.
   // Works for any path under the volume.

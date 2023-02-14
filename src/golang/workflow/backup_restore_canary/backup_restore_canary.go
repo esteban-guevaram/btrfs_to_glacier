@@ -25,6 +25,9 @@ const (
 var ErrCannotCallTwice = errors.New("validate_cannot_be_called_twice")
 var ErrMustRestoreBefore = errors.New("before_add_snap_need_restore")
 var ErrCannotCallOnEmptyChain = errors.New("cannot_call_this_method_on_empty_restore_chain")
+var ErrValidateUuidFile = errors.New("validate_error_uuid_file")
+var ErrValidateNewDir = errors.New("validate_error_new_dir")
+var ErrValidateDelDir = errors.New("validate_error_del_dir")
 
 // Used to lazy initialize specific object to the fake configs created for the fake filesystem loop device.
 type MgrFactoryIf interface {
@@ -88,17 +91,17 @@ func (self *BackupRestoreCanary) Setup(ctx context.Context) error {
     Fs: &types.Filesystem{ Devices: []*types.Device{dev,}, },
   }
 
-  label := uuid.NewString()
-  fs, err := self.Lnxutil.CreateBtrfsFilesystem(ctx, dev, label, "--mixed")
+  fs, err := self.Lnxutil.CreateBtrfsFilesystem(ctx, dev, uuid.NewString(), "--mixed")
   if err != nil { return err }
   self.State.Fs = fs
 
-  target_mnt, err := os.MkdirTemp("", label)
+  target_mnt, err := os.MkdirTemp("", "canary-root-fs-mount-")
   if err != nil { return err }
   mnt, err := self.Lnxutil.Mount(ctx, fs.Uuid, target_mnt)
   if err != nil { return err }
 
-  util.Infof("Mounted %s root subvol %d", fs.Uuid, mnt.BtrfsVolId)
+  //util.Debugf("Mounted filesystem '%s' root subvol (id:%d) in '%s'",
+  //            fs.Uuid, mnt.BtrfsVolId, target_mnt)
   fs.Mounts = append(fs.Mounts, mnt)
 
   err = self.PrepareState(ctx)
@@ -245,28 +248,35 @@ func (self *BackupRestoreCanary) TearDown(ctx context.Context) error {
 // comm -3 <(find restore_dir2/asubvol.snap.3 -printf "./%P\n") <(find clones/asubvol.clone.2 -printf "./%P\n")
 // # both subvolumes contain the same files
 func (self *BackupRestoreCanary) AppendSnapshotToValidationChain(
-    ctx context.Context) (*pb.SubVolume, error) {
-  if self.State.TopSrcRestoredSnap == nil { return nil, ErrMustRestoreBefore }
+    ctx context.Context) (types.BackupPair, error) {
+  result := types.BackupPair{}
+  if self.State.TopSrcRestoredSnap == nil { return result, ErrMustRestoreBefore }
   if self.State.New {
     err := self.AppendDataToSubVolume()
-    if err != nil { return nil, err }
+    if err != nil { return result, err }
     bkp_pair, err := self.State.BackupMgr.BackupAllToCurrentSequences(ctx)
-    if err != nil { return nil, err }
-    if len(bkp_pair) != 1 { return nil, fmt.Errorf("canary should use just 1 subvolume") }
-    return bkp_pair[0].Snap, err
+    if err != nil { return result, err }
+    if len(bkp_pair) != 1 {
+      return bkp_pair[0], fmt.Errorf("canary should use just 1 subvolume")
+    }
+    return bkp_pair[0], err
   }
 
-  err := self.Btrfs.CreateClone(self.State.TopSrcRestoredSnap.MountedPath, self.State.VolRoot)
-  if err != nil { return nil, err }
+  // Create the clone only once in case of multiple appends
+  clone, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
+  if err != nil {
+    err := self.Btrfs.CreateClone(self.State.TopSrcRestoredSnap.MountedPath, self.State.VolRoot)
+    if err != nil { return result, err }
+    result.Sv, err = self.Btrfs.SubVolumeInfo(self.State.VolRoot)
+    if err != nil { return result, err }
+  }
+  /*else*/ if err == nil { result.Sv = clone }
 
   err = self.AppendDataToSubVolume()
-  if err != nil { return nil, err }
+  if err != nil { return result, err }
 
-  src, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
-  if err != nil { return nil, err }
-  // if self.State.New then `src` and self.State.Uuid do share the same parent
-  snap, err := self.State.BackupMgr.BackupToCurrentSequenceUnrelatedVol(ctx, src, self.State.Uuid)
-  return snap, err
+  result.Snap, err = self.State.BackupMgr.BackupToCurrentSequenceUnrelatedVol(ctx, result.Sv, self.State.Uuid)
+  return result, err
 }
 
 func ReadFileIntoString(dir string, file string) (string, error) {
@@ -280,9 +290,9 @@ func ReadFileIntoString(dir string, file string) (string, error) {
 // and should contain the file and directories listed in `SetupPathsInNewFs`.
 func (self *BackupRestoreCanary) AppendDataToSubVolume() error {
   top_snap := self.State.TopSrcRestoredSnap
-  f, err := os.OpenFile(self.UuidFile(), os.O_APPEND, 0666)
+  f, err := os.OpenFile(self.UuidFile(), os.O_WRONLY|os.O_APPEND, 0666)
   if err != nil { return err }
-  _, err_w1 := f.WriteString(fmt.Sprintf("%s\n", top_snap.Uuid))
+  _, err_w1 := f.WriteString(fmt.Sprintln(top_snap.Uuid))
   err_cl := f.Close()
   if err = util.Coalesce(err_w1, err_cl); err != nil { return err }
 
@@ -312,15 +322,21 @@ func (self *BackupRestoreCanary) AppendDataToSubVolume() error {
 func (self *BackupRestoreCanary) ValidateEmptyChain() error {
   content, err := os.ReadFile(self.RestoredUuidFile())
   if err != nil { return err }
-  if len(content) > 0 { return fmt.Errorf("%s should be empty", self.RestoredUuidFile()) }
+  if len(content) > 0 {
+    return fmt.Errorf("%w: %s should be empty", ErrValidateUuidFile, self.RestoredUuidFile())
+  }
 
   entries, err := os.ReadDir(self.RestoredDelDir())
   if err != nil { return err }
-  if len(entries) > 0 { return fmt.Errorf("%s should be empty", self.RestoredDelDir()) }
+  if len(entries) > 0 {
+    return fmt.Errorf("%w: %s should be empty", ErrValidateDelDir, self.RestoredDelDir())
+  }
 
   entries, err = os.ReadDir(self.RestoredNewDir())
   if err != nil { return err }
-  if len(entries) > 0 { return fmt.Errorf("%s should be empty", self.RestoredNewDir()) }
+  if len(entries) > 0 {
+    return fmt.Errorf("%w: %s should be empty", ErrValidateNewDir, self.RestoredNewDir())
+  }
   return nil
 }
 
@@ -333,12 +349,13 @@ func (self *BackupRestoreCanary) ValidateUuidFile() error {
   if err != nil { return err }
 
   if len(lines) != len_snaps_in_top {
-    return fmt.Errorf("Volume does not contain a list of all of its ancestors: %d / %d",
-                      len(lines), len_snaps_in_top)
+    return fmt.Errorf("%w: Volume does not contain a list of all of its ancestors: %d / %d",
+                      ErrValidateUuidFile, len(lines), len_snaps_in_top)
   }
   for i,l := range lines {
     if l != self.State.RestoredSrcSnaps[i].Uuid {
-      return fmt.Errorf("Snapshot history mismatch: %s / %s", l, self.State.RestoredSrcSnaps[i].Uuid)
+      return fmt.Errorf("%w: Snapshot history mismatch: %s / %s",
+                        ErrValidateUuidFile, l, self.State.RestoredSrcSnaps[i].Uuid)
     }
   }
   return nil
@@ -350,13 +367,14 @@ func (self *BackupRestoreCanary) ValidateDelDir() error {
   entries, err := os.ReadDir(self.RestoredDelDir())
   if err != nil { return err }
   if len(entries) != 1 {
-    return fmt.Errorf("DelDir should contain only 1 file, got: %d", len(entries))
+    return fmt.Errorf("%w: should contain only 1 file, got: %d",
+                      ErrValidateDelDir, len(entries))
   }
 
   expect_delname := self.State.TopSrcRestoredSnap.Uuid
   if expect_delname != entries[0].Name() {
-    return fmt.Errorf("DelDir should contain a file named after State.RestoredSrcSnaps[-1]: '%s'",
-                      entries[0].Name())
+    return fmt.Errorf("%w: should contain a file named after State.RestoredSrcSnaps[-1]: '%s'",
+                      ErrValidateDelDir, entries[0].Name())
   }
 
   got_hash, err := ReadFileIntoString(self.RestoredDelDir(), entries[0].Name())
@@ -368,7 +386,7 @@ func (self *BackupRestoreCanary) ValidateDelDir() error {
     prev_hash = expect_hash
   }
   if strings.Compare(got_hash, expect_hash) != 0 {
-    return fmt.Errorf("DelDir file, bad content: %x != %x", got_hash, expect_hash)
+    return fmt.Errorf("%w: file, bad content: %x != %x", ErrValidateDelDir, got_hash, expect_hash)
   }
   return nil
 }
@@ -383,16 +401,20 @@ func (self *BackupRestoreCanary) ValidateNewDir() error {
   entries, err := os.ReadDir(self.RestoredNewDir())
   if err != nil { return err }
   if len(entries) != len_snaps_in_top {
-    return fmt.Errorf("NewDir should contain 1 file per snapshot in history: %d / %d",
-                      len(entries), len_snaps_in_top)
+    return fmt.Errorf("%w: should contain 1 file per snapshot in history: %d / %d",
+                      ErrValidateNewDir, len(entries), len_snaps_in_top)
   }
   for _,entry := range entries {
-    if entry.IsDir() { return fmt.Errorf("NewDir should not contain directories, got: %s", entry.Name()) }
+    if entry.IsDir() {
+      return fmt.Errorf("%w: should not contain directories, got: %s",
+                        ErrValidateNewDir, entry.Name())
+    }
     got_hash, err := ReadFileIntoString(self.RestoredNewDir(), entry.Name())
     if err != nil { return err }
     expect_hash := sv_to_hash[entry.Name()]
     if strings.Compare(got_hash, expect_hash) != 0 {
-      return fmt.Errorf("NewDir file, bad content: %x != %x", got_hash, expect_hash)
+      return fmt.Errorf("%w: file, bad content: %x != %x",
+                        ErrValidateNewDir, got_hash, expect_hash)
     }
   }
   return nil
@@ -410,18 +432,19 @@ func (self *BackupRestoreCanary) ValidateNewDir() error {
 //
 // `State.RestoredSrcSnaps` = [ snap(1) ... snap(n-1) ]
 // `State.TopSrcRestoredSnap` = snap(n)
-func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) error {
+func (self *BackupRestoreCanary) RestoreChainAndValidate(
+    ctx context.Context) ([]types.RestorePair, error) {
   pairs, err := self.State.RestoreMgr.RestoreCurrentSequence(ctx, self.State.Uuid)
-  if err != nil { return err }
+  if err != nil { return nil, err }
   if self.State.New {
     if len(pairs) != 1 { util.Fatalf("expected only the initial snapshot, got: %v", pairs) }
     self.State.RestoredSrcSnaps = nil
     self.State.TopSrcRestoredSnap = pairs[0].Src
     self.State.TopDstRestoredPath = pairs[0].Dst.MountedPath
-    return self.ValidateEmptyChain()
+    return pairs, self.ValidateEmptyChain()
   }
-  if len(pairs) < 2 { util.Fatalf("assert len(pairs) < 2") }
-  if self.State.TopSrcRestoredSnap != nil { return ErrCannotCallTwice }
+  if len(pairs) < 2 { util.Fatalf("An existing chain should contain at least 2 snaps") }
+  if self.State.TopSrcRestoredSnap != nil { return pairs, ErrCannotCallTwice }
 
   self.State.RestoredSrcSnaps = make([]*pb.SubVolume, 0, len(pairs))
   for i,pair := range pairs {
@@ -437,6 +460,6 @@ func (self *BackupRestoreCanary) RestoreChainAndValidate(ctx context.Context) er
 
   util.Infof("Validated chain of %d items for vol '%s'",
              len(self.State.RestoredSrcSnaps), self.State.Uuid)
-  return util.Coalesce(err_uuid, err_newf, err_deld)
+  return pairs, util.Coalesce(err_uuid, err_newf, err_deld)
 }
 

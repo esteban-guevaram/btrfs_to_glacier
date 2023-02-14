@@ -38,12 +38,13 @@ type BackupRestoreCanary interface {
   // Restores the whole snapshot sequence into the canary filesystem.
   // Validates the most recent snapshot according to its predecessors.
   // Calling this method twice is an error since validation will not see the whole history.
-  RestoreChainAndValidate(ctx context.Context) error
+  // Returns the restored pairs from storage that were validated.
+  RestoreChainAndValidate(ctx context.Context) ([]RestorePair, error)
   // Modifies the restored subvolume (by making a clone) and adds another snapshot to the sequence.
   // Backups the new snapshot into the current sequence.
   // Must be called after the sequence has been restored. Can be called several times, adds a new snapshot each time.
-  // Returns the snapshot that was backed up.
-  AppendSnapshotToValidationChain(ctx context.Context) (*pb.SubVolume, error)
+  // Returns the snapshot that was backed up and its corresponding entry in metadata.
+  AppendSnapshotToValidationChain(ctx context.Context) (BackupPair, error)
 }
 
 // Handles volume backup from a particular source.

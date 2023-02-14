@@ -217,6 +217,10 @@ func StartCmdWithPipedInput(ctx context.Context, input types.ReadEndIf, args []s
   return input.GetErr()
 }
 
+func StartCmdAndWait(ctx context.Context, args []string) error {
+  return StartCmdWithPipedInput(ctx, ReadEndFromBytes(nil), args)
+}
+
 func StartCmdWithPipedOutput(ctx context.Context, args []string) (types.ReadEndIf, error) {
   var err error
   pipe := NewFileBasedPipe(ctx)
@@ -379,6 +383,22 @@ func RemoveAll(path string) error {
     return fmt.Errorf("HasPrefix('%s', '%s')", path, tmpdir)
   }
   return os.RemoveAll(path)
+}
+
+// We have to call the shell, golang does not have an API for `cp -r`
+func RecursiveCopy(ctx context.Context, dst string, srcs []string) error {
+  tmpdir := os.TempDir()
+  var cmd_paths []string
+  cmd_paths = append(cmd_paths, srcs...)
+  cmd_paths = append(cmd_paths, dst)
+  for _,p := range cmd_paths {
+    if !fpmod.HasPrefix(p, tmpdir) {
+      return fmt.Errorf("!HasPrefix('%s', '%s')", p, tmpdir)
+    }
+  }
+  cmd := []string{ "cp", "--one-file-system", "--recursive", "--no-dereference", "--no-clobber" }
+  cmd = append(cmd, cmd_paths...)
+  return StartCmdAndWait(ctx, cmd)
 }
 
 func HashFromSv(sv *pb.SubVolume, chain string) string {

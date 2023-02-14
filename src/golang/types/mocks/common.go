@@ -46,10 +46,14 @@ func (self *ErrBase) ForAllErrMsg(msg string) {
   self.ErrInjectFunc = func(interface{}) error { return fmt.Errorf(msg) }
 }
 
-func (self *ErrBase) ForMethodErrMsg(method interface{}, msg string) {
+func (self *ErrBase) ForMethodErr(method interface{}, err error) {
   self.ErrInjectFunc = func(called interface{}) error {
     if !MethodMatch(method, called) { return nil }
-    return fmt.Errorf(msg)
+    return err
   }
+}
+
+func (self *ErrBase) ForMethodErrMsg(method interface{}, msg string) {
+  self.ForMethodErr(method, fmt.Errorf(msg))
 }
 
