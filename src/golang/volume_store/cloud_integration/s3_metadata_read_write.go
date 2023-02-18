@@ -23,11 +23,11 @@ type s3MetaReadWriteTester struct {
 
 func (self *s3MetaReadWriteTester) PutPersistedStateGetVersions(
     ctx context.Context, state *pb.AllMetadata, del_prev bool) []string {
-  bucket := self.Conf.Aws.S3.MetadataBucketName
+  bucket := Backup(self.Conf).Aws.S3.MetadataBucketName
   meta.TestOnlySetInnerState(self.Metadata, proto.Clone(state).(*pb.AllMetadata))
 
   if del_prev {
-    EmptyBucketOrDie(ctx, self.Client, self.Conf.Aws.S3.MetadataBucketName)
+    EmptyBucketOrDie(ctx, self.Client, bucket)
     PutProtoOrDie(ctx, self.Client, bucket, meta.MetadataKey, state)
     return nil
   }
@@ -38,7 +38,7 @@ func (self *s3MetaReadWriteTester) PutPersistedStateGetVersions(
 }
 
 func (self *s3MetaReadWriteTester) GetPersistedStateAndVersions(ctx context.Context) (*pb.AllMetadata, []string) {
-  bucket := self.Conf.Aws.S3.MetadataBucketName
+  bucket := Backup(self.Conf).Aws.S3.MetadataBucketName
   state := &pb.AllMetadata{}
   GetProtoOrDie(ctx, self.Client, bucket, meta.MetadataKey, state)
   //time.Sleep(3*time.Second)
@@ -47,7 +47,7 @@ func (self *s3MetaReadWriteTester) GetPersistedStateAndVersions(ctx context.Cont
 }
 
 func (self *s3MetaReadWriteTester) TestPersistCurrentMetadataState_New(ctx context.Context) {
-  EmptyBucketOrDie(ctx, self.Client, self.Conf.Aws.S3.MetadataBucketName)
+  EmptyBucketOrDie(ctx, self.Client, Backup(self.Conf).Aws.S3.MetadataBucketName)
   meta.TestOnlySetInnerState(self.Metadata, &pb.AllMetadata{})
   new_seq := util.DummySnapshotSequence(uuid.NewString(), uuid.NewString())
 
@@ -79,9 +79,7 @@ func (self *s3MetaReadWriteTester) TestPersistCurrentMetadataState_Add(ctx conte
 }
 
 func TestAllS3Metadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
-  new_conf := proto.Clone(conf).(*pb.Config)
-
-  metadata, err := meta.NewMetadataAdmin(ctx, new_conf, aws_conf)
+  metadata, err := meta.NewMetadataAdmin(ctx, conf, aws_conf, Backup(conf).Name)
   if err != nil { util.Fatalf("%v", err) }
   client := meta.TestOnlyGetInnerClientToAvoidConsistencyFails(metadata)
 
@@ -92,6 +90,6 @@ func TestAllS3Metadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Confi
   suite.TestS3MetadataSetup(ctx)
   suite.TestPersistCurrentMetadataState_New(ctx)
   suite.TestPersistCurrentMetadataState_Add(ctx)
-  DeleteBucketOrDie(ctx, client, new_conf.Aws.S3.MetadataBucketName)
+  DeleteBucketOrDie(ctx, client, Backup(conf).Aws.S3.MetadataBucketName)
 }
 

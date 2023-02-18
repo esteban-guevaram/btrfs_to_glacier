@@ -31,19 +31,27 @@ type UsedS3If interface {
 type S3Common struct {
   Conf        *pb.Config
   Aws_conf    *aws.Config
+  BackupConf  *pb.Backup_S3
   Client      UsedS3If
   BucketWait  time.Duration
   AccountId   string
 }
 
-func NewS3Common(conf *pb.Config, aws_conf *aws.Config, client UsedS3If) (*S3Common, error) {
-  return &S3Common{
+func NewS3Common(
+    conf *pb.Config, aws_conf *aws.Config, backup_name string, client UsedS3If) (*S3Common, error) {
+  common := &S3Common{
     Conf: conf,
     Aws_conf: aws_conf,
     Client: client,
     BucketWait: bucket_wait_secs * time.Second,
     AccountId: "", // lazy fetch
-  }, nil
+  }
+  if aws,err := util.BackupAwsByName(conf, backup_name); err == nil {
+    common.BackupConf = aws.S3
+  } else {
+    return nil, err
+  }
+  return common, nil
 }
 
 func StrToApiErr(code string) smithy.APIError {

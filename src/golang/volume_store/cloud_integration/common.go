@@ -3,10 +3,12 @@ package main
 import (
   "bytes"
   "context"
+  "flag"
   "fmt"
   "io"
   "time"
 
+  pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
 
   "github.com/aws/aws-sdk-go-v2/aws"
@@ -15,6 +17,49 @@ import (
 
   "google.golang.org/protobuf/proto"
 )
+
+var access_flag string
+var secret_flag string
+var session_flag string
+var region_flag string
+var table_flag string
+var store_bucket_flag string
+var meta_bucket_flag string
+
+func init() {
+  flag.StringVar(&access_flag,       "access",       "", "Access Key ID")
+  flag.StringVar(&secret_flag,       "secret",       "", "Secret access key")
+  flag.StringVar(&session_flag,      "session",      "", "Session token for temporal credentials")
+  flag.StringVar(&region_flag,       "region",       "", "Default AWS region")
+  flag.StringVar(&table_flag,        "table",        "", "Dynamodb table name")
+  flag.StringVar(&store_bucket_flag, "store_bucket", "", "S3 storage bucket name")
+  flag.StringVar(&meta_bucket_flag,  "meta_bucket",  "", "S3 metadata bucket name")
+}
+
+func overwriteWithFlags(conf *pb.Config, backup *pb.Backup_Aws) {
+  flag.Parse()
+  if access_flag       != "" { conf.Aws.AccessKeyId = access_flag }
+  if secret_flag       != "" { conf.Aws.SecretAccessKey = secret_flag }
+  if session_flag      != "" { conf.Aws.SessionToken = session_flag }
+  if region_flag       != "" { conf.Aws.Region = region_flag }
+  if table_flag        != "" { backup.DynamoDb.MetadataTableName = table_flag }
+  if store_bucket_flag != "" { backup.S3.StorageBucketName = store_bucket_flag }
+  if meta_bucket_flag  != "" { backup.S3.MetadataBucketName = meta_bucket_flag }
+}
+
+func Backup(conf *pb.Config) *pb.Backup {
+  return conf.Backups[0]
+}
+
+func LoadAwsTestConfWithFlagOverwrites() *pb.Config {
+  conf := util.LoadTestConf()
+  overwriteWithFlags(conf, Backup(conf).Aws)
+  return conf
+}
+
+func DynTableName(conf *pb.Config) string {
+  return Backup(conf).Aws.DynamoDb.MetadataTableName
+}
 
 func timedUuid(base_uuid string) string {
   return fmt.Sprintf("%s-%d", base_uuid, time.Now().UnixNano())

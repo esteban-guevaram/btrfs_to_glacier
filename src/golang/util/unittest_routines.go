@@ -1,14 +1,17 @@
 package util
 
-import "context"
-import "encoding/base64"
-import "encoding/json"
-import "fmt"
-import "math/rand"
-import "strings"
-import "testing"
-import "time"
-import "btrfs_to_glacier/types"
+import (
+  "context"
+  "encoding/base64"
+  "encoding/json"
+  "fmt"
+  "math/rand"
+  "strings"
+  "testing"
+  "time"
+
+  "btrfs_to_glacier/types"
+)
 
 func AsJson(val interface{}) string {
   switch s := val.(type) { case string: return s }

@@ -22,7 +22,7 @@ func buildTestAdminsetup(t *testing.T) (*S3Common, *MockS3Client) {
   }
   aws_conf, err := util.NewAwsConfig(context.TODO(), conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
-  common, err := NewS3Common(conf, aws_conf, client)
+  common, err := NewS3Common(conf, aws_conf, conf.Backups[0].Name, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }
   common.BucketWait = util.TestTimeout
   common.AccountId = client.AccountId
@@ -58,7 +58,7 @@ func TestCheckBucketExistsAndIsOwnedByMyAccount_NoBucket(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   setup,_ := buildTestAdminsetup(t)
-  bucket := setup.Conf.Aws.S3.StorageBucketName
+  bucket := setup.BackupConf.StorageBucketName
   exists, err := setup.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket)
   if err != nil { t.Fatalf("Failed to check for existing bucket: %v", err) }
   if exists { t.Fatalf("there should have been no bucket") }
@@ -79,7 +79,7 @@ func TestCheckBucketExistsAndIsOwnedByMyAccount_Exists(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   setup,client := buildTestAdminsetup(t)
-  bucket := setup.Conf.Aws.S3.MetadataBucketName
+  bucket := setup.BackupConf.MetadataBucketName
   client.Buckets[bucket] = true
   exists, err := setup.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket)
   if err != nil { t.Fatalf("Failed to check for existing bucket: %v", err) }

@@ -67,7 +67,7 @@ type BackupManager interface {
   BackupAllToNewSequences(ctx context.Context) ([]BackupPair, error)
 }
 
-// Who is responsible for this ?
+// TODO Who is responsible for this ?
 // After a successful backup, old volumes will be removed from the source according to the config.
 
 type BackupManagerAdmin interface {

@@ -2,14 +2,18 @@ package util
 
 import (
   "fmt"
-  "math/rand"
   "hash/adler32"
+  "io/fs"
+  "math/rand"
+  fpmod "path/filepath"
+  "os"
   "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
 
   "github.com/google/uuid"
+  "google.golang.org/protobuf/proto"
 )
 
 func DummyBtrfsSrc(sv_list []string, snap_list []string) *pb.Source {
@@ -149,5 +153,93 @@ func DummyAllMetadata() (string, *pb.AllMetadata) {
     Sequences: []*pb.SnapshotSequence{ expect_seq, },
     Snapshots: []*pb.SubVolume{ expect_snap, },
   }
+}
+
+func LoadTestConf() *pb.Config {
+  source := &pb.Source{
+    Type: pb.Source_BTRFS,
+    Name: uuid.NewString(),
+    Paths: []*pb.Source_VolSnapPathPair{
+      &pb.Source_VolSnapPathPair{
+        VolPath: "/tmp/subvol1",
+        SnapPath: "/tmp/snaps",
+      },
+    },
+    History: &pb.Source_SnapHistory{
+      DaysKeepAll: 30,
+      KeepOnePeriodDays: 30,
+    },
+  }
+  backup := &pb.Backup{
+    Type: pb.Backup_AWS,
+    Name: uuid.NewString(),
+    Aws:  &pb.Backup_Aws{
+      DynamoDb: &pb.Backup_DynamoDb{ MetadataTableName: "coucou", },
+      S3: &pb.Backup_S3{
+        StorageBucketName: "coucou_store",
+        MetadataBucketName: "coucou_meta",
+        ChunkLen: 1024*1024,
+      },
+    },
+  }
+  conf := &pb.Config {
+    Sources: []*pb.Source{ source, },
+    Backups: []*pb.Backup{ backup, },
+    Aws: &pb.Aws {
+      AccessKeyId: "coucou",
+      SecretAccessKey: "coucou",
+      Region: "eu-central-1", // needs to be valid for unittests
+    },
+  }
+  return conf
+}
+
+func LoadTestConfWithLocalFs(local_fs *pb.Backup_Fs) *pb.Config {
+  conf := LoadTestConf()
+  backup := &pb.Backup{
+    Type: pb.Backup_FILESYSTEM,
+    Name: uuid.NewString(),
+    Fs:  proto.Clone(local_fs).(*pb.Backup_Fs),
+  }
+  conf.Backups = []*pb.Backup{ backup, }
+  return conf
+}
+
+func LoadTestMultiSinkBackupConf(
+    sink_cnt int, part_cnt int, create_dirs bool) (*pb.Backup_Fs, func()) {
+  local_fs := &pb.Backup_Fs{ Sinks: make([]*pb.Backup_RoundRobin, sink_cnt), }
+  for s_idx,_ := range local_fs.Sinks {
+    parts := make([]*pb.Backup_Partition, part_cnt)
+    for p_idx,_ := range parts {
+      local_fs_dir := fpmod.Join(os.TempDir(), uuid.NewString())
+      if create_dirs {
+        var err error
+        local_fs_dir, err = os.MkdirTemp(os.TempDir(), "localfs_")
+        if err != nil { Fatalf("failed to create tmp dir: %v", err) }
+        err = os.Mkdir(fpmod.Join(local_fs_dir, "metadata"), fs.ModePerm)
+        if err != nil { Fatalf("failed to create dir: %v", err) }
+        err = os.Mkdir(fpmod.Join(local_fs_dir, "storage"), fs.ModePerm)
+        if err != nil { Fatalf("failed to create dir: %v", err) }
+      }
+
+      parts[p_idx] = &pb.Backup_Partition{
+        FsUuid: uuid.NewString(),
+        MountRoot: local_fs_dir,
+        MetadataDir: "metadata",
+        StorageDir: "storage",
+      }
+    }
+    local_fs.Sinks[s_idx] = &pb.Backup_RoundRobin{ Partitions: parts, }
+  }
+  clean_f := func () {
+    for _,g := range local_fs.Sinks {
+      for _,p := range g.Partitions { RemoveAll(p.MountRoot) }
+    }
+  }
+  return proto.Clone(local_fs).(*pb.Backup_Fs), clean_f
+}
+
+func LoadTestSimpleDirBackupConf() (*pb.Backup_Fs, func()) {
+  return LoadTestMultiSinkBackupConf(1,1,true)
 }
 

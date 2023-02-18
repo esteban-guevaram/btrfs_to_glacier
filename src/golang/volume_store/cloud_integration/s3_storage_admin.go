@@ -18,7 +18,7 @@ import (
 type s3AdminStoreTester struct { *s3StoreReadWriteTester }
 
 func TestS3StorageSetup(ctx context.Context, conf *pb.Config, client *s3.Client, storage types.AdminBackupContent) {
-  bucket := conf.Aws.S3.StorageBucketName
+  bucket := Backup(conf).Aws.S3.StorageBucketName
   err := DeleteBucket(ctx, client, bucket)
 
   if err != nil {

@@ -28,7 +28,7 @@ func buildTestMetadataWithConf(t *testing.T, conf *pb.Config) (*S3Metadata, *s3_
   }
   aws_conf, err := util.NewAwsConfig(context.TODO(), conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
-  common, err := s3_common.NewS3Common(conf, aws_conf, client)
+  common, err := s3_common.NewS3Common(conf, aws_conf, conf.Backups[0].Name, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }
   common.BucketWait = util.TestTimeout
   common.AccountId = client.AccountId
@@ -50,7 +50,8 @@ func buildTestMetadataWithState(t *testing.T, state *pb.AllMetadata) (*S3Metadat
   var err error
   conf := util.LoadTestConf()
   meta, client := buildTestMetadataWithConf(t, conf)
-  client.Buckets[conf.Aws.S3.MetadataBucketName] = true
+  bucket := meta.Common.BackupConf.MetadataBucketName
+  client.Buckets[bucket] = true
   err = client.PutProto(meta.Key, state, s3_types.StorageClassStandard, false)
   if err != nil { t.Fatalf("failed to set init state: %v", err) }
   meta.State = state
@@ -62,7 +63,8 @@ func TestLoadPreviousStateFromS3_NoBucket(t *testing.T) {
   meta, client := buildTestMetadataWithConf(t, conf)
   meta.State = nil
   meta.LoadPreviousStateFromS3(context.TODO())
-  util.EqualsOrFailTest(t, "Bad bucket", client.Buckets[conf.Aws.S3.MetadataBucketName], false)
+  bucket := meta.Common.BackupConf.MetadataBucketName
+  util.EqualsOrFailTest(t, "Bad bucket", client.Buckets[bucket], false)
   util.EqualsOrFailTest(t, "Bad object", client.Data[meta.Key], nil)
   mem_only.CompareStates(t, "expected empty state", meta.State, &pb.AllMetadata{})
 }

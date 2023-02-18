@@ -49,7 +49,7 @@ func buildTestStorage(t *testing.T) (*s3Storage, *s3_common.MockS3Client) {
 
 func buildTestAdminStorageWithChunkLen(t *testing.T, chunk_len uint64) (*s3StorageAdmin, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
-  conf.Aws.S3.ChunkLen = chunk_len
+  conf.Backups[0].Aws.S3.ChunkLen = chunk_len
   return buildTestStorageWithConf(t, conf)
 }
 
@@ -71,7 +71,7 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3StorageAdmin, *
   codec := new(mocks.Codec)
   aws_conf, err := util.NewAwsConfig(context.TODO(), conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
-  common, err := s3_common.NewS3Common(conf, aws_conf, client)
+  common, err := s3_common.NewS3Common(conf, aws_conf, conf.Backups[0].Name, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }
   common.BucketWait = util.TestTimeout
   common.AccountId = client.AccountId

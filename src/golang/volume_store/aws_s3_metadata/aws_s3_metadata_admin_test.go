@@ -22,7 +22,7 @@ func TestCreateLifecycleRule(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin,client := buildTestAdminMetadata_WithNilState(t)
-  bucket := meta_admin.Conf.Aws.S3.MetadataBucketName
+  bucket := meta_admin.Common.BackupConf.MetadataBucketName
   client.Buckets[bucket] = true
   err := meta_admin.createLifecycleRule(ctx, bucket)
   if err != nil { t.Fatalf("Failed lifecycle creation: %v", err) }
@@ -37,7 +37,7 @@ func TestSetupMetadata(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin,client := buildTestAdminMetadata_WithNilState(t)
-  bucket := meta_admin.Conf.Aws.S3.MetadataBucketName
+  bucket := meta_admin.Common.BackupConf.MetadataBucketName
   err := meta_admin.SetupMetadata(ctx)
   if err != nil { t.Errorf("Returned error: %v", err) }
   if client.LastPublicAccessBlockIn == nil { t.Errorf("did not block ppublic access: %v", err) }
@@ -59,7 +59,7 @@ func TestSetupMetadata_Idempotent(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   meta_admin,client := buildTestAdminMetadata_WithNilState(t)
-  bucket := meta_admin.Conf.Aws.S3.MetadataBucketName
+  bucket := meta_admin.Common.BackupConf.MetadataBucketName
   client.Buckets[bucket] = true
   err := meta_admin.SetupMetadata(ctx)
   if err != nil { t.Errorf("Returned error: %v", err) }

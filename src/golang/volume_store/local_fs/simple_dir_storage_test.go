@@ -54,7 +54,7 @@ func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.BackupContent, err
 
 func buildTestSimpleDirStorage(
     t *testing.T, chunk_len uint64, codec types.Codec) (*SimpleDirStorage, *ChunkIoForTestImpl, func()) {
-  local_fs, clean_f := util.TestSimpleDirLocalFs()
+  local_fs, clean_f := util.LoadTestSimpleDirBackupConf()
   conf := util.LoadTestConfWithLocalFs(local_fs)
   gen_store,err := NewSimpleDirStorageAdmin(conf, codec, local_fs.Sinks[0].Partitions[0].FsUuid)
   if err != nil { util.Fatalf("NewStorage: %v", err) }

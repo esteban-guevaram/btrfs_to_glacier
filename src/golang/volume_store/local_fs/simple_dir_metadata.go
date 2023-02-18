@@ -25,26 +25,25 @@ const (
 
 type SimpleDirMetadata struct {
   *mem_only.Metadata
-  DirInfo    *pb.LocalFs_Partition
+  DirInfo    *pb.Backup_Partition
   SymLink    string
   KeepLast   int
 }
 
-func MetaDir(dir_info *pb.LocalFs_Partition) string {
+func MetaDir(dir_info *pb.Backup_Partition) string {
   return fpmod.Join(dir_info.MountRoot, dir_info.MetadataDir)
 }
-func SymLink(dir_info *pb.LocalFs_Partition) string {
+func SymLink(dir_info *pb.Backup_Partition) string {
   return fpmod.Join(dir_info.MountRoot, dir_info.MetadataDir, "metadata.pb.gz")
 }
 
 func NewSimpleDirMetadataAdmin(ctx context.Context, conf *pb.Config, fs_uuid string) (types.AdminMetadata, error) {
-  var part *pb.LocalFs_Partition
-  for _,g := range conf.LocalFs.Sinks {
-  for _,p := range g.Partitions {
-    if p.FsUuid != fs_uuid { continue }
+  var part *pb.Backup_Partition
+  if p,err := util.BackupPartitionByUuid(conf, fs_uuid); err == nil {
     part = p
-  }}
-  if part == nil { return nil, fmt.Errorf("Partition '%s' not found", fs_uuid) }
+  } else {
+    return nil, err
+  }
 
   metadata := &SimpleDirMetadata{
     Metadata: &mem_only.Metadata{ Conf: conf, },

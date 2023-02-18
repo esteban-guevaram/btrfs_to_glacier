@@ -29,18 +29,21 @@ type s3StoreReadWriteTester struct {
 }
 
 func (self *s3StoreReadWriteTester) getObject(ctx context.Context, key string) ([]byte, error) {
-  return GetObject(ctx, self.Client, self.Conf.Aws.S3.StorageBucketName, key)
+  bucket := Backup(self.Conf).Aws.S3.StorageBucketName
+  return GetObject(ctx, self.Client, bucket, key)
 }
 
 func (self *s3StoreReadWriteTester) putRandomObject(ctx context.Context, size int) (string, []byte, error) {
+  bucket := Backup(self.Conf).Aws.S3.StorageBucketName
   data := util.GenerateRandomTextData(size)
   key := uuid.NewString()
-  err := PutObject(ctx, self.Client, self.Conf.Aws.S3.StorageBucketName, key, data)
+  err := PutObject(ctx, self.Client, bucket, key, data)
   return key, data, err
 }
 
 func (self *s3StoreReadWriteTester) getObjectOrDie(ctx context.Context, key string) []byte {
-  return GetObjectOrDie(ctx, self.Client, self.Conf.Aws.S3.StorageBucketName, key)
+  bucket := Backup(self.Conf).Aws.S3.StorageBucketName
+  return GetObjectOrDie(ctx, self.Client, bucket, key)
 }
 
 func (self *s3StoreReadWriteTester) putRandomObjectOrDie(ctx context.Context, size int) (string, []byte) {
@@ -51,7 +54,7 @@ func (self *s3StoreReadWriteTester) putRandomObjectOrDie(ctx context.Context, si
 
 func (self *s3StoreReadWriteTester) helperWrite(
     ctx context.Context, offset uint64, total_len uint64) *pb.SnapshotChunks {
-  chunk_len := self.Conf.Aws.S3.ChunkLen
+  chunk_len := Backup(self.Conf).Aws.S3.ChunkLen
   data := util.GenerateRandomTextData(int(total_len))
   expect_obj := make([]byte, total_len - offset)
   copy(expect_obj, data[offset:])
@@ -85,7 +88,7 @@ func (self *s3StoreReadWriteTester) helperWrite(
 
 func (self *s3StoreReadWriteTester) TestWriteObjectLessChunkLen(ctx context.Context) {
   const offset = 0
-  var total_len = self.Conf.Aws.S3.ChunkLen/3
+  var total_len = Backup(self.Conf).Aws.S3.ChunkLen/3
   expect_chunk := &pb.SnapshotChunks_Chunk{
     Uuid: "some_uuid",
     Start: offset,
@@ -100,14 +103,14 @@ func (self *s3StoreReadWriteTester) TestWriteObjectLessChunkLen(ctx context.Cont
 
 func (self *s3StoreReadWriteTester) TestWriteObjectMoreChunkLen(ctx context.Context) {
   const offset = 0
-  var total_len = self.Conf.Aws.S3.ChunkLen*3 + 1
+  var total_len = Backup(self.Conf).Aws.S3.ChunkLen*3 + 1
   snap_chunks := self.helperWrite(ctx, offset, total_len)
   util.EqualsOrDie("Bad number of chunks", len(snap_chunks.Chunks), 4)
 }
 
 func (self *s3StoreReadWriteTester) TestWriteObjectMultipleChunkLen(ctx context.Context) {
   const offset = 0
-  var total_len = self.Conf.Aws.S3.ChunkLen * 2
+  var total_len = Backup(self.Conf).Aws.S3.ChunkLen * 2
   snap_chunks := self.helperWrite(ctx, offset, total_len)
   util.EqualsOrDie("Bad number of chunks", len(snap_chunks.Chunks), 2)
 }
@@ -217,7 +220,7 @@ func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_NoSuchObject(ctx con
 
 func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx context.Context, snowflake_bucket string, snowflake_key string) {
   tmp_conf := proto.Clone(self.Conf).(*pb.Config)
-  tmp_conf.Aws.S3.StorageBucketName = snowflake_bucket
+  Backup(tmp_conf).Aws.S3.StorageBucketName = snowflake_bucket
   restore_func := store.TestOnlySwapConf(self.Storage, tmp_conf)
   defer restore_func()
 
@@ -229,7 +232,7 @@ func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_Idempotent(ctx conte
 
 func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx context.Context, snowflake_bucket string, snowflake_key string) {
   tmp_conf := proto.Clone(self.Conf).(*pb.Config)
-  tmp_conf.Aws.S3.StorageBucketName = snowflake_bucket
+  Backup(tmp_conf).Aws.S3.StorageBucketName = snowflake_bucket
   restore_func := store.TestOnlySwapConf(self.Storage, tmp_conf)
   defer restore_func()
 
@@ -239,7 +242,7 @@ func (self *s3StoreReadWriteTester) TestQueueRestoreObjects_AlreadyRestored(ctx 
 }
 
 func (self *s3StoreReadWriteTester) testListAllChunks_Helper(ctx context.Context, total int, fill_size int32) {
-  bucket := self.Conf.Aws.S3.StorageBucketName
+  bucket := Backup(self.Conf).Aws.S3.StorageBucketName
   EmptyBucketOrDie(ctx, self.Client, bucket)
   restore_f := store.TestOnlyChangeIterationSize(self.Storage, fill_size)
   defer restore_f()
@@ -278,7 +281,7 @@ func (self *s3StoreReadWriteTester) TestListAllChunksMultiFill(ctx context.Conte
 }
 
 func TestS3GenericRead_UnknownKey(ctx context.Context, conf *pb.Config, client *s3.Client) {
-  bucket := conf.Aws.S3.StorageBucketName
+  bucket := Backup(conf).Aws.S3.StorageBucketName
   unk_key := uuid.NewString()
 
   get_in := &s3.GetObjectInput{
@@ -319,11 +322,11 @@ func TestAllS3StoreReadWrite(ctx context.Context, conf *pb.Config, client *s3.Cl
 func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
   new_conf := proto.Clone(conf).(*pb.Config)
   // A bigger chunk, will make tests slow+expensive
-  new_conf.Aws.S3.ChunkLen = 128*1024
+  Backup(new_conf).Aws.S3.ChunkLen = 128*1024
 
   codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
-  storage, err := store.NewStorageAdmin(new_conf, aws_conf, codec)
+  storage, err := store.NewStorageAdmin(new_conf, aws_conf, Backup(new_conf).Name, codec)
   //client := s3.NewFromConfig(*aws_conf)
   client := store.TestOnlyGetInnerClientToAvoidConsistencyFails(storage)
   if err != nil { util.Fatalf("%v", err) }
@@ -332,6 +335,6 @@ func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
   TestS3GenericRead_UnknownKey(ctx, new_conf, client)
   TestAllS3StoreReadWrite(ctx, new_conf, client, storage)
   TestAllS3StoreDelete(ctx, new_conf, client, storage)
-  DeleteBucketOrDie(ctx, client, new_conf.Aws.S3.StorageBucketName)
+  DeleteBucketOrDie(ctx, client, Backup(new_conf).Aws.S3.StorageBucketName)
 }
 

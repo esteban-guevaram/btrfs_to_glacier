@@ -27,8 +27,9 @@ type dynamoAdminMetadata struct {
   delete_batch int
 }
 
-func NewAdminMetadata(conf *pb.Config, aws_conf *aws.Config) (types.AdminMetadata, error) {
-  meta, err := NewMetadata(conf, aws_conf)
+func NewAdminMetadata(
+    conf *pb.Config, aws_conf *aws.Config, backup_name string) (types.AdminMetadata, error) {
+  meta, err := NewMetadata(conf, aws_conf, backup_name)
   if err != nil { return nil, err }
   admin := &dynamoAdminMetadata{
     dynamoMetadata: meta.(*dynamoMetadata),
@@ -45,27 +46,27 @@ func TestOnlyDynMetaChangeIterationSize(metadata types.Metadata, fill_size int32
   return func() { impl.iter_buf_len = old_val }
 }
 
-func (self *dynamoMetadata) describeTable(ctx context.Context, tabname string) (*dyn_types.TableDescription, error) {
+func (self *dynamoMetadata) describeTable(ctx context.Context) (*dyn_types.TableDescription, error) {
   params := &dynamodb.DescribeTableInput{
-    TableName: &self.conf.Aws.DynamoDb.TableName,
+    TableName: &self.tab_name,
   }
   result, err := self.client.DescribeTable(ctx, params)
   if err != nil {
     apiErr := new(dyn_types.ResourceNotFoundException)
-    if errors.As(err, &apiErr) { util.Debugf("'%s' does not exist", tabname) }
+    if errors.As(err, &apiErr) { util.Debugf("'%s' does not exist", self.tab_name) }
     return nil, err
   }
   return result.Table, nil
 }
 
-func (self *dynamoMetadata) waitForTableCreation(ctx context.Context, tabname string) error {
+func (self *dynamoMetadata) waitForTableCreation(ctx context.Context) error {
   ticker := time.NewTicker(self.describe_retry)
   defer ticker.Stop()
 
   for {
     select {
       case <-ticker.C:
-        result, err := self.describeTable(ctx, tabname)
+        result, err := self.describeTable(ctx)
         if err != nil { return err }
         if result.TableStatus == dyn_types.TableStatusActive { return nil }
         if result.TableStatus != dyn_types.TableStatusCreating {
@@ -79,8 +80,6 @@ func (self *dynamoMetadata) waitForTableCreation(ctx context.Context, tabname st
 }
 
 func (self *dynamoMetadata) SetupMetadata(ctx context.Context) error {
-  tabname := self.conf.Aws.DynamoDb.TableName
-
   attrs := []dyn_types.AttributeDefinition{
     dyn_types.AttributeDefinition{
       AttributeName: &self.uuid_col,
@@ -102,7 +101,7 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) error {
     },
   }
   params := &dynamodb.CreateTableInput{
-    TableName: &tabname,
+    TableName: &self.tab_name,
     AttributeDefinitions: attrs,
     KeySchema: schema,
     BillingMode: dyn_types.BillingModePayPerRequest,
@@ -112,7 +111,7 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) error {
   if err != nil {
     apiErr := new(dyn_types.ResourceInUseException)
     if errors.As(err, &apiErr) {
-      util.Infof("Table '%s' already exists", tabname)
+      util.Infof("Table '%s' already exists", self.tab_name)
       return nil
     }
     return err
@@ -120,7 +119,7 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) error {
   if result.TableDescription.TableStatus == dyn_types.TableStatusActive {
     return nil
   }
-  return self.waitForTableCreation(ctx, tabname)
+  return self.waitForTableCreation(ctx)
 }
 
 func (self *dynamoAdminMetadata) buildDeleteRequest(uuid string, typename string) dyn_types.WriteRequest {
@@ -130,11 +129,10 @@ func (self *dynamoAdminMetadata) buildDeleteRequest(uuid string, typename string
 }
 
 func (self *dynamoAdminMetadata) flushDeletes(ctx context.Context, keys []dyn_types.WriteRequest) error {
-  tabname := self.conf.Aws.DynamoDb.TableName
   remaining_keys := map[string][]dyn_types.WriteRequest {
-    tabname: keys,
+    self.tab_name: keys,
   }
-  for len(remaining_keys[tabname]) > 0 {
+  for len(remaining_keys[self.tab_name]) > 0 {
     del_in := &dynamodb.BatchWriteItemInput{
       RequestItems: remaining_keys,
       ReturnConsumedCapacity: dyn_types.ReturnConsumedCapacityNone,
@@ -187,7 +185,7 @@ func (self *dynamoAdminMetadata) ReplaceSnapshotSeqHead(
   // We use a condition expression to trigger an error in case the key does not exist.
   // Otherwise we cannot distinguish between the item not existing and a successful delete.
   put_in := &dynamodb.PutItemInput{
-    TableName: &self.conf.Aws.DynamoDb.TableName,
+    TableName: &self.tab_name,
     Item: item,
     ConditionExpression: aws.String(fmt.Sprintf("attribute_exists(%s)", self.blob_col)),
     ReturnValues: dyn_types.ReturnValueAllOld,

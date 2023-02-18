@@ -14,12 +14,12 @@ import (
 type s3MetaAdminTester struct { *s3MetaReadWriteTester }
 
 func (self *s3MetaAdminTester) deleteBucket(ctx context.Context) error {
-  bucket := self.Conf.Aws.S3.MetadataBucketName
+  bucket := Backup(self.Conf).Aws.S3.MetadataBucketName
   return DeleteBucket(ctx, self.Client, bucket)
 }
 
 func (self *s3MetaAdminTester) TestS3MetadataSetup(ctx context.Context) {
-  bucket := self.Conf.Aws.S3.MetadataBucketName
+  bucket := Backup(self.Conf).Aws.S3.MetadataBucketName
   err := self.deleteBucket(ctx)
 
   if err != nil {

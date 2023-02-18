@@ -35,11 +35,11 @@ type SimpleDirStorage struct {
   *mem_only.BaseStorage
 }
 
-func StoreDir(part *pb.LocalFs_Partition) string {
+func StoreDir(part *pb.Backup_Partition) string {
   return fpmod.Join(part.MountRoot, part.StorageDir)
 }
 
-func NewChunkIoImpl(part *pb.LocalFs_Partition, codec types.Codec) *ChunkIoImpl {
+func NewChunkIoImpl(part *pb.Backup_Partition, codec types.Codec) *ChunkIoImpl {
   return &ChunkIoImpl{
     ChunkIndex: make(map[string]bool),
     ParCodec:   codec,
@@ -49,13 +49,12 @@ func NewChunkIoImpl(part *pb.LocalFs_Partition, codec types.Codec) *ChunkIoImpl 
 }
 
 func NewSimpleDirStorageAdmin(conf *pb.Config, codec types.Codec, fs_uuid string) (types.AdminBackupContent, error) {
-  var part *pb.LocalFs_Partition
-  for _,g := range conf.LocalFs.Sinks {
-  for _,p := range g.Partitions {
-    if p.FsUuid != fs_uuid { continue }
+  var part *pb.Backup_Partition
+  if p,err := util.BackupPartitionByUuid(conf, fs_uuid); err == nil {
     part = p
-  }}
-  if part == nil { return nil, fmt.Errorf("Partition '%s' not found", fs_uuid) }
+  } else {
+    return nil, err
+  }
 
   inner_storage := &mem_only.BaseStorage{
     ChunkIo: NewChunkIoImpl(part, codec),

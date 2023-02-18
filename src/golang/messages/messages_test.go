@@ -56,25 +56,39 @@ func TestConfigTextMarshal(t *testing.T) {
       KeepOnePeriodDays: 30,
     },
   }
-  conf := Config {
-    Sources: []*Source{ source, },
-    Aws: &Aws {
-      AccessKeyId: "coucou",
-      SecretAccessKey: "coucou",
-      Region: "eu-central-1", // needs to be valid for unittests
-      DynamoDb: &Aws_DynamoDb{ TableName: "coucou", },
-      S3: &Aws_S3{
+  aws := &Aws {
+    AccessKeyId: "coucou",
+    SecretAccessKey: "coucou",
+    Region: "eu-central-1",
+  }
+  backup := &Backup{
+    Type: Backup_AWS,
+    Name: "backup_name", 
+    Aws:  &Backup_Aws{
+      DynamoDb: &Backup_DynamoDb{ MetadataTableName: "coucou", },
+      S3: &Backup_S3{
         StorageBucketName: "coucou_store",
         MetadataBucketName: "coucou_meta",
         ChunkLen: 1024*1024,
       },
     },
   }
+  restore := &Restore{
+    Type: Restore_BTRFS,
+    Name: "restore_name",
+    RootRestorePath: "/tmp",
+  }
+  conf := &Config {
+    Sources: []*Source{ source, },
+    Backups: []*Backup{ backup, },
+    Restores: []*Restore{ restore, },
+    Aws: aws,
+  }
   var loadedConf Config
-  txt, _ := prototext.Marshal(&conf)
+  txt, _ := prototext.Marshal(conf)
   prototext.Unmarshal(txt, &loadedConf)
-  if !proto.Equal(&loadedConf, &conf) {
-    t.Errorf("\n%s\n !=\n %s", &loadedConf, &conf)
+  if !proto.Equal(&loadedConf, conf) {
+    t.Errorf("\n%s\n !=\n %s", &loadedConf, conf)
   }
 }
 

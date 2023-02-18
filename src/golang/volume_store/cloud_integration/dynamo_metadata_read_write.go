@@ -57,11 +57,12 @@ func getBlobFromItem(item map[string]dyn_types.AttributeValue) ([]byte, error) {
 func (self *dynReadWriteTester) getItem(ctx context.Context, key string, msg proto.Message) error {
   var data []byte
   var get_out *dynamodb.GetItemOutput
+  tab_name := DynTableName(self.Conf)
   key_map, err := toItem(key, msg)
   if err != nil { return err }
   delete(key_map, meta.Blob_col)
   get_in := &dynamodb.GetItemInput{
-    TableName: &self.Conf.Aws.DynamoDb.TableName,
+    TableName: &tab_name,
     Key: key_map,
     AttributesToGet: []string{ meta.Blob_col },
     ConsistentRead: aws.Bool(true),
@@ -88,8 +89,9 @@ func (self *dynReadWriteTester) putItemOrDie(ctx context.Context, key string, ms
 func (self *dynReadWriteTester) putItem(ctx context.Context, key string, msg proto.Message) error {
   item, err := toItem(key, msg)
   if err != nil { return err }
+  tab_name := DynTableName(self.Conf)
   params := &dynamodb.PutItemInput{
-    TableName: &self.Conf.Aws.DynamoDb.TableName,
+    TableName: &tab_name,
     Item: item,
   }
   //util.Debugf("Put request:\n%s", util.AsJson(params))
@@ -98,8 +100,9 @@ func (self *dynReadWriteTester) putItem(ctx context.Context, key string, msg pro
 }
 
 func (self *dynReadWriteTester) deleteTable(ctx context.Context) {
+  tab_name := DynTableName(self.Conf)
   _, err := self.Client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
-    TableName: &self.Conf.Aws.DynamoDb.TableName,
+    TableName: &tab_name,
   })
   if err != nil { util.Fatalf("Failed table delete: %v", err) }
 }
@@ -110,11 +113,12 @@ func (self *dynReadWriteTester) emptyTableOrDie(ctx context.Context) {
 }
 
 func (self *dynReadWriteTester) emptyTable(ctx context.Context) error {
+  tab_name := DynTableName(self.Conf)
   projection := dyn_expr.NamesList(dyn_expr.Name(meta.Uuid_col), dyn_expr.Name(meta.Type_col))
   expr, err := dyn_expr.NewBuilder().WithProjection(projection).Build()
   if err != nil { return err }
   scan_in := &dynamodb.ScanInput{
-    TableName:              &self.Conf.Aws.DynamoDb.TableName,
+    TableName:              &tab_name,
     ExpressionAttributeNames: expr.Names(),
     ProjectionExpression:   expr.Projection(),
     ConsistentRead:         aws.Bool(true),
@@ -125,7 +129,7 @@ func (self *dynReadWriteTester) emptyTable(ctx context.Context) error {
   if len(scan_out.LastEvaluatedKey) > 0 { return fmt.Errorf("need more iterations") }
   for _,item := range scan_out.Items {
     del_in := &dynamodb.DeleteItemInput{
-      TableName: &self.Conf.Aws.DynamoDb.TableName,
+      TableName: &tab_name,
       Key: item,
     }
     _, err := self.Client.DeleteItem(ctx, del_in)
@@ -403,7 +407,7 @@ func (self *dynReadWriteTester) TestAllDynamoDbReadWrite(ctx context.Context) {
 
 func TestAllDynamoDbMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) {
   client := dynamodb.NewFromConfig(*aws_conf)
-  metadata, err := meta.NewAdminMetadata(conf, aws_conf)
+  metadata, err := meta.NewAdminMetadata(conf, aws_conf, Backup(conf).Name)
   if err != nil { util.Fatalf("%v", err) }
   suite := &dynReadWriteTester{ Conf:conf, Client:client, Metadata:metadata, }
 

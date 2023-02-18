@@ -17,21 +17,23 @@ import (
 
 type dynAdminTester struct { *dynReadWriteTester }
 
-func TestDynamoDbMetadataSetup(ctx context.Context, conf *pb.Config, client *dynamodb.Client, metadata types.AdminMetadata) {
+func TestDynamoDbMetadataSetup(
+    ctx context.Context, conf *pb.Config, client *dynamodb.Client, metadata types.AdminMetadata) {
+  tab_name := DynTableName(conf)
   _, err := client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
-    TableName: &conf.Aws.DynamoDb.TableName,
+    TableName: &tab_name,
   })
 
   if err != nil {
     apiErr := new(dyn_types.ResourceNotFoundException)
     if !errors.As(err, &apiErr) { util.Fatalf("%v", err) }
-    util.Infof("TestDynamoDbMetadataSetup '%s' not exist", conf.Aws.DynamoDb.TableName)
+    util.Infof("TestDynamoDbMetadataSetup '%s' not exist", tab_name)
   } else {
     waiter := dynamodb.NewTableNotExistsWaiter(client)
-    wait_rq := &dynamodb.DescribeTableInput{ TableName: &conf.Aws.DynamoDb.TableName, }
+    wait_rq := &dynamodb.DescribeTableInput{ TableName: &tab_name, }
     err = waiter.Wait(ctx, wait_rq, 30 * time.Second)
     if err != nil { util.Fatalf("%v", err) }
-    util.Infof("TestDynamoDbMetadataSetup '%s' deleted", conf.Aws.DynamoDb.TableName)
+    util.Infof("TestDynamoDbMetadataSetup '%s' deleted", tab_name)
   }
 
   done := make(chan bool)

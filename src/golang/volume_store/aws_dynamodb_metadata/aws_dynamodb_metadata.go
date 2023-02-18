@@ -45,6 +45,7 @@ type usedDynamoDbIf interface {
 type dynamoMetadata struct {
   conf     *pb.Config
   aws_conf *aws.Config
+  tab_name string
   client   usedDynamoDbIf
   uuid_col string
   type_col string
@@ -63,7 +64,7 @@ type blobIterator struct {
   err      error
 }
 
-func NewMetadata(conf *pb.Config, aws_conf *aws.Config) (types.Metadata, error) {
+func NewMetadata(conf *pb.Config, aws_conf *aws.Config, backup_name string) (types.Metadata, error) {
   meta := &dynamoMetadata{
     conf: conf,
     aws_conf: aws_conf,
@@ -73,6 +74,11 @@ func NewMetadata(conf *pb.Config, aws_conf *aws.Config) (types.Metadata, error) 
     blob_col: Blob_col,
     iter_buf_len: dyn_iter_buf_len,
     describe_retry: describe_retry_millis * time.Millisecond,
+  }
+  if b,err := util.BackupAwsByName(conf, backup_name); err == nil {
+    meta.tab_name = b.DynamoDb.MetadataTableName
+  } else {
+    return nil, err
   }
   return meta, nil
 }
@@ -124,7 +130,7 @@ func (self *dynamoMetadata) getBlobFromItem(item map[string]dyn_types.AttributeV
 // Returns ErrNotFound if the item does not exist in the database.
 func (self *dynamoMetadata) ReadObject(ctx context.Context, key string, msg proto.Message) error {
   params := &dynamodb.GetItemInput{
-    TableName: &self.conf.Aws.DynamoDb.TableName,
+    TableName: &self.tab_name,
     Key: self.getItemKey(key, msg),
     ProjectionExpression: &self.blob_col,
     ConsistentRead: aws.Bool(false),
@@ -147,7 +153,7 @@ func (self *dynamoMetadata) WriteObject(ctx context.Context, key string, msg pro
   if err != nil { return err }
   item[self.blob_col] = &dyn_types.AttributeValueMemberB{Value: blob,}
   params := &dynamodb.PutItemInput{
-    TableName: &self.conf.Aws.DynamoDb.TableName,
+    TableName: &self.tab_name,
     Item: item,
   }
   _, err = self.client.PutItem(ctx, params)
@@ -301,7 +307,7 @@ func (self *blobIterator) fillBuffer(ctx context.Context) error {
   if self.buf_next < len(self.buffer) { util.Fatalf("filling before exhausting buffer") }
   filter_proj := self.parent.getScanExpression(self.msg_type)
   scan_in := &dynamodb.ScanInput{
-    TableName: &self.parent.conf.Aws.DynamoDb.TableName,
+    TableName: &self.parent.tab_name,
     ExpressionAttributeNames:  filter_proj.Names(),
     ExpressionAttributeValues: filter_proj.Values(),
     FilterExpression:          filter_proj.Filter(),

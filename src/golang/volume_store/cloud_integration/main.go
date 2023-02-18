@@ -18,8 +18,8 @@ func main() {
   util.Infof("cloud_integration run")
 
   ctx := context.Background()
-  //conf := useUniqueInfrastructureNames(util.LoadTestConf())
-  conf := util.LoadTestConf()
+  conf := LoadAwsTestConfWithFlagOverwrites()
+  //conf = useUniqueInfrastructureNames(conf)
 
   aws_conf, err := util.NewAwsConfig(ctx, conf)
   if err != nil { util.Fatalf("%v", err) }
@@ -43,12 +43,13 @@ func TestCallerIdentity(ctx context.Context, conf *pb.Config, aws_conf *aws.Conf
 
 func useUniqueInfrastructureNames(conf *pb.Config) *pb.Config {
   new_conf := proto.Clone(conf).(*pb.Config)
-  new_conf.Aws.DynamoDb.TableName = fmt.Sprintf("%s%d", conf.Aws.DynamoDb.TableName,
-                                                time.Now().Unix())
-  new_conf.Aws.S3.StorageBucketName = fmt.Sprintf("%s%d", conf.Aws.S3.StorageBucketName,
-                                      time.Now().Unix())
-  new_conf.Aws.S3.MetadataBucketName = fmt.Sprintf("%s%d", conf.Aws.S3.MetadataBucketName,
-                                       time.Now().Unix())
+  backup_conf := Backup(new_conf).Aws
+  backup_conf.DynamoDb.MetadataTableName = fmt.Sprintf("%s%d", backup_conf.DynamoDb.MetadataTableName,
+                                                       time.Now().Unix())
+  backup_conf.S3.StorageBucketName = fmt.Sprintf("%s%d", backup_conf.S3.StorageBucketName,
+                                                 time.Now().Unix())
+  backup_conf.S3.MetadataBucketName = fmt.Sprintf("%s%d", backup_conf.S3.MetadataBucketName,
+                                                  time.Now().Unix())
   return new_conf
 }
 

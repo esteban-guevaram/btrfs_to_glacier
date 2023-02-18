@@ -45,9 +45,10 @@ type S3Metadata struct {
   Key        string
 }
 
-func NewMetadata(ctx context.Context, conf *pb.Config, aws_conf *aws.Config) (types.Metadata, error) {
+func NewMetadata(ctx context.Context,
+    conf *pb.Config, aws_conf *aws.Config, backup_name string) (types.Metadata, error) {
   client := s3.NewFromConfig(*aws_conf)
-  common, err := s3_common.NewS3Common(conf, aws_conf, client)
+  common, err := s3_common.NewS3Common(conf, aws_conf, backup_name, client)
   if err != nil { return nil, err }
 
   metadata := &S3Metadata{
@@ -71,7 +72,7 @@ func (self *S3Metadata) LoadPreviousStateFromS3(ctx context.Context) error {
   }
 
   get_in := &s3.GetObjectInput{
-    Bucket: &self.Conf.Aws.S3.MetadataBucketName,
+    Bucket: &self.Common.BackupConf.MetadataBucketName,
     Key: &self.Key,
   }
   get_out, err := self.Client.GetObject(ctx, get_in)
@@ -97,7 +98,7 @@ func (self *S3Metadata) SaveCurrentStateToS3(ctx context.Context) (string, error
   reader := bytes.NewReader(data)
 
   put_in := &s3.PutObjectInput{
-    Bucket: &self.Conf.Aws.S3.MetadataBucketName,
+    Bucket: &self.Common.BackupConf.MetadataBucketName,
     Key:    &self.Key,
     Body:   reader,
     ACL:    s3_types.ObjectCannedACLBucketOwnerFullControl,

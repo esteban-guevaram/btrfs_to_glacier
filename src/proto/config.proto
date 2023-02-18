@@ -9,32 +9,6 @@ message Aws {
   string secret_access_key = 2;
   string session_token = 3;
   string region = 4;
-
-  message DynamoDb {
-    string table_name = 1;
-  }
-  DynamoDb dynamo_db = 5;
-
-  message S3 {
-    string storage_bucket_name = 1;
-    string metadata_bucket_name = 2;
-    uint64 chunk_len = 3;
-  }
-  S3 s3 = 6;
-}
-
-message LocalFs {
-  message Partition {
-    string fs_uuid = 1;
-    string mount_root = 2;
-    string metadata_dir = 3;
-    string storage_dir = 4;
-  }
-  message RoundRobin {
-    string name = 1;
-    repeated Partition partitions = 2;
-  }
-  repeated RoundRobin sinks = 1;
 }
 
 // Additional tools not directly related to backup/restores.
@@ -54,7 +28,7 @@ message Tool {
 message Workflow {
   string  name    = 1;
   string  source  = 2;
-  string  store   = 3;
+  string  backup  = 3;
   string  restore = 4;
 }
 
@@ -83,21 +57,46 @@ message Source {
   SnapHistory history = 4;
 }
 
-message Store {
-  enum MetadataType {
-    INVALID_META = 0;
-    AWS_DYNAMODB_META = 1;
-    AWS_S3_META = 2;
-    LOCAL_FS_META = 3;
+message Backup {
+  enum BackupType {
+    INVALID = 0;
+    AWS = 1;
+    FILESYSTEM = 2;
+    MEM_EPHEMERAL = 3;
   }
-  enum StoreType {
-    INVALID_STORE = 0;
-    AWS_S3_STORE = 1;
-    LOCAL_FS_STORE = 2;
+
+  message Partition {
+    string fs_uuid = 1;
+    string mount_root = 2;
+    string metadata_dir = 3;
+    string storage_dir = 4;
   }
-  MetadataType meta_type  = 1;
-  StoreType    store_type = 2;
-  string       name = 3;
+  message RoundRobin {
+    repeated Partition partitions = 2;
+  }
+  message Fs {
+    repeated RoundRobin sinks = 1;
+  }
+
+  message DynamoDb {
+    string metadata_table_name = 1;
+  }
+  message S3 {
+    string storage_bucket_name = 1;
+    string metadata_bucket_name = 2;
+    uint64 chunk_len = 3;
+  }
+  message Aws {
+    DynamoDb dynamo_db = 5;
+    S3 s3 = 6;
+  }
+
+  BackupType   type = 1;
+  string       name = 2;
+  // You can only have oneof the following.
+  Aws aws = 3;
+  Fs  fs = 4;
+  // Did not use oneof because it is a pain to use in golang.
 }
 
 message Restore {
@@ -115,8 +114,8 @@ message Config {
   repeated Workflow workflows = 1;
   repeated Tool tools = 2;
 
-  repeated Source sources = 3;
-  repeated Store stores = 4;
+  repeated Source  sources  = 3;
+  repeated Backup  backups  = 4;
   repeated Restore restores = 5;
 
   // The first element is used to encrypt new content.
@@ -125,6 +124,5 @@ message Config {
   repeated string encryption_keys = 6;
 
   Aws aws = 7;
-  LocalFs local_fs = 8;
 }
 

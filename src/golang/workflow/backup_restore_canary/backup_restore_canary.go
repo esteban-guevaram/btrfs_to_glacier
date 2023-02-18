@@ -153,7 +153,7 @@ func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
   fake_conf := proto.Clone(self.Conf).(*pb.Config)
   fake_conf.Workflows = nil
   fake_conf.Tools = nil
-  fake_conf.Stores = nil
+  fake_conf.Backups = nil
 
   volsnap := &pb.Source_VolSnapPathPair{
     VolPath: self.State.VolRoot,

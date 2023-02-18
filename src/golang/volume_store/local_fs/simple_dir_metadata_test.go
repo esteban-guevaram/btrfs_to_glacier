@@ -16,7 +16,7 @@ import (
 )
 
 type SimpleDirRw struct {
-  Part *pb.LocalFs_Partition
+  Part *pb.Backup_Partition
 }
 
 func (self *SimpleDirRw) PutState(state *pb.AllMetadata) error {
@@ -52,7 +52,7 @@ func (self *SimpleDirRw) GetState() *pb.AllMetadata {
 
 func buildTestSimpleDirMetadataWithConf(
     t *testing.T, conf *pb.Config) (*SimpleDirMetadata, *SimpleDirRw) {
-  part := conf.LocalFs.Sinks[0].Partitions[0]
+  part := conf.Backups[0].Fs.Sinks[0].Partitions[0]
   client := &SimpleDirRw{part}
 
   meta := &SimpleDirMetadata{
@@ -70,7 +70,7 @@ func buildTestSimpleDirMetadataWithConf(
 func buildTestSimpleDirMetadataWithState(
     t *testing.T, state *pb.AllMetadata) (*SimpleDirMetadata, *SimpleDirRw, func()) {
   var err error
-  local_fs, clean_f := util.TestSimpleDirLocalFs()
+  local_fs, clean_f := util.LoadTestSimpleDirBackupConf()
   conf := util.LoadTestConfWithLocalFs(local_fs)
   meta, client := buildTestSimpleDirMetadataWithConf(t, conf)
 
@@ -88,7 +88,7 @@ func buildTestSimpleDirMetadata_NilState(
 func TestLoadPreviousStateFromDir_NoPartition(t *testing.T) {
   ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
-  local_fs, clean_f := util.TestSimpleDirLocalFs()
+  local_fs, clean_f := util.LoadTestSimpleDirBackupConf()
   defer clean_f()
   conf := util.LoadTestConfWithLocalFs(local_fs)
   _, err := NewSimpleDirMetadata(ctx, conf, uuid.NewString())
@@ -96,7 +96,7 @@ func TestLoadPreviousStateFromDir_NoPartition(t *testing.T) {
 }
 
 func TestLoadPreviousStateFromDir_NoIniState(t *testing.T) {
-  local_fs,clean_f := util.TestSimpleDirLocalFs()
+  local_fs,clean_f := util.LoadTestSimpleDirBackupConf()
   defer clean_f()
   conf := util.LoadTestConfWithLocalFs(local_fs)
   meta, client := buildTestSimpleDirMetadataWithConf(t, conf)

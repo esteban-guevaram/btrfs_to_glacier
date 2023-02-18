@@ -85,7 +85,7 @@ go_unittest: go_code
 
 go_deflake: go_code
 	# example call:
-	# make go_deflake DEFLAKE_TEST=TestDecryptStream_TimeoutContinousReads DEFLAKE_PKG=btrfs_to_glacier/encryption
+	# make go_deflake DEFLAKE_TEST=TestBucketCreation_Immediate DEFLAKE_PKG=btrfs_to_glacier/volume_store/aws_s3_common
 	pushd "$(MYGOSRC)"
 	while true; do
 	  GOENV="$(GOENV)" go test $(GO_TEST_FLAGS) --test.count=1 --run "$(DEFLAKE_TEST)" "$(DEFLAKE_PKG)" || break
@@ -95,14 +95,14 @@ go_debug: go_code
 	pushd "$(MYGOSRC)"
 	echo '
 	#break btrfs_to_glacier/encryption.(*aesGzipCodec).EncryptStream
-	break workflow/backup_restore_canary/backup_restore_canary.go:329
+	break volume_store/aws_s3_common/setup_test.go:24
 	continue
 	' > "$(MYDLVINIT)"
 	# https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_debug.md
 	CGO_CFLAGS="$(CFLAGS_DBG)" GOENV="$(GOENV)" \
-	  dlv test "btrfs_to_glacier/workflow/backup_restore_canary" \
+	  dlv test "btrfs_to_glacier/volume_store/aws_s3_common" \
 		  --build-flags='-tags=delve' --init="$(MYDLVINIT)" --output="$(STAGE_PATH)/debugme" \
-		  -- --test.run='TestAppendSnapshotToValidationChain_ExistingChain' --test.v
+		  -- --test.run='TestBucketCreation_Immediate' --test.v
 
 # Fails with a linker error if missing `c_code`
 go_upgrade_mods: $(GOENV) c_code

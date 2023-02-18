@@ -29,8 +29,9 @@ type s3StorageAdmin struct {
   rule_name_suffix        string
 }
 
-func NewStorageAdmin(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.AdminBackupContent, error) {
-  storage, err := NewStorage(conf, aws_conf, codec)
+func NewStorageAdmin(conf *pb.Config, aws_conf *aws.Config, backup_name string,
+    codec types.Codec) (types.AdminBackupContent, error) {
+  storage, err := NewStorage(conf, aws_conf, backup_name, codec)
   if err != nil { return nil, err }
 
   del_storage := &s3StorageAdmin{ s3Storage: storage.(*s3Storage), }
@@ -94,7 +95,7 @@ func (self *s3StorageAdmin) createLifecycleRule(
 // object standard tier
 // object no tags no metadata (that way we only need a simple kv store)
 func (self *s3StorageAdmin) SetupBackupContent(ctx context.Context) error {
-  bucket_name := self.Conf.Aws.S3.StorageBucketName
+  bucket_name := self.common.BackupConf.StorageBucketName
   exists, err := self.common.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket_name)
   if err != nil { return err }
   if exists { return nil }
@@ -138,7 +139,7 @@ func TestOnlyChangeIterationSize(storage types.BackupContent, size int32) func()
 func (self *s3StorageAdmin) deleteBatch(
     ctx context.Context, chunks []*pb.SnapshotChunks_Chunk) error {
   del_in := &s3.DeleteObjectsInput{
-    Bucket: &self.Conf.Aws.S3.StorageBucketName,
+    Bucket: &self.common.BackupConf.StorageBucketName,
     Delete: &s3_types.Delete{
       Objects: make([]s3_types.ObjectIdentifier, len(chunks)),
       Quiet: true,

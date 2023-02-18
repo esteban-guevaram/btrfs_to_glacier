@@ -73,13 +73,14 @@ type s3Storage struct {
   common     *s3_common.S3Common
 }
 
-func NewStorage(conf *pb.Config, aws_conf *aws.Config, codec types.Codec) (types.BackupContent, error) {
+func NewStorage(conf *pb.Config, aws_conf *aws.Config, backup_name string,
+                codec types.Codec) (types.BackupContent, error) {
   client := s3.NewFromConfig(*aws_conf)
   // Uploading a non-seekable stream, parallelism is useless
   uploader := s3mgr.NewUploader(client,
                                 func(u *s3mgr.Uploader) { u.LeavePartsOnError = false },
                                 func(u *s3mgr.Uploader) { u.Concurrency = 1 })
-  common, err := s3_common.NewS3Common(conf, aws_conf, client)
+  common, err := s3_common.NewS3Common(conf, aws_conf, backup_name, client)
   if err != nil { return nil, err }
 
   inner_storage := &mem_only.BaseStorage{
@@ -112,7 +113,7 @@ func (self *s3Storage) injectConstants() {
 func (self *ChunkIoImpl) ReadOneChunk(
     ctx context.Context, key_fp types.PersistableString, chunk *pb.SnapshotChunks_Chunk, output io.WriteCloser) error {
   get_in := &s3.GetObjectInput{
-    Bucket: &self.Parent.Conf.Aws.S3.StorageBucketName,
+    Bucket: &self.Parent.common.BackupConf.StorageBucketName,
     Key: aws.String(chunk.Uuid),
   }
   get_out, err := self.Parent.Client.GetObject(ctx, get_in)
@@ -131,7 +132,7 @@ func (self *ChunkIoImpl) ReadOneChunk(
 func (self *ChunkIoImpl) WriteOneChunk(
     ctx context.Context, start_offset uint64, clear_input types.ReadEndIf) (*pb.SnapshotChunks_Chunk, bool, error) {
   content_type := "application/octet-stream"
-  chunk_len := uint64(self.Parent.Conf.Aws.S3.ChunkLen)
+  chunk_len := uint64(self.Parent.common.BackupConf.ChunkLen)
   key, err := uuid.NewRandom()
   key_str := key.String()
   if err != nil { return nil, false, err }
@@ -148,7 +149,7 @@ func (self *ChunkIoImpl) WriteOneChunk(
   if err == io.EOF { return nil, false, nil }
 
   upload_in := &s3.PutObjectInput{
-    Bucket: &self.Parent.Conf.Aws.S3.StorageBucketName,
+    Bucket: &self.Parent.common.BackupConf.StorageBucketName,
     Key:    &key_str,
     Body:   chunk_reader,
     ACL:    s3_types.ObjectCannedACLBucketOwnerFullControl,
@@ -177,7 +178,7 @@ func (self *ChunkIoImpl) WriteOneChunk(
 
 func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) types.ObjRestoreOrErr {
   restore_in := &s3.RestoreObjectInput{
-    Bucket: &self.Parent.Conf.Aws.S3.StorageBucketName,
+    Bucket: &self.Parent.common.BackupConf.StorageBucketName,
     Key: aws.String(key),
     RestoreRequest: &s3_types.RestoreRequest{
       Days: self.RestoreLifetimeDays,
@@ -208,7 +209,7 @@ func (self *ChunkIoImpl) RestoreSingleObject(ctx context.Context, key string) ty
 func (self *ChunkIoImpl) ListChunks(
     ctx context.Context, continuation *string) ([]*pb.SnapshotChunks_Chunk, *string, error) {
   list_in := &s3.ListObjectsV2Input{
-    Bucket: &self.Parent.Conf.Aws.S3.StorageBucketName,
+    Bucket: &self.Parent.common.BackupConf.StorageBucketName,
     ContinuationToken: continuation,
     MaxKeys: self.IterBufLen,
   }
@@ -243,7 +244,7 @@ func init() {
 func (self *s3Storage) pollRestoreStatus(ctx context.Context, key string) types.ObjRestoreOrErr {
   chunkio := self.ChunkIo.(*ChunkIoImpl)
   head_in := &s3.HeadObjectInput{
-    Bucket: &self.Conf.Aws.S3.StorageBucketName,
+    Bucket: &self.common.BackupConf.StorageBucketName,
     Key: aws.String(key),
   }
   head_out, err := self.Client.HeadObject(ctx, head_in)

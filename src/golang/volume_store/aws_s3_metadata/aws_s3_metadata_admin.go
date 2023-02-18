@@ -29,9 +29,9 @@ type S3MetadataAdmin struct {
   rule_name_suffix      string
 }
 
-func NewMetadataAdmin(
-    ctx context.Context, conf *pb.Config, aws_conf *aws.Config) (types.AdminMetadata, error) {
-  metadata, err := NewMetadata(ctx, conf, aws_conf)
+func NewMetadataAdmin(ctx context.Context,
+    conf *pb.Config, aws_conf *aws.Config, backup_name string) (types.AdminMetadata, error) {
+  metadata, err := NewMetadata(ctx, conf, aws_conf, backup_name)
   if err != nil { return nil, err }
 
   admin := &S3MetadataAdmin{
@@ -50,7 +50,7 @@ func (self *S3MetadataAdmin) injectConstants() {
 
 func (self *S3MetadataAdmin) SetupMetadata_Only(
     ctx context.Context) error {
-  bucket_name := self.Conf.Aws.S3.MetadataBucketName
+  bucket_name := self.Common.BackupConf.MetadataBucketName
   exists, err := self.Common.CheckBucketExistsAndIsOwnedByMyAccount(ctx, bucket_name)
   if err != nil { return err }
   if exists { return nil }
