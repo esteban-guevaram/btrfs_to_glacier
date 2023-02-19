@@ -10,11 +10,12 @@ import (
   "testing"
 
   "btrfs_to_glacier/types"
+  "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
 )
 
-func buildFilesystemUtil(t *testing.T) (*FilesystemUtil, *SysUtilMock) {
-  sys_util := &SysUtilMock{
+func buildFilesystemUtil(t *testing.T) (*FilesystemUtil, *mocks.SysUtil) {
+  sys_util := &mocks.SysUtil{
     FileContent: make(map[string]string),
     DirContent: make(map[string][]os.DirEntry),
     LinkTarget: make(map[string]string),
@@ -44,17 +45,17 @@ func TestListMounts(t *testing.T) {
 498 37 0:44  /asubvol    /tmp/btrfs_mnt_3/asubvol   rw shared:261 - btrfs /dev/loop111p1 rw
 `
   fs_reader.DirContent["/dev/disk/by-partuuid"] = []os.DirEntry{
-    &DirEntry{ Leaf:"gpt-uuid-sda1", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-sda2", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-sda3", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-sda4", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-nvme0n1p1", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-nvme0n1p2", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-nvme0n1p3", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-nvme0n1p4", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-nvme1n1p1", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-loop111p1", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"gpt-uuid-loop111p2", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-sda1", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-sda2", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-sda3", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-sda4", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-nvme0n1p1", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-nvme0n1p2", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-nvme0n1p3", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-nvme0n1p4", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-nvme1n1p1", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-loop111p1", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"gpt-uuid-loop111p2", Mode:fs.ModeSymlink, },
   }
   fs_reader.LinkTarget["/dev/disk/by-partuuid/gpt-uuid-sda1"] = "/dev/sda1"
   fs_reader.LinkTarget["/dev/disk/by-partuuid/gpt-uuid-sda2"] = "/dev/sda2"
@@ -69,16 +70,16 @@ func TestListMounts(t *testing.T) {
   fs_reader.LinkTarget["/dev/disk/by-partuuid/gpt-uuid-loop111p2"] = "/dev/loop111p2"
 
   fs_reader.DirContent["/dev/disk/by-uuid"] = []os.DirEntry{
-    &DirEntry{ Leaf:"fs-uuid-sda1", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-sda2", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-sda3", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-sda4", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-nvme0n1p1", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-nvme0n1p2", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-nvme0n1p4", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-loop111p1", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-loop111p2", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"fs-uuid-dm-0", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-sda1", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-sda2", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-sda3", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-sda4", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-nvme0n1p1", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-nvme0n1p2", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-nvme0n1p4", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-loop111p1", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-loop111p2", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"fs-uuid-dm-0", Mode:fs.ModeSymlink, },
   }
   fs_reader.LinkTarget["/dev/disk/by-uuid/fs-uuid-sda1"] = "/dev/sda1"
   fs_reader.LinkTarget["/dev/disk/by-uuid/fs-uuid-sda2"] = "/dev/sda2"
@@ -92,23 +93,23 @@ func TestListMounts(t *testing.T) {
   fs_reader.LinkTarget["/dev/disk/by-uuid/fs-uuid-dm-0"] = "/dev/dm-0"
 
   fs_reader.DirContent["/dev/block"] = []os.DirEntry{
-    &DirEntry{ Leaf:"254:0", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"259:0", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"259:1", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"259:2", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"259:3", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"259:5", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"259:6", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"259:7", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"259:8", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:0",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:1",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"7:111", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"8:0",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"8:1",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"8:2",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"8:3",   Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"8:4",   Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"254:0", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"259:0", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"259:1", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"259:2", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"259:3", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"259:5", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"259:6", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"259:7", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"259:8", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"7:0",   Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"7:1",   Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"7:111", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"8:0",   Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"8:1",   Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"8:2",   Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"8:3",   Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"8:4",   Mode:fs.ModeSymlink, },
   }
   fs_reader.LinkTarget["/dev/block/254:0"] = "/dev/dm-0"
   fs_reader.LinkTarget["/dev/block/259:0"] = "/dev/nvme1n1"
@@ -130,22 +131,22 @@ func TestListMounts(t *testing.T) {
   fs_reader.LinkTarget["/dev/block/8:4"]   = "/dev/sda4"
 
   fs_reader.DirContent["/dev/mapper"] = []os.DirEntry{
-    &DirEntry{ Leaf:"control", Mode:fs.ModeDir, },
-    &DirEntry{ Leaf:"mapper-group", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"control", Mode:fs.ModeDir, },
+    &mocks.DirEntry{ Leaf:"mapper-group", Mode:fs.ModeSymlink, },
   }
   fs_reader.LinkTarget["/dev/mapper/mapper-group"] = "/dev/dm-0"
 
   fs_reader.DirContent["/sys/block"] = []os.DirEntry{
-    &DirEntry{ Leaf:"sda", Mode:fs.ModeSymlink, },
-    &DirEntry{ Leaf:"loop111", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"sda", Mode:fs.ModeSymlink, },
+    &mocks.DirEntry{ Leaf:"loop111", Mode:fs.ModeSymlink, },
   }
   fs_reader.DirContent["/sys/block/loop111"] = []os.DirEntry{
-    &DirEntry{ Leaf:"loop", Mode:fs.ModeDir, },
-    &DirEntry{ Leaf:"loop111p1", Mode:fs.ModeDir, },
-    &DirEntry{ Leaf:"loop111p2", Mode:fs.ModeDir, },
+    &mocks.DirEntry{ Leaf:"loop", Mode:fs.ModeDir, },
+    &mocks.DirEntry{ Leaf:"loop111p1", Mode:fs.ModeDir, },
+    &mocks.DirEntry{ Leaf:"loop111p2", Mode:fs.ModeDir, },
   }
   fs_reader.DirContent["/sys/block/loop111/loop"] = []os.DirEntry{
-    &DirEntry{ Leaf:"backing_file", Mode:0, },
+    &mocks.DirEntry{ Leaf:"backing_file", Mode:0, },
   }
   fs_reader.FileContent["/sys/block/loop111/loop/backing_file"] = "/tmp/loopfile"
 

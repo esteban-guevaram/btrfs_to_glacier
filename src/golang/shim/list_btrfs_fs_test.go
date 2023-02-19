@@ -8,10 +8,12 @@ import (
   "strings"
   "testing"
 
+  "btrfs_to_glacier/types"
+  "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
 )
 
-type SysUtilMock_ForBtrfs struct { *SysUtilMock }
+type SysUtilMock_ForBtrfs struct { *mocks.SysUtil }
 
 func (self *SysUtilMock_ForBtrfs) ReadAsciiFile(
     dir string, name string, allow_ctrl bool) (string, error) {
@@ -34,11 +36,11 @@ func (self *SysUtilMock_ForBtrfs) ReadAsciiFile(
 561 1   0:43 /asubvol             /tmp/asubvol_mnt      rw shared:298 - btrfs /dev/loop111p1 subvolid=257,subvol=/asubvol
 578 1   0:43 /snaps/asubvol.snap  /tmp/with\040spaces   rw shared:341 - btrfs /dev/loop111p1 subvolid=258,subvol=/snaps/asubvol.snap
 `, nil
-  case fpmod.Base(SYS_FS_UUID):
+  case fpmod.Base(types.SYS_FS_UUID):
     return fpmod.Base(dir), nil
-  case fpmod.Base(SYS_FS_LABEL):
+  case fpmod.Base(types.SYS_FS_LABEL):
     return fmt.Sprintf("%s_label", dir), nil
-  case fpmod.Base(SYS_FS_DEVICE_FILE):
+  case fpmod.Base(types.SYS_FS_DEVICE_FILE):
     return fmt.Sprintf("%d:%d", len(dir),len(dir)), nil
   }
   return "", fmt.Errorf("'%s/%s' not found in mock", dir, name)
@@ -48,55 +50,55 @@ func (self *SysUtilMock_ForBtrfs) ReadDir(dir string) ([]os.DirEntry, error) {
   switch dir {
     case DEV_BLOCK:
       return []fs.DirEntry{
-        &DirEntry{ Leaf:"259:0", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"259:1", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"259:2", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"260:0", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"260:1", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"259:0", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"259:1", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"259:2", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"260:0", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"260:1", Mode:fs.ModeSymlink, },
       }, nil
     case DEV_BY_PART:
       return []fs.DirEntry{
-        &DirEntry{ Leaf:"gpt-uuid-sdb2", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"gpt-uuid-sdb3", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"gpt-uuid-sdc1", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"gpt-uuid-loop111p1", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"gpt-uuid-loop111p2", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"gpt-uuid-sdb2", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"gpt-uuid-sdb3", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"gpt-uuid-sdc1", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"gpt-uuid-loop111p1", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"gpt-uuid-loop111p2", Mode:fs.ModeSymlink, },
       }, nil
     case DEV_BY_UUID:
       return []fs.DirEntry{
-        &DirEntry{ Leaf:"fs-uuid-sdb2", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"fs-uuid-sdb3", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"fs-uuid-sdc1", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"fs-uuid-loop111p1", Mode:fs.ModeSymlink, },
-        &DirEntry{ Leaf:"fs-uuid-loop111p2", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"fs-uuid-sdb2", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"fs-uuid-sdb3", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"fs-uuid-sdc1", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"fs-uuid-loop111p1", Mode:fs.ModeSymlink, },
+        &mocks.DirEntry{ Leaf:"fs-uuid-loop111p2", Mode:fs.ModeSymlink, },
       }, nil
     case DEV_MAPPER:
       return []fs.DirEntry{}, nil
-    case SYS_FS_BTRFS:
+    case types.SYS_FS_BTRFS:
       return []fs.DirEntry{
-        &DirEntry{ Leaf:"fs1_uuid", Mode:fs.ModeDir, },
-        &DirEntry{ Leaf:"fs2_uuid", Mode:fs.ModeDir, },
-        &DirEntry{ Leaf:"fs3_uuid", Mode:fs.ModeDir, },
+        &mocks.DirEntry{ Leaf:"fs1_uuid", Mode:fs.ModeDir, },
+        &mocks.DirEntry{ Leaf:"fs2_uuid", Mode:fs.ModeDir, },
+        &mocks.DirEntry{ Leaf:"fs3_uuid", Mode:fs.ModeDir, },
       }, nil
-    case fpmod.Join(SYS_FS_BTRFS, "fs1_uuid"): fallthrough
-    case fpmod.Join(SYS_FS_BTRFS, "fs2_uuid"): fallthrough
-    case fpmod.Join(SYS_FS_BTRFS, "fs3_uuid"):
+    case fpmod.Join(types.SYS_FS_BTRFS, "fs1_uuid"): fallthrough
+    case fpmod.Join(types.SYS_FS_BTRFS, "fs2_uuid"): fallthrough
+    case fpmod.Join(types.SYS_FS_BTRFS, "fs3_uuid"):
       return []fs.DirEntry{
-        &DirEntry{ Leaf:SYS_FS_UUID },
-        &DirEntry{ Leaf:SYS_FS_LABEL },
-        &DirEntry{ Leaf:SYS_FS_DEVICE_DIR, Mode:fs.ModeDir, },
+        &mocks.DirEntry{ Leaf:types.SYS_FS_UUID },
+        &mocks.DirEntry{ Leaf:types.SYS_FS_LABEL },
+        &mocks.DirEntry{ Leaf:types.SYS_FS_DEVICE_DIR, Mode:fs.ModeDir, },
       }, nil
     case SYS_BLOCK:
       return []fs.DirEntry{}, nil
-    case fpmod.Join(SYS_FS_BTRFS, "fs1_uuid", SYS_FS_DEVICE_DIR):
+    case fpmod.Join(types.SYS_FS_BTRFS, "fs1_uuid", types.SYS_FS_DEVICE_DIR):
       return []fs.DirEntry{
-        &DirEntry{ Leaf:"sdb2", Mode:fs.ModeSymlink },
-        &DirEntry{ Leaf:"sdc1", Mode:fs.ModeSymlink },
+        &mocks.DirEntry{ Leaf:"sdb2", Mode:fs.ModeSymlink },
+        &mocks.DirEntry{ Leaf:"sdc1", Mode:fs.ModeSymlink },
       }, nil
-    case fpmod.Join(SYS_FS_BTRFS, "fs2_uuid", SYS_FS_DEVICE_DIR):
-      return []fs.DirEntry{ &DirEntry{ Leaf:"loop111p1", Mode:fs.ModeSymlink }, }, nil
-    case fpmod.Join(SYS_FS_BTRFS, "fs3_uuid", SYS_FS_DEVICE_DIR):
-      return []fs.DirEntry{ &DirEntry{ Leaf:"loop111p2", Mode:fs.ModeSymlink }, }, nil
+    case fpmod.Join(types.SYS_FS_BTRFS, "fs2_uuid", types.SYS_FS_DEVICE_DIR):
+      return []fs.DirEntry{ &mocks.DirEntry{ Leaf:"loop111p1", Mode:fs.ModeSymlink }, }, nil
+    case fpmod.Join(types.SYS_FS_BTRFS, "fs3_uuid", types.SYS_FS_DEVICE_DIR):
+      return []fs.DirEntry{ &mocks.DirEntry{ Leaf:"loop111p2", Mode:fs.ModeSymlink }, }, nil
   }
   return nil, fmt.Errorf("ReadDir '%s' not found in mock", dir)
 }
@@ -121,7 +123,7 @@ func (self *SysUtilMock_ForBtrfs) EvalSymlinks(path string) (string, error) {
     case "/dev/block/260:0": return "/dev/loop111p1", nil
     case "/dev/block/260:1": return "/dev/loop111p2", nil
     default:
-      if strings.HasPrefix(path, SYS_FS_BTRFS) { return fpmod.Join("/dev", fpmod.Base(path)), nil }
+      if strings.HasPrefix(path, types.SYS_FS_BTRFS) { return fpmod.Join("/dev", fpmod.Base(path)), nil }
   }
   return "", fmt.Errorf("EvalSymlinks '%s' not found in mock", path)
 }

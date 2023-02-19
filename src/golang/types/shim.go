@@ -5,6 +5,14 @@ import (
   pb "btrfs_to_glacier/messages"
 )
 
+// Constants for the sysps pseudo filesystem linux interface.
+const SYS_FS_BTRFS = "/sys/fs/btrfs"
+const SYS_FS_FEATURE_DIR = "features"
+const SYS_FS_UUID = "metadata_uuid"
+const SYS_FS_LABEL = "label"
+const SYS_FS_DEVICE_DIR = "devices"
+const SYS_FS_DEVICE_FILE = "dev"
+
 // Represents a line in /proc/self/mountinfo
 // Many be enriched from info from other places ...
 type MountEntry struct {

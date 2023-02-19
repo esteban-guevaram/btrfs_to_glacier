@@ -24,13 +24,16 @@ const DEV_BY_PART = "/dev/disk/by-partuuid" //ex: YYYYYYYY-bc17-4e6f-9c1d-XXXXXX
 const DEV_BY_UUID = "/dev/disk/by-uuid" //ex: ZZZZ-WWWW -> ../../sda1
 const DEV_MAPPER = "/dev/mapper" //ex: mapper-group -> ../dm-0
 const SYS_BLOCK = "/sys/block" // Block devices are presented like a tree. ex sda -> (sda1, sda2)
-const SYS_FS_BTRFS = "/sys/fs/btrfs"
-const SYS_FS_FEATURE_DIR = "features"
-const SYS_FS_UUID = "metadata_uuid"
-const SYS_FS_LABEL = "label"
-const SYS_FS_DEVICE_DIR = "devices"
-const SYS_FS_DEVICE_FILE = "dev"
 const MOUNT_INFO = "/proc/self/mountinfo"
+
+type SysUtilIf interface {
+  ReadAsciiFile(string, string, bool) (string, error)
+  ReadDir(string) ([]os.DirEntry, error)
+  IsDir(string) bool
+  Remove(string) error
+  EvalSymlinks(string) (string, error)
+  CombinedOutput(*exec.Cmd) ([]byte, error)
+}
 
 type FilesystemUtil struct {
   SysUtil  SysUtilIf
@@ -455,34 +458,34 @@ func (self *FilesystemUtil) btrfsFilesystemsFromSysFs(dev_map map[string]*types.
   return self.btrfsFilesystemsMatching(nil, dev_map)
 }
 
-// SYS_FS_BTRFS will only show filesystems that have been mounted.
+// types.SYS_FS_BTRFS will only show filesystems that have been mounted.
 func (self *FilesystemUtil) btrfsFilesystemsMatching(
     include_rx *regexp.Regexp, dev_map map[string]*types.Device) ([]*types.Filesystem, error) {
   var fs_list []*types.Filesystem
-  items, err := self.SysUtil.ReadDir(SYS_FS_BTRFS)
+  items, err := self.SysUtil.ReadDir(types.SYS_FS_BTRFS)
   if err != nil { return nil, err }
 
   for _,item := range items {
     if !item.IsDir() { continue }
     if include_rx != nil && !include_rx.MatchString(item.Name()) { continue }
-    if item.Name() == SYS_FS_FEATURE_DIR { continue }
+    if item.Name() == types.SYS_FS_FEATURE_DIR { continue }
     fs_item := &types.Filesystem{ Uuid: item.Name(), }
-    dir_path := fpmod.Join(SYS_FS_BTRFS, fs_item.Uuid)
+    dir_path := fpmod.Join(types.SYS_FS_BTRFS, fs_item.Uuid)
     items, err := self.SysUtil.ReadDir(dir_path)
     if err != nil { return nil, err }
 
     for _,item := range items {
       switch name := item.Name(); name {
-        case SYS_FS_UUID:
+        case types.SYS_FS_UUID:
           uuid, err := self.SysUtil.ReadAsciiFile(dir_path, name, false)
           if err != nil { return nil, err }
           if uuid != fs_item.Uuid { return nil, fmt.Errorf("fs uuid mismatch: %s != %s", uuid, fs_item.Uuid) }
-        case SYS_FS_LABEL:
+        case types.SYS_FS_LABEL:
           label, err := self.SysUtil.ReadAsciiFile(dir_path, name, false)
           if err != nil { return nil, err }
           if len(label) < 1 { return nil, fmt.Errorf("expect fs to have a non empty label") }
           fs_item.Label = label
-        case SYS_FS_DEVICE_DIR:
+        case types.SYS_FS_DEVICE_DIR:
           devs, err := self.readSysFsBtrfsDir(dev_map, fpmod.Join(dir_path, name))
           if err != nil { return nil, err }
           fs_item.Devices = devs

@@ -178,7 +178,7 @@ func (self *TestFilesystemUtil) TestLoopdevMountUmount(fs_uuid string) {
 
   got_mnt, err := self.linuxutil.Mount(context.TODO(), fs_uuid, target_mnt)
   if err != nil { util.Fatalf("linuxutil.Mount: %v", err) }
-  fs_sys_path := fpmod.Join(shim.SYS_FS_BTRFS, fs_uuid)
+  fs_sys_path := fpmod.Join(types.SYS_FS_BTRFS, fs_uuid)
 
   mnt_list, err := self.linuxutil.ListBlockDevMounts()
   if err != nil { util.Fatalf("linuxutil.ListBlockDevMounts: %v", err) }

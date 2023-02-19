@@ -10,13 +10,14 @@ import "C"
 import (
   "context"
   "io"
-  pb "btrfs_to_glacier/messages"
-  "btrfs_to_glacier/util"
-  "btrfs_to_glacier/types"
   "fmt"
   fpmod "path/filepath"
   "strings"
   "unsafe"
+
+  pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/util"
+  "btrfs_to_glacier/types"
 )
 
 const NULL_UUID = "00000000000000000000000000000000"
