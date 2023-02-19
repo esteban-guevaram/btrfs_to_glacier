@@ -193,6 +193,7 @@ func TestReadExhaustedThenCloseBehavior(t *testing.T) {
     write_done := make(chan error)
     go func() {
       defer close(write_done)
+      defer writer.Close()
       var err error
       for err == nil {
         _, err = writer.Write([]byte(message))
@@ -202,11 +203,13 @@ func TestReadExhaustedThenCloseBehavior(t *testing.T) {
       defer close(read_done)
       defer reader.Close()
       buffer := make([]byte, 3+len(message)) // unaligned read and writes
-      for i:=0;i<7;i+=1 {
+      for total:=0; total < (len(buffer) * 7); {
         cnt,err := reader.Read(buffer)
-        if err != nil || cnt < len(message) {
-          t.Fatalf("Read failed prematurely: scope:%s, count:%d, err:%v", scope, cnt, err)
+        if err != nil || cnt == 0 {
+          t.Fatalf("Read failed prematurely: scope:%s, count:%d, err:%v, total:%d",
+                   scope, cnt, err, total)
         }
+        total += cnt
       }
     }()
     for done_cnt:=0; done_cnt != 2; {
@@ -214,7 +217,8 @@ func TestReadExhaustedThenCloseBehavior(t *testing.T) {
         case <-read_done:  done_cnt+=1 ; read_done = nil
         case <-write_done: done_cnt+=1 ; write_done = nil
         case <-ctx.Done():
-          t.Fatalf("Context expired while running test '%s'", scope)
+          t.Fatalf("Context expired TestReadExhaustedThenCloseBehavior '%s', read:%v, write:%v",
+                   scope, read_done, write_done)
       }
     }
   }
@@ -271,7 +275,7 @@ func TestNonPropagatingLimitedReadEnd(t *testing.T) {
   defer close(done)
   go func() {
     select {
-      case <-done:
+      case <-done: return
       case <-ctx.Done():
         t.Fatalf("timedout while testing")
     }
@@ -294,6 +298,7 @@ func TestNonPropagatingLimitedReadEnd(t *testing.T) {
   if count != (len(message) - limit_len) || err != nil {
     t.Errorf("pipe.ReadEnd().Read(buffer): count:%d, err:%v", count, err)
   }
+  done <- true // we are done but wait for coroutine to finish.
 }
 
 func TestStartCmdWithPipedOutput_Echo(t *testing.T) {

@@ -324,28 +324,22 @@ func testStream_TimeoutReadAfterClose_Helper(t *testing.T, stream_f streamf_t) {
   defer cancel()
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, /*infinite*/0)
 
-  timely_close := make(chan bool, 1)
-  timedout := make(chan bool, 1)
-  go func() {
-    select {
-      case <-timely_close: return
-      case <-time.After(util.LargeTimeout): close(timedout)
-    }
-  }()
-
+  timely_close := make(chan bool)
   out, err := stream_f(ctx, read_pipe)
   if err != nil { t.Fatalf("Could process stream: %v", err) }
+
   go func() {
-    buf := make([]byte, 32)
-    defer out.Close()
     defer close(timely_close)
+    defer out.Close()
+    buf := make([]byte, 32)
     select { case <-ctx.Done(): }
     select { case <-time.After(util.SmallTimeout): out.Read(buf) }
   }()
 
+  // Wait until we are done
   select {
-    case <-timely_close:
-    case <-timedout:
+    case <-timely_close: return
+    case <-time.After(util.LargeTimeout):
       t.Fatalf("codec did not react to context timeout.")
   }
 }
