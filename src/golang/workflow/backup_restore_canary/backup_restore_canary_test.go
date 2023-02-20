@@ -27,7 +27,7 @@ type Mocks struct {
 }
 
 func (self *Mocks) NewBackupManager(ctx context.Context,
-    conf *pb.Config, src_name string) (types.BackupManagerAdmin, error) {
+    conf *pb.Config) (types.BackupManagerAdmin, error) {
   self.BackupMgr.InitFromConfSource(conf.Sources[0])
   if self.InitBackup != nil {
     err := self.InitBackup(self.BackupMgr)
@@ -77,7 +77,7 @@ func buildBackupRestoreCanary(hist_len int) (*BackupRestoreCanary, *Mocks) {
   mock.RestoreMgr.PopulateRestore = mocks.PopulateRestoreCorrect
   mock.InitBackup = func(bkp *mocks.BackupManager) error {
     for range make([]int, hist_len) {
-      _, err := bkp.BackupAllToCurrentSequences(context.Background())
+      _, err := bkp.BackupAllToCurrentSequences(context.Background(), bkp.AllSrcVols())
       if err != nil { return err }
     }
     return nil 

@@ -135,7 +135,7 @@ func (self *VolumeManager) ClearSnaps() {
 
 func (self *VolumeManager) AllVols() []*pb.SubVolume {
   all := []*pb.SubVolume{}
-  for _,sv := range self.Vols { all = append(all, sv) }
+  for _,sv := range self.Vols { all = append(all, proto.Clone(sv).(*pb.SubVolume)) }
   return all
 }
 

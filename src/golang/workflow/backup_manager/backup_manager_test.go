@@ -131,7 +131,7 @@ func buildBackupManagerEmpty(path_count int) (*BackupManager, *Mocks) {
     Store: store,
     Source: source,
   }
-  mgr, err := NewBackupManager(conf, conf.Sources[0].Name, meta, store, source)
+  mgr, err := NewBackupManager(conf, meta, store, source)
   if err != nil { util.Fatalf("BuildBackupManager: %v", err) }
   return mgr.(*BackupManager), mocks
 }
@@ -147,7 +147,7 @@ func buildBackupManager(
     Source: source,
   }
   mocks.AddSvAndSnapsFromMetaInSrc()
-  mgr, err := NewBackupManager(conf, conf.Sources[0].Name, meta, store, source)
+  mgr, err := NewBackupManager(conf, meta, store, source)
   if err != nil { util.Fatalf("BuildBackupManager: %v", err) }
   return mgr.(*BackupManager), mocks
 }
@@ -268,10 +268,10 @@ func HelperBackupAllToCurrentSequences_NoMetaNoSource(t *testing.T, vol_count in
   var pairs []types.BackupPair
   var err error
   if new_seq {
-    pairs, err = mgr.BackupAllToNewSequences(ctx)
+    pairs, err = mgr.BackupAllToNewSequences(ctx, mocks.Source.AllVols())
   }
   /*else*/ if !new_seq {
-    pairs, err = mgr.BackupAllToCurrentSequences(ctx)
+    pairs, err = mgr.BackupAllToCurrentSequences(ctx, mocks.Source.AllVols())
   }
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
@@ -282,7 +282,7 @@ func HelperBackupAllToCurrentSequences_NoMetaNoSource(t *testing.T, vol_count in
   }
 
   // Idempotency
-  _, err = mgr.BackupAllToCurrentSequences(ctx)
+  _, err = mgr.BackupAllToCurrentSequences(ctx, mocks.Source.AllVols())
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
   ValidateObjectCounts(t, mocks, new_state.IncMeta(0,0,0,vol_count))
 }
@@ -304,7 +304,7 @@ func TestBackupAllToCurrentSequences_SeqInMetaButNoSnapInSrc(t *testing.T) {
   meta, store := mocks.DummyMetaAndStorage(1,1,1,1)
   mgr, mocks := buildBackupManager(meta, store, mocks.NewVolumeManager())
   mocks.Source.ClearSnaps()
-  _, err := mgr.BackupAllToCurrentSequences(ctx)
+  _, err := mgr.BackupAllToCurrentSequences(ctx, mocks.Source.AllVols())
   if !errors.Is(err, ErrSnapsMismatchWithSrc) { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 }
 
@@ -320,7 +320,7 @@ func HelperBackupAllToCurrentSequences_NewSeq_OldSnaps(t *testing.T, vol_count i
   expect_state := mocks.CountState().IncMeta(vol_count, vol_count, vol_count, vol_count).
                                      IncSource(0, 0, vol_count, 0).
                                      IncStore(vol_count, 0)
-  pairs, err := mgr.BackupAllToCurrentSequences(ctx)
+  pairs, err := mgr.BackupAllToCurrentSequences(ctx, mocks.Source.AllVols())
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
@@ -345,7 +345,7 @@ func TestBackupAllToCurrentSequences_HeadButNoSeq(t *testing.T) {
   meta, store := mocks.DummyMetaAndStorage(vol_count,1,1,1)
   mgr, mocks := buildBackupManager(meta, store, mocks.NewVolumeManager())
   mocks.Meta.Seqs = make(map[string]*pb.SnapshotSequence)
-  _, err := mgr.BackupAllToCurrentSequences(ctx)
+  _, err := mgr.BackupAllToCurrentSequences(ctx, mocks.Source.AllVols())
   if !errors.Is(err, types.ErrNotFound) { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 }
 
@@ -361,7 +361,7 @@ func TestBackupAllToCurrentSequences_PrevSnapsAndMeta(t *testing.T) {
   new_state := mocks.CountState().IncMeta(0, 0, vol_count, vol_count).
                                   IncSource(0, 0, vol_count, 0).
                                   IncStore(vol_count, 0)
-  pairs, err := mgr.BackupAllToCurrentSequences(ctx)
+  pairs, err := mgr.BackupAllToCurrentSequences(ctx, mocks.Source.AllVols())
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
@@ -378,7 +378,7 @@ func TestBackupAllToCurrentSequences_PrevSnapsAndMeta(t *testing.T) {
   }
 
   // Idempotency
-  _, err = mgr.BackupAllToCurrentSequences(ctx)
+  _, err = mgr.BackupAllToCurrentSequences(ctx, mocks.Source.AllVols())
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
   ValidateObjectCounts(t, mocks, new_state.IncMeta(0,0,0,vol_count))
 }
@@ -397,7 +397,7 @@ func TestBackupAllToCurrentSequences_ReuseRecentSnap(t *testing.T) {
   new_state := mocks.CountState().IncMeta(0, 0, vol_count, vol_count).
                                   IncSource(0, 0, 0, 0).
                                   IncStore(vol_count, 0)
-  pairs, err := mgr.BackupAllToCurrentSequences(ctx)
+  pairs, err := mgr.BackupAllToCurrentSequences(ctx, mocks.Source.AllVols())
   if err != nil { util.Fatalf("BackupAllToCurrentSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
@@ -420,14 +420,14 @@ func TestBackupAllToNewSequences_PrevSnapsAndMeta(t *testing.T) {
   new_state := mocks.CountState().IncMeta(0, vol_count, vol_count, vol_count).
                                   IncSource(0, 0, vol_count, 0).
                                   IncStore(vol_count, 0)
-  pairs, err := mgr.BackupAllToNewSequences(ctx)
+  pairs, err := mgr.BackupAllToNewSequences(ctx, mocks.Source.AllVols())
   if err != nil { util.Fatalf("BackupAllToNewSequences: %v", err) }
 
   ValidateBackupPairs(t, mocks, expect_svs, pairs)
   ValidateObjectCounts(t, mocks, new_state)
 
   // NON Idempotency (but re-use recent snaps in source)
-  _, err = mgr.BackupAllToNewSequences(ctx)
+  _, err = mgr.BackupAllToNewSequences(ctx, mocks.Source.AllVols())
   if err != nil { util.Fatalf("BackupAllToNewSequences: %v", err) }
   new_state = new_state.IncMeta(0, vol_count, 0, vol_count)
   ValidateObjectCounts(t, mocks, new_state)

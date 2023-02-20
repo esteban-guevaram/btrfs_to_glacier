@@ -24,15 +24,14 @@ var ErrCloneShouldHaveNoChild = errors.New("unrelated_clone_must_not_have_previo
 // Meta and Content must already been setup
 type BackupManager struct {
   Conf     *pb.Config
-  SrcConf  *pb.Source
   Meta     types.Metadata
-  Content    types.BackupContent
+  Content  types.BackupContent
   Source   types.VolumeSource
   MinInterval time.Duration
 }
 
-func NewBackupManager(
-    conf *pb.Config, src_name string, meta types.Metadata, content types.BackupContent, vol_src types.VolumeSource) (types.BackupManager, error) {
+func NewBackupManager(conf *pb.Config,
+    meta types.Metadata, content types.BackupContent, vol_src types.VolumeSource) (types.BackupManager, error) {
   mgr := &BackupManager{
     Conf: conf,
     Meta: meta,
@@ -41,17 +40,7 @@ func NewBackupManager(
     MinInterval: MinIntervalBetweenSnaps,
   }
   var err error
-  mgr.SrcConf, err = mgr.GetSource(src_name)
   return mgr, err
-}
-
-func (self *BackupManager) GetSource(src_name string) (*pb.Source, error) {
-  for _, src := range self.Conf.Sources {
-    if src.Name == src_name && src.Type == pb.Source_BTRFS {
-      return src, nil
-    }
-  }
-  return nil, fmt.Errorf("Source '%s' is not in configuration", src_name)
 }
 
 // Does NOT write anything to self.Meta: writes should be ordered chunk -> snap -> seq -> head
@@ -153,12 +142,12 @@ func (self *BackupManager) PersistSequence(
   return new_seq, nil
 }
 
-func (self *BackupManager) BackupAllHelper(ctx context.Context, new_seq bool) ([]types.BackupPair, error) {
+func (self *BackupManager) BackupAllHelper(
+    ctx context.Context, subvols []*pb.SubVolume, new_seq bool) ([]types.BackupPair, error) {
+  if len(subvols) == 0 { return nil, fmt.Errorf("BackupAllHelper subvols empty") }
   backups := make([]types.BackupPair, 0, 10)
 
-  for _, p_pair := range self.SrcConf.Paths {
-    sv, err := self.Source.GetVolume(p_pair.VolPath) 
-    if err != nil { return backups, err }
+  for _,sv := range subvols {
     seq, err := self.GetSequenceFor(ctx, sv, new_seq)
     if err != nil { return backups, err }
     snap, err := self.BackupSingleSvToSequence(ctx, sv, seq)
@@ -170,12 +159,14 @@ func (self *BackupManager) BackupAllHelper(ctx context.Context, new_seq bool) ([
   return backups, nil
 }
 
-func (self *BackupManager) BackupAllToCurrentSequences(ctx context.Context) ([]types.BackupPair, error) {
-  return self.BackupAllHelper(ctx, /*new_seq=*/false)
+func (self *BackupManager) BackupAllToCurrentSequences(
+    ctx context.Context, subvols []*pb.SubVolume) ([]types.BackupPair, error) {
+  return self.BackupAllHelper(ctx, subvols, /*new_seq=*/false)
 }
 
-func (self *BackupManager) BackupAllToNewSequences(ctx context.Context) ([]types.BackupPair, error) {
-  return self.BackupAllHelper(ctx, /*new_seq=*/true)
+func (self *BackupManager) BackupAllToNewSequences(
+    ctx context.Context, subvols []*pb.SubVolume) ([]types.BackupPair, error) {
+  return self.BackupAllHelper(ctx, subvols, /*new_seq=*/true)
 }
 
 // dd if=/dev/zero of=/tmp/loop.file bs=1M count=64

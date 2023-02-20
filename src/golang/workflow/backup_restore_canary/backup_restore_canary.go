@@ -32,7 +32,7 @@ var ErrValidateDelDir = errors.New("validate_error_del_dir")
 // Used to lazy initialize specific object to the fake configs created for the fake filesystem loop device.
 type MgrFactoryIf interface {
   NewBackupManager(ctx context.Context,
-    conf *pb.Config, src_name string) (types.BackupManagerAdmin, error)
+    conf *pb.Config) (types.BackupManagerAdmin, error)
   NewRestoreManager(ctx context.Context,
     conf *pb.Config, dst_name string) (types.RestoreManager, error)
 }
@@ -114,7 +114,7 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
 
   self.State.FakeConf = self.BuildFakeConf()
 
-  self.State.BackupMgr, err = self.Factory.NewBackupManager(ctx, self.State.FakeConf, FakeSource)
+  self.State.BackupMgr, err = self.Factory.NewBackupManager(ctx, self.State.FakeConf)
   if err != nil { return err }
 
   self.State.RestoreMgr, err = self.Factory.NewRestoreManager(ctx, self.State.FakeConf, FakeDestination)
@@ -127,9 +127,11 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
     self.State.New = true
     err = self.Btrfs.CreateSubvolume(self.State.VolRoot)
     if err != nil { return err }
+    sv, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
+    if err != nil { return err }
     err = self.CreateFirstValidationChainItem()
     if err != nil { return err }
-    _, err = self.State.BackupMgr.BackupAllToCurrentSequences(ctx)
+    _, err = self.State.BackupMgr.BackupAllToCurrentSequences(ctx, []*pb.SubVolume{sv,})
     if err != nil { return err }
     self.State.Uuid, err = self.DetermineVolUuid(ctx)
     if err != nil { return err }
@@ -254,7 +256,9 @@ func (self *BackupRestoreCanary) AppendSnapshotToValidationChain(
   if self.State.New {
     err := self.AppendDataToSubVolume()
     if err != nil { return result, err }
-    bkp_pair, err := self.State.BackupMgr.BackupAllToCurrentSequences(ctx)
+    sv, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
+    if err != nil { return result, err }
+    bkp_pair, err := self.State.BackupMgr.BackupAllToCurrentSequences(ctx, []*pb.SubVolume{sv,})
     if err != nil { return result, err }
     if len(bkp_pair) != 1 {
       return bkp_pair[0], fmt.Errorf("canary should use just 1 subvolume")

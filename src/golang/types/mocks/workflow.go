@@ -37,6 +37,14 @@ func (self *BackupManager) InitFromConfSource(src *pb.Source) {
   }
 }
 
+func (self *BackupManager) AllSrcVols() []*pb.SubVolume {
+  var subvols []*pb.SubVolume
+  for _,sv := range self.SrcVols {
+    subvols = append(subvols, proto.Clone(sv).(*pb.SubVolume))
+  }
+  return subvols
+}
+
 func (self *BackupManager) OrigForUuid(vol_uuid string) (*pb.SubVolume, error) {
   sv, found := self.SrcVols[vol_uuid]
   if !found { return nil, fmt.Errorf("%s not found in SrcVols", vol_uuid) }
@@ -81,11 +89,16 @@ func (self *BackupManager) BackupSingleHelper(
 }
 
 func (self *BackupManager) BackupAllToCurrentSequences(
-    ctx context.Context) ([]types.BackupPair, error) {
-  res := make([]types.BackupPair, 0, len(self.SrcVols))
-  clone := make([]types.BackupPair, 0, len(self.SrcVols))
-  for _,sv := range self.SrcVols {
-    p, p2 := self.BackupSingleHelper(sv)
+    ctx context.Context, subvols []*pb.SubVolume) ([]types.BackupPair, error) {
+  res := make([]types.BackupPair, 0, len(subvols))
+  clone := make([]types.BackupPair, 0, len(subvols))
+  for _,sv := range subvols {
+    inner_sv, found := self.SrcVols[sv.Uuid]
+    if !found {
+      inner_sv = proto.Clone(sv).(*pb.SubVolume)
+      self.SrcVols[sv.Uuid] = inner_sv
+    }
+    p, p2 := self.BackupSingleHelper(inner_sv)
     res = append(res, p)
     clone = append(clone, p2)
   }
@@ -94,9 +107,9 @@ func (self *BackupManager) BackupAllToCurrentSequences(
 }
 
 func (self *BackupManager) BackupAllToNewSequences(
-    ctx context.Context) ([]types.BackupPair, error) {
+    ctx context.Context, subvols []*pb.SubVolume) ([]types.BackupPair, error) {
   util.Fatalf("This mock is too simple?")
-  pairs,_ := self.BackupAllToCurrentSequences(ctx)
+  pairs,_ := self.BackupAllToCurrentSequences(ctx, subvols)
   return pairs, self.ErrInject(self.BackupAllToNewSequences)
 }
 
