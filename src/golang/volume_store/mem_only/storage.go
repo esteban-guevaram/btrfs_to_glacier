@@ -50,7 +50,7 @@ type ObjectIterator struct {
   InnerErr error
 }
 
-func NewStorageAdmin(conf *pb.Config, codec types.Codec) (types.AdminBackupContent, error) {
+func NewBackupContentAdmin(conf *pb.Config, codec types.Codec) (types.AdminBackupContent, error) {
   base := &BaseStorage{
     ChunkIo: &ChunkIoImpl{
       Chunks: make(map[string][]byte),
@@ -63,8 +63,8 @@ func NewStorageAdmin(conf *pb.Config, codec types.Codec) (types.AdminBackupConte
   return &Storage{base}, nil
 }
 
-func NewStorage(conf *pb.Config, codec types.Codec) (types.BackupContent, error) {
-  return NewStorageAdmin(conf, codec)
+func NewBackupContent(conf *pb.Config, codec types.Codec) (types.BackupContent, error) {
+  return NewBackupContentAdmin(conf, codec)
 }
 
 func (self *ChunkIoImpl) ReadOneChunk(

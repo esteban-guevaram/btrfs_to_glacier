@@ -123,7 +123,7 @@ func buildBackupManagerEmpty(path_count int) (*BackupManager, *Mocks) {
   conf := util.LoadTestConf()
   conf.Sources = buildConfSources(1, path_count)
   meta := mocks.NewMetadata()
-  store := mocks.NewStorage()
+  store := mocks.NewBackupContent()
   source := mocks.NewVolumeManager()
   mocks := &Mocks{
     ConfSrc: conf.Sources[0],

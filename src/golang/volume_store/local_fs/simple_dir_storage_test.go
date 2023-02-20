@@ -57,7 +57,7 @@ func buildTestSimpleDirStorage(
   local_fs, clean_f := util.LoadTestSimpleDirBackupConf()
   conf := util.LoadTestConfWithLocalFs(local_fs)
   gen_store,err := NewSimpleDirStorageAdmin(conf, codec, local_fs.Sinks[0].Partitions[0].FsUuid)
-  if err != nil { util.Fatalf("NewStorage: %v", err) }
+  if err != nil { util.Fatalf("NewBackupContent: %v", err) }
   storage := gen_store.(*SimpleDirStorage)
   chunkio := &ChunkIoForTestImpl{ ChunkIoImpl: storage.ChunkIo.(*ChunkIoImpl) }
   chunkio.ChunkLen = chunk_len

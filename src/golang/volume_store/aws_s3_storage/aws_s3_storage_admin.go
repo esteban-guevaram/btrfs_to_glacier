@@ -29,9 +29,9 @@ type s3StorageAdmin struct {
   rule_name_suffix        string
 }
 
-func NewStorageAdmin(conf *pb.Config, aws_conf *aws.Config, backup_name string,
+func NewBackupContentAdmin(conf *pb.Config, aws_conf *aws.Config, backup_name string,
     codec types.Codec) (types.AdminBackupContent, error) {
-  storage, err := NewStorage(conf, aws_conf, backup_name, codec)
+  storage, err := NewBackupContent(conf, aws_conf, backup_name, codec)
   if err != nil { return nil, err }
 
   del_storage := &s3StorageAdmin{ s3Storage: storage.(*s3Storage), }

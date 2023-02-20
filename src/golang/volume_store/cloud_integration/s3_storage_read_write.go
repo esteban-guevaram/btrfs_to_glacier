@@ -326,7 +326,7 @@ func TestAllS3Storage(ctx context.Context, conf *pb.Config, aws_conf *aws.Config
 
   codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
-  storage, err := store.NewStorageAdmin(new_conf, aws_conf, Backup(new_conf).Name, codec)
+  storage, err := store.NewBackupContentAdmin(new_conf, aws_conf, Backup(new_conf).Name, codec)
   //client := s3.NewFromConfig(*aws_conf)
   client := store.TestOnlyGetInnerClientToAvoidConsistencyFails(storage)
   if err != nil { util.Fatalf("%v", err) }

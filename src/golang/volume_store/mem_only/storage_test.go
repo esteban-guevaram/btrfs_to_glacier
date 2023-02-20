@@ -32,8 +32,8 @@ func (self *ChunkIoForTestImpl) AlwaysReturnErr(storage types.BackupContent, err
 func buildTestStorage(
     t *testing.T, chunk_len uint64, codec types.Codec) (*Storage, *ChunkIoForTestImpl) {
   conf := util.LoadTestConf()
-  gen_store,err := NewStorage(conf, codec)
-  if err != nil { util.Fatalf("NewStorage: %v", err) }
+  gen_store,err := NewBackupContent(conf, codec)
+  if err != nil { util.Fatalf("NewBackupContent: %v", err) }
   storage := gen_store.(*Storage)
   chunkio := &ChunkIoForTestImpl{ ChunkIoImpl: storage.ChunkIo.(*ChunkIoImpl) }
   chunkio.ChunkLen = chunk_len

@@ -53,7 +53,7 @@ func (self *Metadata) Clear() {
   self.Versions = []string{}
 }
 
-func NewStorage() *Storage {
+func NewBackupContent() *Storage {
   s := &Storage{}
   s.Clear()
   return s
@@ -436,7 +436,7 @@ func (self *Metadata) CurrentSnapsForHead(head_uuid string) []*pb.SubVolume {
 // and so forth including storage chunks.
 func DummyMetaAndStorage(
     head_cnt int, seq_cnt int, snap_cnt int, chunk_cnt int) (*Metadata, *Storage) {
-  storage := NewStorage()
+  storage := NewBackupContent()
   metadata := NewMetadata()
   total_seqs := head_cnt*seq_cnt
   total_snaps := total_seqs*snap_cnt
