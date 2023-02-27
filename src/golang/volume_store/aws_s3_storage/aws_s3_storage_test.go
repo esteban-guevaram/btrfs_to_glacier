@@ -69,7 +69,7 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3StorageAdmin, *
     HeadAlwaysAccessDenied: false,
   }
   codec := new(mocks.Codec)
-  aws_conf, err := util.NewAwsConfig(context.TODO(), conf)
+  aws_conf, err := util.NewAwsConfigFromStaticCreds(conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
   common, err := s3_common.NewS3Common(conf, aws_conf, conf.Backups[0].Name, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }

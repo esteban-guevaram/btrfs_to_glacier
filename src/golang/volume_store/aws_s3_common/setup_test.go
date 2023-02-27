@@ -20,7 +20,7 @@ func buildTestAdminsetup(t *testing.T) (*S3Common, *MockS3Client) {
     HeadAlwaysEmpty: false,
     HeadAlwaysAccessDenied: false,
   }
-  aws_conf, err := util.NewAwsConfig(context.TODO(), conf)
+  aws_conf, err := util.NewAwsConfigFromStaticCreds(conf)
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
   common, err := NewS3Common(conf, aws_conf, conf.Backups[0].Name, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }

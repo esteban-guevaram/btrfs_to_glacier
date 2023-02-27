@@ -21,7 +21,7 @@ func main() {
   conf := LoadAwsTestConfWithFlagOverwrites()
   //conf = useUniqueInfrastructureNames(conf)
 
-  aws_conf, err := util.NewAwsConfig(ctx, conf)
+  aws_conf, err := util.NewAwsConfigFromStaticCreds(conf)
   if err != nil { util.Fatalf("%v", err) }
 
   TestCallerIdentity(ctx, conf, aws_conf)

@@ -12,7 +12,7 @@ import (
   "github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
-func NewAwsConfig(ctx context.Context, conf *pb.Config) (*aws.Config, error) {
+func NewAwsConfigFromStaticCreds(conf *pb.Config) (*aws.Config, error) {
   creds := credentials.StaticCredentialsProvider{
     Value: aws.Credentials{
       AccessKeyID: conf.Aws.AccessKeyId,
@@ -20,7 +20,8 @@ func NewAwsConfig(ctx context.Context, conf *pb.Config) (*aws.Config, error) {
       SessionToken: conf.Aws.SessionToken,
     },
   }
-  cfg, err := config.LoadDefaultConfig(ctx,
+  cfg, err := config.LoadDefaultConfig(
+    context.Background(),
     config.WithCredentialsProvider(creds),
     config.WithDefaultRegion(conf.Aws.Region),
   )
