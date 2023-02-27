@@ -35,9 +35,9 @@ func get_system_info(linuxutil types.Linuxutil) *pb.SystemInfo {
   }
 }
 
-func NewVolumeManager(
+func newBtrfsVolumeManager(
     conf *pb.Config, btrfsutil types.Btrfsutil, linuxutil types.Linuxutil,
-    juggler types.BtrfsPathJuggler) (types.VolumeManager, error) {
+    juggler types.BtrfsPathJuggler) (*btrfsVolumeManager, error) {
   fs_list, err := juggler.CheckSourcesAndReturnCorrespondingFs(conf.Sources)
   mgr := btrfsVolumeManager{
     btrfsutil,
@@ -47,6 +47,30 @@ func NewVolumeManager(
     fs_list,
   }
   return &mgr, err
+}
+
+func NewVolumeManager(
+    conf *pb.Config, btrfsutil types.Btrfsutil, linuxutil types.Linuxutil,
+    juggler types.BtrfsPathJuggler) (types.VolumeManager, error) {
+  return newBtrfsVolumeManager(conf, btrfsutil, linuxutil, juggler)
+}
+
+func NewVolumeSource(
+    conf *pb.Config, btrfsutil types.Btrfsutil, linuxutil types.Linuxutil,
+    juggler types.BtrfsPathJuggler) (types.VolumeSource, error) {
+  return newBtrfsVolumeManager(conf, btrfsutil, linuxutil, juggler)
+}
+
+func NewVolumeDestination(
+    conf *pb.Config, btrfsutil types.Btrfsutil, linuxutil types.Linuxutil,
+    juggler types.BtrfsPathJuggler) (types.VolumeDestination, error) {
+  return newBtrfsVolumeManager(conf, btrfsutil, linuxutil, juggler)
+}
+
+func NewVolumeAdmin(
+    conf *pb.Config, btrfsutil types.Btrfsutil, linuxutil types.Linuxutil,
+    juggler types.BtrfsPathJuggler) (types.VolumeAdmin, error) {
+  return newBtrfsVolumeManager(conf, btrfsutil, linuxutil, juggler)
 }
 
 func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {

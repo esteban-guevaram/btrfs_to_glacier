@@ -30,8 +30,8 @@ type BackupManager struct {
   MinInterval time.Duration
 }
 
-func NewBackupManager(conf *pb.Config,
-    meta types.Metadata, content types.BackupContent, vol_src types.VolumeSource) (types.BackupManager, error) {
+func NewBackupManagerAdmin(conf *pb.Config,
+    meta types.Metadata, content types.BackupContent, vol_src types.VolumeSource) (types.BackupManagerAdmin, error) {
   mgr := &BackupManager{
     Conf: conf,
     Meta: meta,
@@ -39,8 +39,12 @@ func NewBackupManager(conf *pb.Config,
     Source: vol_src,
     MinInterval: MinIntervalBetweenSnaps,
   }
-  var err error
-  return mgr, err
+  return mgr, nil
+}
+
+func NewBackupManager(conf *pb.Config,
+    meta types.Metadata, content types.BackupContent, vol_src types.VolumeSource) (types.BackupManager, error) {
+  return NewBackupManagerAdmin(conf, meta, content, vol_src)
 }
 
 // Does NOT write anything to self.Meta: writes should be ordered chunk -> snap -> seq -> head

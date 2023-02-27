@@ -17,6 +17,17 @@ type Metadata struct {
   State      *pb.AllMetadata
 }
 
+func NewMetadataAdmin(conf *pb.Config) (types.AdminMetadata, error) {
+  return &Metadata{
+    Conf: conf,
+    State: &pb.AllMetadata{},
+  }, nil
+}
+
+func NewMetadata(conf *pb.Config) (types.Metadata, error) {
+  return NewMetadataAdmin(conf)
+}
+
 func (self *Metadata) FindHead(uuid string) (int,*pb.SnapshotSeqHead) {
   if self.State == nil { util.Fatalf("state not loaded") }
   for idx,head := range self.State.Heads {
@@ -267,5 +278,12 @@ func (self *Metadata) ReplaceSnapshotSeqHead(
 
   self.State.Heads[idx] = proto.Clone(head).(*pb.SnapshotSeqHead)
   return prev_head, nil
+}
+
+func (self *Metadata) PersistCurrentMetadataState(ctx context.Context) (string, error) {
+  return "mem_only_metadata_does_not_persist", nil
+}
+func (self *Metadata) SetupMetadata(ctx context.Context) error {
+  return nil //noop
 }
 
