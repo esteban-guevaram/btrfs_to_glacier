@@ -11,6 +11,7 @@ import (
   "regexp"
   "strconv"
   "strings"
+  "sync"
   "time"
 
   "btrfs_to_glacier/types"
@@ -35,8 +36,10 @@ type SysUtilIf interface {
   CombinedOutput(*exec.Cmd) ([]byte, error)
 }
 
+// This type is thread-safe.
 type FilesystemUtil struct {
   SysUtil  SysUtilIf
+  mutex    sync.Mutex
 }
 
 func majminFromString(in string) (int,int,error) {
@@ -272,6 +275,8 @@ func (self *FilesystemUtil) Mount(
   if mnt, err := self.IsMounted(ctx, fs_uuid, target); err != nil || mnt != nil {
     return mnt, err
   }
+  self.mutex.Lock()
+  defer self.mutex.Unlock()
 
   cmd := exec.CommandContext(ctx, "mount", fmt.Sprintf("UUID=%s", fs_uuid))
   _, err_mnt := self.SysUtil.CombinedOutput(cmd)
@@ -296,6 +301,9 @@ func (self *FilesystemUtil) Mount(
 }
 
 func (self *FilesystemUtil) UMount(ctx context.Context, fs_uuid string) error {
+  self.mutex.Lock()
+  defer self.mutex.Unlock()
+
   cmd := exec.CommandContext(ctx, "umount", fmt.Sprintf("UUID=%s", fs_uuid))
   util.Debugf("Running: %s", cmd.String())
   _, err_mnt := self.SysUtil.CombinedOutput(cmd)
@@ -312,6 +320,9 @@ func (self *FilesystemUtil) UMount(ctx context.Context, fs_uuid string) error {
 
 func (self *FilesystemUtil) CreateLoopDevice(
     ctx context.Context, size_mb uint64) (*types.Device, error) {
+  self.mutex.Lock()
+  defer self.mutex.Unlock()
+
   backing_file := fpmod.Join(os.TempDir(), uuid.NewString())
   cmd := exec.CommandContext(ctx, "dd", "if=/dev/zero", "count=1",
                              fmt.Sprintf("of=%s", backing_file), fmt.Sprintf("bs=%dM", size_mb))
@@ -342,6 +353,9 @@ func (self *FilesystemUtil) CreateLoopDevice(
 }
 
 func (self *FilesystemUtil) DeleteLoopDevice(ctx context.Context, dev *types.Device) error {
+  self.mutex.Lock()
+  defer self.mutex.Unlock()
+
   util.Infof("Deleting device: %v", dev.Name)
   devpath := fpmod.Join("/dev", dev.Name)
   cmd := exec.CommandContext(ctx, "losetup", "-d", devpath)
@@ -502,6 +516,9 @@ func (self *FilesystemUtil) btrfsFilesystemsMatching(
 
 func (self *FilesystemUtil) CreateBtrfsFilesystem(
     ctx context.Context, dev *types.Device, label string, opts ...string) (*types.Filesystem, error) {
+  self.mutex.Lock()
+  defer self.mutex.Unlock()
+
   fs_uuid := uuid.NewString()
   all_opts := []string{ "--uuid", fs_uuid, "--label", label, }
   all_opts = append(all_opts, opts...)

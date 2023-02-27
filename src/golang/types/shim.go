@@ -41,6 +41,7 @@ type Filesystem struct {
   Mounts []*MountEntry
 }
 
+// Implementations must be thread-safe.
 type Linuxutil interface {
   // Returns true if this process is running with CAP_SYS_ADMIN privileges.
   // Many btrfs operations require this.
@@ -87,6 +88,7 @@ type Linuxutil interface {
   CreateBtrfsFilesystem(context.Context, *Device, string, ...string) (*Filesystem, error)
 }
 
+// Implementations must be thread-safe.
 type Btrfsutil interface {
   // Get the `struct btrfs_util_subvolume_info` for a btrfs subvolume.
   // If `path` does not point to a snapshot the corresponding fields will be empty.

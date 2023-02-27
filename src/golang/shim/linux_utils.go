@@ -35,6 +35,7 @@ func init() {
 
 const ROOT_UID = 0
 
+// This type is thread-safe.
 type Linuxutil struct {
   *FilesystemUtil
   HasLinuxVersion bool
@@ -57,6 +58,8 @@ func (*Linuxutil) IsCapSysAdmin() bool {
 }
 
 func (self *Linuxutil) LinuxKernelVersion() (uint32, uint32) {
+  self.mutex.Lock()
+  defer self.mutex.Unlock()
   if !self.HasLinuxVersion {
     var result C.struct_MajorMinor
     C.linux_kernel_version(&result)
@@ -81,6 +84,8 @@ func (*Linuxutil) ProjectVersion() string {
 }
 
 func (self *Linuxutil) getSudouidFromEnv() (int, error) {
+  self.mutex.Lock()
+  defer self.mutex.Unlock()
   if !self.HasSudoUid {
     var err error
     self.SudoUid, err = strconv.Atoi(os.Getenv("SUDO_UID"))
