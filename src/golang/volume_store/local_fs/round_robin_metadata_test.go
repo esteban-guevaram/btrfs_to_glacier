@@ -26,14 +26,9 @@ func buildTestRoundRobinMetadataWithState(
       if err := writer.PutState(state); err != nil {  t.Fatalf("%v", err) }
     }
   }
-  meta := &RoundRobinMetadata{
-    SimpleDirMetadata: nil,
-    Sink: local_fs.Sinks[0],
-    Conf: conf,
-    Linuxutil: mocks.NewLinuxutil(),
-    PairStorage: nil,
-  }
-  return meta, clean_f
+  meta, err := NewRoundRobinMetadataAdmin(conf, mocks.NewLinuxutil(), conf.Backups[0].Name)
+  if err != nil { t.Fatalf("NewRoundRobinMetadataAdmin %v", err) }
+  return meta.(*RoundRobinMetadata), clean_f
 }
 
 func FirstSink(meta *RoundRobinMetadata) *pb.Backup_RoundRobin {
@@ -52,7 +47,7 @@ func getPairStorageAndSetup(t *testing.T, meta *RoundRobinMetadata) (types.Admin
   defer cancel()
   codec := new(mocks.Codec)
   codec.Fingerprint = types.PersistableString{"some_fp"}
-  storage, err := meta.GetPairStorage(codec)
+  storage, err := NewRoundRobinContentAdmin(meta.Conf, meta.Linuxutil, codec, meta.Conf.Backups[0].Name)
   if err != nil { t.Fatalf("meta.GetPairStorage: %v", err) }
   err = storage.SetupBackupContent(ctx)
   if err != nil { t.Fatalf("SetupBackupContent err: %v", err) }
@@ -83,7 +78,7 @@ func checkStateAfterSetup(t *testing.T, meta *RoundRobinMetadata, expect_state *
     }
   }
   if !found_part { t.Errorf("!found_part") }
-  mem_only.CompareStates(t, "Bad state", meta.State, expect_state)
+  mem_only.CompareStates(t, "Bad state", meta.InMemState(), expect_state)
 }
 
 func TestSetupRoundRobinMetadata_AllPartitionsNew(t *testing.T) {
@@ -183,8 +178,11 @@ func TestSetupRoundRobinMetadata_Idempotent(t *testing.T) {
 
   callSetupMetadataSync(t, meta)
   expect_fs := meta.DirInfo.FsUuid
+  lu := meta.Linuxutil.(*mocks.Linuxutil)
+  expect_counts := lu.ObjCounts()
   callSetupMetadataSync(t, meta)
   util.EqualsOrFailTest(t, "Should to same fs", meta.DirInfo.FsUuid, expect_fs)
+  util.EqualsOrFailTest(t, "Bad counts", lu.ObjCounts(), expect_counts)
 }
 
 func TestUMountAllSinkPartitions(t *testing.T) {
@@ -215,7 +213,7 @@ func TestReadWriteSaveCycle(t *testing.T) {
   _, err = meta.PersistCurrentMetadataState(ctx)
   if err != nil { t.Errorf("PersistCurrentMetadataState: %v", err) }
 
-  mem_only.CompareStates(t, "Bad state", meta.State, expect_state)
+  mem_only.CompareStates(t, "Bad state", meta.InMemState(), expect_state)
   client := SimpleDirRw{ meta.DirInfo }
   persisted_state := client.GetState()
   mem_only.CompareStates(t, "Bad persisted state", persisted_state, expect_state)

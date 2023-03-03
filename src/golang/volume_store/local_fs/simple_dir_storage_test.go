@@ -71,7 +71,14 @@ func buildTestSimpleDirStorageWithChunkLen(
 }
 
 func GetChunkIoForTest(storage types.BackupContent) *ChunkIoForTestImpl {
-  return &ChunkIoForTestImpl{ ChunkIoImpl: storage.(*SimpleDirStorage).ChunkIo.(*ChunkIoImpl) }
+  if impl, ok := storage.(*SimpleDirStorage); ok {
+    return &ChunkIoForTestImpl{ ChunkIoImpl: impl.ChunkIo.(*ChunkIoImpl) }
+  }
+  if impl, ok := storage.(*RoundRobinContent); ok {
+    return &ChunkIoForTestImpl{ ChunkIoImpl: impl.ChunkIo.(*ChunkIoImpl) }
+  }
+  util.Fatalf("Unknown types.BackupContent implementation")
+  return nil
 }
 
 func HelperSetupBackupContent(t *testing.T, chunk_cnt int) {

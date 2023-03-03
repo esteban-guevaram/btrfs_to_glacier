@@ -12,7 +12,7 @@ import (
 func buildTestAdminMetadata_WithNilState(t *testing.T) (*S3MetadataAdmin, *s3_common.MockS3Client) {
   conf := util.LoadTestConf()
   metadata,client := buildTestMetadataWithConf(t, conf)
-  metadata.State = nil
+  metadata.SetInMemState(nil)
   admin := &S3MetadataAdmin{ S3Metadata:metadata, }
   admin.injectConstants()
   return admin, client

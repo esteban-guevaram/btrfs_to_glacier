@@ -15,10 +15,10 @@ import (
 )
 
 func buildTestMetadataWithState(t *testing.T, state *pb.AllMetadata) *Metadata {
-  return &Metadata{
-    Conf: util.LoadTestConf(),
-    State: state,
-  }
+  in_mem, err := NewInMemMetadata(util.LoadTestConf())
+  if err != nil { util.Fatalf("NewInMemMetadata: %v", err) }
+  in_mem.SetInMemState(state)
+  return in_mem
 }
 
 func TestRecordSnapshotSeqHead_New(t *testing.T) {
@@ -105,7 +105,7 @@ func TestAppendSnapshotToChunk_New(t *testing.T) {
   new_snap, err := metadata.AppendChunkToSnapshot(ctx, expect_state.Snapshots[1], chunk)
   if err != nil { t.Errorf("Returned error: %v", err) }
 
-  persisted_snap := metadata.State.Snapshots[1]
+  persisted_snap := metadata.InMemState().Snapshots[1]
   util.EqualsOrFailTest(t, "Persisted Snapshot", persisted_snap, &expect_snap)
   util.EqualsOrFailTest(t, "New Snapshot", new_snap, &expect_snap)
 }
@@ -125,7 +125,7 @@ func TestAppendSnapshotToChunk_Append(t *testing.T) {
   new_snap, err := metadata.AppendChunkToSnapshot(ctx, expect_state.Snapshots[0], chunk)
   if err != nil { t.Errorf("Returned error: %v", err) }
 
-  persisted_snap := metadata.State.Snapshots[0]
+  persisted_snap := metadata.InMemState().Snapshots[0]
   util.EqualsOrFailTest(t, "Persisted Snapshot", persisted_snap, &expect_snap)
   util.EqualsOrFailTest(t, "New Snapshot", new_snap, &expect_snap)
 }
@@ -142,7 +142,7 @@ func TestAppendSnapshotToChunk_Noop(t *testing.T) {
   new_snap, err := metadata.AppendChunkToSnapshot(ctx, expect_state.Snapshots[0], chunk)
   if err != nil { t.Errorf("Returned error: %v", err) }
 
-  persisted_snap := metadata.State.Snapshots[0]
+  persisted_snap := metadata.InMemState().Snapshots[0]
   util.EqualsOrFailTest(t, "Persisted Snapshot", persisted_snap, &expect_snap)
   util.EqualsOrFailTest(t, "New Snapshot", new_snap, &expect_snap)
 }
@@ -179,7 +179,7 @@ func TestAppendSnapshotToChunk_Errors(t *testing.T) {
   _, err = metadata.AppendChunkToSnapshot(ctx, snap, chunk_4)
   if err == nil { t.Errorf("Expected error: %v", err) }
 
-  persisted_snap := metadata.State.Snapshots[0]
+  persisted_snap := metadata.InMemState().Snapshots[0]
   util.EqualsOrFailTest(t, "Persisted Snapshot", persisted_snap, &expect_snap)
 }
 
@@ -373,7 +373,7 @@ func TestDeleteMetadataUuids(t *testing.T) {
                                         []string{ini_state.Sequences[1].Uuid},
                                         []string{ini_state.Snapshots[1].Uuid})
   if err != nil { t.Errorf("meta_admin.DeleteMetadataUuids: %v", err) }
-  util.EqualsOrFailTest(t, "Bad state", meta_admin.State, expect_state)
+  util.EqualsOrFailTest(t, "Bad state", meta_admin.InMemState(), expect_state)
 }
 
 func TestDeleteMetadataUuids_Empty(t *testing.T) {
@@ -385,7 +385,7 @@ func TestDeleteMetadataUuids_Empty(t *testing.T) {
                                         []string{"not_exists_seq"},
                                         []string{"not_exists_snap"})
   if err != nil { t.Errorf("meta_admin.DeleteMetadataUuids: %v", err) }
-  util.EqualsOrFailTest(t, "Bad state", meta_admin.State, &pb.AllMetadata{})
+  util.EqualsOrFailTest(t, "Bad state", meta_admin.InMemState(), &pb.AllMetadata{})
 }
 
 func TestDeleteMetadataUuids_UuidNotFound(t *testing.T) {
@@ -399,7 +399,7 @@ func TestDeleteMetadataUuids_UuidNotFound(t *testing.T) {
                                         []string{"not_exists_seq"},
                                         []string{"not_exists_snap"})
   if err != nil { t.Errorf("meta_admin.DeleteMetadataUuids: %v", err) }
-  util.EqualsOrFailTest(t, "Bad state", meta_admin.State, expect_state)
+  util.EqualsOrFailTest(t, "Bad state", meta_admin.InMemState(), expect_state)
 }
 
 func TestReplaceSnapshotSeqHead(t *testing.T) {
@@ -417,7 +417,7 @@ func TestReplaceSnapshotSeqHead(t *testing.T) {
   got_old_head, err := meta_admin.ReplaceSnapshotSeqHead(ctx, new_head)
   if err != nil { t.Errorf("Returned error: %v", err) }
 
-  CompareStates(t, "bad head state", meta_admin.State, expect_state)
+  CompareStates(t, "bad head state", meta_admin.InMemState(), expect_state)
   util.EqualsOrFailTest(t, "OldSnapshotSeqHead", got_old_head, old_head)
 }
 

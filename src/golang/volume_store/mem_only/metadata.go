@@ -14,13 +14,13 @@ import (
 
 type Metadata struct {
   Conf       *pb.Config
-  State      *pb.AllMetadata
+  innerState *pb.AllMetadata
 }
 
 func NewMetadataAdmin(conf *pb.Config) (types.AdminMetadata, error) {
   return &Metadata{
     Conf: conf,
-    State: &pb.AllMetadata{},
+    innerState: &pb.AllMetadata{},
   }, nil
 }
 
@@ -28,9 +28,17 @@ func NewMetadata(conf *pb.Config) (types.Metadata, error) {
   return NewMetadataAdmin(conf)
 }
 
+func NewInMemMetadata(conf *pb.Config) (*Metadata, error) {
+  meta, err := NewMetadataAdmin(conf)
+  return meta.(*Metadata), err
+}
+
+func (self *Metadata) InMemState() *pb.AllMetadata { return self.innerState }
+func (self *Metadata) SetInMemState(new_state *pb.AllMetadata) { self.innerState = new_state }
+
 func (self *Metadata) FindHead(uuid string) (int,*pb.SnapshotSeqHead) {
-  if self.State == nil { util.Fatalf("state not loaded") }
-  for idx,head := range self.State.Heads {
+  if self.innerState == nil { util.Fatalf("state not loaded") }
+  for idx,head := range self.innerState.Heads {
     if head.Uuid == uuid { return idx,head }
   }
   return 0, nil
@@ -38,13 +46,13 @@ func (self *Metadata) FindHead(uuid string) (int,*pb.SnapshotSeqHead) {
 func (self *Metadata) FindOrAppendHead(uuid string) *pb.SnapshotSeqHead {
   if _,head := self.FindHead(uuid); head != nil { return head }
   head := &pb.SnapshotSeqHead{ Uuid: uuid, }
-  self.State.Heads = append(self.State.Heads, head)
+  self.innerState.Heads = append(self.innerState.Heads, head)
   return head
 }
 
 func (self *Metadata) FindSeq(uuid string) *pb.SnapshotSequence {
-  if self.State == nil { util.Fatalf("state not loaded") }
-  for _,meta_seq := range self.State.Sequences {
+  if self.innerState == nil { util.Fatalf("state not loaded") }
+  for _,meta_seq := range self.innerState.Sequences {
     if meta_seq.Uuid == uuid { return meta_seq }
   }
   return nil
@@ -52,13 +60,13 @@ func (self *Metadata) FindSeq(uuid string) *pb.SnapshotSequence {
 func (self *Metadata) FindOrCloneSeq(seq *pb.SnapshotSequence) *pb.SnapshotSequence {
   if meta_seq := self.FindSeq(seq.Uuid); meta_seq != nil { return meta_seq }
   meta_seq := proto.Clone(seq).(*pb.SnapshotSequence)
-  self.State.Sequences = append(self.State.Sequences, meta_seq)
+  self.innerState.Sequences = append(self.innerState.Sequences, meta_seq)
   return meta_seq
 }
 
 func (self *Metadata) FindSnap(uuid string) *pb.SubVolume {
-  if self.State == nil { util.Fatalf("state not loaded") }
-  for _,meta_snap := range self.State.Snapshots {
+  if self.innerState == nil { util.Fatalf("state not loaded") }
+  for _,meta_snap := range self.innerState.Snapshots {
     if meta_snap.Uuid == uuid { return meta_snap }
   }
   return nil
@@ -224,23 +232,23 @@ func (self *SnapshotIterator) Err() error { return nil }
 
 func (self *Metadata) ListAllSnapshotSeqHeads(
     ctx context.Context) (types.SnapshotSeqHeadIterator, error) {
-  return &SnapshotSeqHeadIterator{ List: self.State.Heads, }, nil
+  return &SnapshotSeqHeadIterator{ List: self.innerState.Heads, }, nil
 }
 
 func (self *Metadata) ListAllSnapshotSeqs(
     ctx context.Context) (types.SnapshotSequenceIterator, error) {
-  return &SnapshotSequenceIterator{ List: self.State.Sequences, }, nil
+  return &SnapshotSequenceIterator{ List: self.innerState.Sequences, }, nil
 }
 
 func (self *Metadata) ListAllSnapshots(
     ctx context.Context) (types.SnapshotIterator, error) {
-  return &SnapshotIterator{ List: self.State.Snapshots, }, nil
+  return &SnapshotIterator{ List: self.innerState.Snapshots, }, nil
 }
 
 func (self *Metadata) FindOrCloneSnap(snap *pb.SubVolume) *pb.SubVolume {
   if meta_snap := self.FindSnap(snap.Uuid); meta_snap != nil { return meta_snap }
   meta_snap := proto.Clone(snap).(*pb.SubVolume)
-  self.State.Snapshots = append(self.State.Snapshots, meta_snap)
+  self.innerState.Snapshots = append(self.innerState.Snapshots, meta_snap)
   return meta_snap
 }
 
@@ -251,20 +259,20 @@ func (self *Metadata) DeleteMetadataUuids(
   snap_set := make(map[string]bool)
   for _,uuid := range snap_uuids { snap_set[uuid] = true }
 
-  new_seqs := make([]*pb.SnapshotSequence, 0, len(self.State.Sequences))
-  new_snaps := make([]*pb.SubVolume, 0, len(self.State.Snapshots))
+  new_seqs := make([]*pb.SnapshotSequence, 0, len(self.innerState.Sequences))
+  new_snaps := make([]*pb.SubVolume, 0, len(self.innerState.Snapshots))
 
-  for _,seq := range self.State.Sequences {
+  for _,seq := range self.innerState.Sequences {
     if seq_set[seq.Uuid] { continue }
     new_seqs = append(new_seqs, seq)
   }
-  for _,snap := range self.State.Snapshots {
+  for _,snap := range self.innerState.Snapshots {
     if snap_set[snap.Uuid] { continue }
     new_snaps = append(new_snaps, snap)
   }
 
-  self.State.Sequences = new_seqs
-  self.State.Snapshots = new_snaps
+  self.innerState.Sequences = new_seqs
+  self.innerState.Snapshots = new_snaps
   return nil
 }
 
@@ -276,7 +284,7 @@ func (self *Metadata) ReplaceSnapshotSeqHead(
   idx, prev_head := self.FindHead(head.Uuid)
   if prev_head == nil { return nil, fmt.Errorf("%w uuid=%v", types.ErrNotFound, head.Uuid) }
 
-  self.State.Heads[idx] = proto.Clone(head).(*pb.SnapshotSeqHead)
+  self.innerState.Heads[idx] = proto.Clone(head).(*pb.SnapshotSeqHead)
   return prev_head, nil
 }
 

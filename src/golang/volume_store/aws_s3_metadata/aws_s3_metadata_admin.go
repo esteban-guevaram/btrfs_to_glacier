@@ -66,7 +66,7 @@ func (self *S3MetadataAdmin) SetupMetadata_Only(
 func (self *S3MetadataAdmin) SetupMetadata(ctx context.Context) error {
   err := self.SetupMetadata_Only(ctx)
   if err != nil { return err }
-  if self.State == nil { return self.LoadPreviousStateFromS3(ctx) }
+  if self.InMemState() == nil { return self.LoadPreviousStateFromS3(ctx) }
   return nil
 }
 
@@ -132,6 +132,6 @@ func TestOnlySetInnerState(metadata types.Metadata, state *pb.AllMetadata) {
   if metadata == nil { util.Fatalf("metadata == nil") }
   s3_impl,ok := metadata.(*S3MetadataAdmin)
   if !ok { util.Fatalf("called with the wrong impl") }
-  s3_impl.State = proto.Clone(state).(*pb.AllMetadata)
+  s3_impl.SetInMemState(proto.Clone(state).(*pb.AllMetadata))
 }
 

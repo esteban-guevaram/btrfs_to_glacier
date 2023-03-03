@@ -58,9 +58,9 @@ func BuildBackupManagerAdmin(
   if backup.Type == pb.Backup_FILESYSTEM {
     var err error
     if backup.Fs == nil { return nil, fmt.Errorf("%w missing fs config", ErrBadConfig) }
-    meta, err = local_fs.NewRoundRobinMetadataAdmin(ctx, conf, lu, backup_name)
+    meta, err = local_fs.NewRoundRobinMetadataAdmin(conf, lu, backup_name)
     if err != nil { return nil, err }
-    content, err = nil, nil//meta.GetPairStorage(codec)
+    content, err = local_fs.NewRoundRobinContentAdmin(conf, lu, codec, backup_name)
     if err != nil { return nil, err }
   }
   if backup.Type == pb.Backup_MEM_EPHEMERAL {

@@ -33,11 +33,10 @@ func buildTestMetadataWithConf(t *testing.T, conf *pb.Config) (*S3Metadata, *s3_
   common.BucketWait = util.TestTimeout
   common.AccountId = client.AccountId
 
+  in_mem, err := mem_only.NewInMemMetadata(conf)
+  if err != nil { t.Fatalf("NewInMemMetadata: %v", err) }
   meta := &S3Metadata{
-    Metadata: &mem_only.Metadata{
-      Conf: conf,
-      State: &pb.AllMetadata{},
-    },
+    Metadata: in_mem,
     AwsConf: aws_conf,
     Client: client,
     Common: common,
@@ -54,36 +53,36 @@ func buildTestMetadataWithState(t *testing.T, state *pb.AllMetadata) (*S3Metadat
   client.Buckets[bucket] = true
   err = client.PutProto(meta.Key, state, s3_types.StorageClassStandard, false)
   if err != nil { t.Fatalf("failed to set init state: %v", err) }
-  meta.State = state
+  meta.SetInMemState(state)
   return meta, client
 }
 
 func TestLoadPreviousStateFromS3_NoBucket(t *testing.T) {
   conf := util.LoadTestConf()
   meta, client := buildTestMetadataWithConf(t, conf)
-  meta.State = nil
+  meta.SetInMemState(nil)
   meta.LoadPreviousStateFromS3(context.TODO())
   bucket := meta.Common.BackupConf.MetadataBucketName
   util.EqualsOrFailTest(t, "Bad bucket", client.Buckets[bucket], false)
   util.EqualsOrFailTest(t, "Bad object", client.Data[meta.Key], nil)
-  mem_only.CompareStates(t, "expected empty state", meta.State, &pb.AllMetadata{})
+  mem_only.CompareStates(t, "expected empty state", meta.InMemState(), &pb.AllMetadata{})
 }
 
 func TestLoadPreviousStateFromS3_NoKey(t *testing.T) {
   meta, client := buildTestMetadataWithState(t, &pb.AllMetadata{})
-  meta.State = nil
+  meta.SetInMemState(nil)
   client.DelData(meta.Key)
   meta.LoadPreviousStateFromS3(context.TODO())
   util.EqualsOrFailTest(t, "Bad object", client.Data[meta.Key], nil)
-  mem_only.CompareStates(t, "expected empty state", meta.State, &pb.AllMetadata{})
+  mem_only.CompareStates(t, "expected empty state", meta.InMemState(), &pb.AllMetadata{})
 }
 
 func TestLoadPreviousStateFromS3_PreviousState(t *testing.T) {
   _, expect_state := util.DummyAllMetadata()
   meta,_ := buildTestMetadataWithState(t, expect_state)
-  meta.State = nil
+  meta.SetInMemState(nil)
   meta.LoadPreviousStateFromS3(context.TODO())
-  mem_only.CompareStates(t, "expected empty state", meta.State, expect_state)
+  mem_only.CompareStates(t, "expected empty state", meta.InMemState(), expect_state)
 }
 
 func TestSaveCurrentStateToS3_NoPrevState(t *testing.T) {

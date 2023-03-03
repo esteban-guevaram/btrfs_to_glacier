@@ -55,11 +55,10 @@ func buildTestSimpleDirMetadataWithConf(
   part := conf.Backups[0].Fs.Sinks[0].Partitions[0]
   client := &SimpleDirRw{part}
 
+  in_mem, err := mem_only.NewInMemMetadata(conf)
+  if err != nil { t.Fatalf("NewInMemMetadata: %v", err) }
   meta := &SimpleDirMetadata{
-    Metadata: &mem_only.Metadata{
-      Conf: conf,
-      State: &pb.AllMetadata{},
-    },
+    Metadata: in_mem,
     DirInfo: part,
     SymLink: SymLink(part),
     KeepLast: KeepLast,
@@ -76,7 +75,7 @@ func buildTestSimpleDirMetadataWithState(
 
   err = client.PutState(state)
   if err != nil { t.Fatalf("failed to set init state: %v", err) }
-  meta.State = state
+  meta.SetInMemState(state)
   return meta, client, clean_f
 }
 
@@ -100,21 +99,21 @@ func TestLoadPreviousStateFromDir_NoIniState(t *testing.T) {
   defer clean_f()
   conf := util.LoadTestConfWithLocalFs(local_fs)
   meta, client := buildTestSimpleDirMetadataWithConf(t, conf)
-  meta.State = nil
+  meta.SetInMemState(nil)
 
   meta.LoadPreviousStateFromDir(context.TODO())
   util.EqualsOrFailTest(t, "Bad object", client.GetState(), nil)
-  mem_only.CompareStates(t, "expected empty state", meta.State, &pb.AllMetadata{})
+  mem_only.CompareStates(t, "expected empty state", meta.InMemState(), &pb.AllMetadata{})
 }
 
 func TestLoadPreviousStateFromDir_PreviousState(t *testing.T) {
   _, expect_state := util.DummyAllMetadata()
   meta,_,clean_f := buildTestSimpleDirMetadataWithState(t, expect_state)
   defer clean_f()
-  meta.State = nil
+  meta.SetInMemState(nil)
 
   meta.LoadPreviousStateFromDir(context.TODO())
-  mem_only.CompareStates(t, "expected empty state", meta.State, expect_state)
+  mem_only.CompareStates(t, "expected empty state", meta.InMemState(), expect_state)
 }
 
 func TestSaveCurrentStateToDir_NoPrevState(t *testing.T) {
@@ -170,7 +169,7 @@ func TestSetupSimpleDirMetadata_Simple(t *testing.T) {
   defer cancel()
   meta_admin,_,clean_f := buildTestSimpleDirMetadata_NilState(t)
   defer clean_f()
-  if meta_admin.State != nil { t.Errorf("State already loaded") }
+  if meta_admin.InMemState() != nil { t.Errorf("State already loaded") }
   err := meta_admin.SetupMetadata(ctx)
   if err != nil { t.Errorf("Returned error: %v", err) }
 }
@@ -196,7 +195,7 @@ func TestSetupSimpleDirMetadata_Idempotent(t *testing.T) {
   for i:=0; i<2; i+=1 {
     err := meta_admin.SetupMetadata(ctx)
     if err != nil { t.Errorf("Returned error: %v", err) }
-    if meta_admin.State == nil { t.Errorf("State not loaded") }
+    if meta_admin.InMemState() == nil { t.Errorf("State not loaded") }
   }
 }
 
@@ -209,7 +208,7 @@ func TestSetupSimpleDirMetadata_IdempotentNoState(t *testing.T) {
   for i:=0; i<2; i+=1 {
     err := meta_admin.SetupMetadata(ctx)
     if err != nil { t.Errorf("Returned error: %v", err) }
-    util.EqualsOrFailTest(t, "Bad state", meta_admin.State, &pb.AllMetadata{})
+    util.EqualsOrFailTest(t, "Bad state", meta_admin.InMemState(), &pb.AllMetadata{})
   }
 }
 

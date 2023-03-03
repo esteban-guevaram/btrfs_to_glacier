@@ -59,11 +59,11 @@ func NewSimpleDirMetadata(ctx context.Context, conf *pb.Config, part_uuid string
 }
 
 func (self *SimpleDirMetadata) LoadPreviousStateFromDir(ctx context.Context) error {
-  if self.State != nil { util.Fatalf("Cannot load state twice") }
-  self.State = &pb.AllMetadata{
+  if self.InMemState() != nil { util.Fatalf("Cannot load state twice") }
+  self.SetInMemState(&pb.AllMetadata{
     CreatedTs: uint64(time.Now().Unix()),
-  }
-  err := util.UnmarshalGzProto(self.SymLink, self.State)
+  })
+  err := util.UnmarshalGzProto(self.SymLink, self.InMemState())
   if err != nil && !errors.Is(err, os.ErrNotExist) { return err }
   return nil
 }
@@ -107,13 +107,13 @@ func (self *SimpleDirMetadata) CleanOldVersions(ctx context.Context) ([]string, 
 }
 
 func (self *SimpleDirMetadata) SaveCurrentStateToDir(ctx context.Context) (string, error) {
-  if self.State == nil { util.Fatalf("Cannot store nil state") }
-  self.State.CreatedTs = uint64(time.Now().Unix())
-  version_id := fmt.Sprintf("%d_%s", self.State.CreatedTs, uuid.NewString())
+  if self.InMemState() == nil { util.Fatalf("Cannot store nil state") }
+  self.InMemState().CreatedTs = uint64(time.Now().Unix())
+  version_id := fmt.Sprintf("%d_%s", self.InMemState().CreatedTs, uuid.NewString())
   prev_path,_ := fpmod.EvalSymlinks(self.SymLink)
-  store_path := self.MetaVer(self.State.CreatedTs)
+  store_path := self.MetaVer(self.InMemState().CreatedTs)
 
-  err := util.MarshalGzProto(store_path, self.State)
+  err := util.MarshalGzProto(store_path, self.InMemState())
   if err != nil { return "", err }
 
   if util.Exists(self.SymLink) {
@@ -142,7 +142,7 @@ func (self *SimpleDirMetadata) SetupMetadata(ctx context.Context) error {
     return fmt.Errorf("'%s' is not a directory", MetaDir(p))
   }
   if !util.Exists(SymLink(p)) {
-    if self.State == nil { self.State = &pb.AllMetadata{} }
+    if self.InMemState() == nil { self.SetInMemState(&pb.AllMetadata{}) }
     return nil
   }
   if !util.IsSymLink(SymLink(p)) {
@@ -153,7 +153,7 @@ func (self *SimpleDirMetadata) SetupMetadata(ctx context.Context) error {
   if !fpmod.HasPrefix(target, MetaDir(p)) {
     return fmt.Errorf("'%s' points outside of '%s'", SymLink(p), MetaDir(p))
   }
-  if self.State == nil {
+  if self.InMemState() == nil {
     return self.LoadPreviousStateFromDir(ctx)
   }
   return nil
@@ -163,6 +163,6 @@ func TestOnlySetInnerState(metadata types.Metadata, state *pb.AllMetadata) {
   if metadata == nil { util.Fatalf("metadata == nil") }
   impl,ok := metadata.(*SimpleDirMetadata)
   if !ok { util.Fatalf("called with the wrong impl") }
-  impl.State = proto.Clone(state).(*pb.AllMetadata)
+  impl.SetInMemState(proto.Clone(state).(*pb.AllMetadata))
 }
 

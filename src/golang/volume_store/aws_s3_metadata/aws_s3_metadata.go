@@ -66,10 +66,10 @@ func (self *S3Metadata) injectConstants() {
 }
 
 func (self *S3Metadata) LoadPreviousStateFromS3(ctx context.Context) error {
-  if self.State != nil { util.Fatalf("Cannot load state twice") }
-  self.State = &pb.AllMetadata{
+  if self.InMemState() != nil { util.Fatalf("Cannot load state twice") }
+  self.SetInMemState(&pb.AllMetadata{
     CreatedTs: uint64(time.Now().Unix()),
-  }
+  })
 
   get_in := &s3.GetObjectInput{
     Bucket: &self.Common.BackupConf.MetadataBucketName,
@@ -84,16 +84,16 @@ func (self *S3Metadata) LoadPreviousStateFromS3(ctx context.Context) error {
   defer get_out.Body.Close()
   data, err := io.ReadAll(get_out.Body)
   if err != nil { return err }
-  err = proto.Unmarshal(data, self.State)
+  err = proto.Unmarshal(data, self.InMemState())
   return err
 }
 
 func (self *S3Metadata) SaveCurrentStateToS3(ctx context.Context) (string, error) {
-  if self.State == nil { util.Fatalf("Cannot store nil state") }
-  self.State.CreatedTs = uint64(time.Now().Unix())
+  if self.InMemState() == nil { util.Fatalf("Cannot store nil state") }
+  self.InMemState().CreatedTs = uint64(time.Now().Unix())
 
   content_type := "application/octet-stream"
-  data, err := proto.Marshal(self.State)
+  data, err := proto.Marshal(self.InMemState())
   if err != nil { return "", err }
   reader := bytes.NewReader(data)
 
