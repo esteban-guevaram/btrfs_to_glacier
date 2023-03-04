@@ -19,6 +19,15 @@ type SimpleDirRw struct {
   Part *pb.Backup_Partition
 }
 
+func PutStateInAllParts(local_fs *pb.Backup_Fs, state *pb.AllMetadata) {
+  if state != nil {
+    for _,p := range local_fs.Sinks[0].Partitions {
+      writer := SimpleDirRw{p}
+      if err := writer.PutState(state); err != nil { util.Fatalf("%v", err) }
+    }
+  }
+}
+
 func (self *SimpleDirRw) PutState(state *pb.AllMetadata) error {
   if !fpmod.HasPrefix(self.Part.MountRoot, os.TempDir()) {
     return fmt.Errorf("HasPrefix('%s', '%s')", self.Part.MountRoot, os.TempDir())

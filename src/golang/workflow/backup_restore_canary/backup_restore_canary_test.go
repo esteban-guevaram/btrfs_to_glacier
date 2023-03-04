@@ -94,7 +94,7 @@ func TestBackupRestoreCanary_Setup_OK(t *testing.T) {
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
   defer mock.Lnxutil.CleanMountDirs()
-  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,1,1)
+  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,1,0,1)
   expect_btrfs_counts := mock.Btrfs.ObjCounts().Increment(0,0)
   expect_restore_counts := mock.RestoreMgr.ObjCounts()
 
@@ -123,7 +123,7 @@ func TestBackupRestoreCanary_Setup_Noop(t *testing.T) {
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
   defer mock.Lnxutil.CleanMountDirs()
-  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,1,1)
+  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,1,0,1)
 
   err := canary.Setup(ctx)
   if err != nil { t.Fatalf("Setup: %v", err) }
@@ -139,7 +139,7 @@ func TestBackupRestoreCanary_Setup_NewChain(t *testing.T) {
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
   defer mock.Lnxutil.CleanMountDirs()
-  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,1,1)
+  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,1,0,1)
   expect_btrfs_counts := mock.Btrfs.ObjCounts().Increment(1,0)
   expect_restore_counts := mock.RestoreMgr.ObjCounts()
 
@@ -177,7 +177,7 @@ func TestBackupRestoreCanary_TearDown_OK(t *testing.T) {
   defer cancel()
   canary, mock := buildBackupRestoreCanary(hist_len)
   defer mock.Lnxutil.CleanMountDirs()
-  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,0,0)
+  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,0,1,0)
 
   err := canary.Setup(ctx)
   if err != nil { t.Fatalf("Setup: %v", err) }
@@ -195,14 +195,14 @@ func TestBackupRestoreCanary_TearDown_Partial(t *testing.T) {
   canary, mock := buildBackupRestoreCanary(hist_len)
   defer mock.Lnxutil.CleanMountDirs()
   mock.Lnxutil.ForMethodErrMsg(mock.Lnxutil.CreateBtrfsFilesystem, "injected_err")
-  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,0,1)
+  expect_linux_counts := mock.Lnxutil.ObjCounts().Increment(1,0,0,1)
 
   err := canary.Setup(ctx)
   if err == nil { t.Fatalf("expected error") }
   util.EqualsOrFailTest(t, "Bad fs state", mock.Lnxutil.ObjCounts(),
                                            expect_linux_counts)
 
-  expect_linux_counts = mock.Lnxutil.ObjCounts().Increment(0,0,-1)
+  expect_linux_counts = mock.Lnxutil.ObjCounts().Increment(0,0,0,-1)
   err = canary.TearDown(ctx)
   if err != nil { t.Fatalf("TearDown: %v", err) }
   util.EqualsOrFailTest(t, "Bad fs state", mock.Lnxutil.ObjCounts(),

@@ -30,7 +30,7 @@ type Linuxutil struct {
 }
 
 type LinuxCounts struct {
-   Filesystems, Mounts, Devs int
+   Filesystems, Mounts, UMounts, Devs int
 }
 
 func NewLinuxutil() *Linuxutil {
@@ -114,12 +114,14 @@ func (self *Linuxutil) CleanMountDirs() {
 func (self *Linuxutil) ObjCounts() LinuxCounts {
   return LinuxCounts{ Filesystems:len(self.Filesystems),
                       Mounts:len(self.Mounts),
+                      UMounts:len(self.UMounts),
                       Devs:len(self.Devs), }
 }
 func (self LinuxCounts) Increment(
-    filesystems int, mounts int, devs int) LinuxCounts {
+    filesystems int, mounts int, umounts int, devs int) LinuxCounts {
   self.Filesystems += filesystems
   self.Mounts += mounts
+  self.UMounts += umounts
   self.Devs += devs
   return self
 }

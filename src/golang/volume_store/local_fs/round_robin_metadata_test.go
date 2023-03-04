@@ -5,6 +5,7 @@ import (
   "io"
   "strings"
   "testing"
+  "time"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -19,13 +20,7 @@ func buildTestRoundRobinMetadataWithState(
     t *testing.T, state *pb.AllMetadata) (*RoundRobinMetadata, func()) {
   local_fs, clean_f := util.LoadTestMultiSinkBackupConf(1, 3, state != nil)
   conf := util.LoadTestConfWithLocalFs(local_fs)
-
-  if state != nil {
-    for _,p := range local_fs.Sinks[0].Partitions {
-      writer := SimpleDirRw{p}
-      if err := writer.PutState(state); err != nil {  t.Fatalf("%v", err) }
-    }
-  }
+  PutStateInAllParts(local_fs, state)
   meta, err := NewRoundRobinMetadataAdmin(conf, mocks.NewLinuxutil(), conf.Backups[0].Name)
   if err != nil { t.Fatalf("NewRoundRobinMetadataAdmin %v", err) }
   return meta.(*RoundRobinMetadata), clean_f
@@ -249,5 +244,33 @@ func TestStorageReadWriteCycle(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad chunk", got_data, expect_data)
   persisted_data, _ := chunkio.Get(val.Chunks[0].Uuid)
   util.EqualsOrFailTest(t, "Bad persisted chunk", persisted_data, expect_data)
+}
+
+func TestReadWriteSaveCycle_ChangePartition(t *testing.T) {
+  const part_cnt = 3
+  vol_uuid, state := util.DummyAllMetadata()
+  local_fs, clean_f := util.LoadTestMultiSinkBackupConf(1, part_cnt, true)
+  conf := util.LoadTestConfWithLocalFs(local_fs)
+  PutStateInAllParts(local_fs, state)
+  touched_fs := make(map[string]bool)
+  defer clean_f()
+
+  for i:=0; i<part_cnt; i+=1 {
+    meta_if, err := NewRoundRobinMetadataAdmin(conf, mocks.NewLinuxutil(), conf.Backups[0].Name)
+    if err != nil { t.Fatalf("NewRoundRobinMetadataAdmin %v", err) }
+    meta := meta_if.(*RoundRobinMetadata)
+    callSetupMetadataSync(t, meta)
+
+    time.Sleep(100 * time.Millisecond) // wait so that fs mod time moves
+    ctx, cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+    defer cancel()
+
+    _, err = meta.RecordSnapshotSeqHead(ctx, util.DummySnapshotSequence(vol_uuid, "seq2"))
+    if err != nil { t.Errorf("RecordSnapshotSeqHead: %v", err) }
+    _, err = meta.PersistCurrentMetadataState(ctx)
+    if err != nil { t.Errorf("PersistCurrentMetadataState: %v", err) }
+    touched_fs[meta.DirInfo.FsUuid] = true
+  }
+  util.EqualsOrFailTest(t, "Should have changed all parts", len(touched_fs), part_cnt)
 }
 
