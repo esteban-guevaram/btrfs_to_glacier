@@ -20,6 +20,13 @@ import (
 
 var ErrBadConfig = errors.New("bad_config_for_factory")
 
+func BuildCodec(conf *pb.Config) (types.Codec, error) {
+  if len(conf.EncryptionKeys) == 0 {
+    return new(encryption.NoopCodec), nil
+  }
+  return encryption.NewCodec(conf)
+}
+
 func BuildBackupManagerAdmin(
     ctx context.Context, conf *pb.Config, backup_name string) (types.BackupManagerAdmin, error) {
   var backup *pb.Backup
@@ -32,7 +39,7 @@ func BuildBackupManagerAdmin(
     return nil, err
   }
   
-  codec, err := encryption.NewCodec(conf)
+  codec, err := BuildCodec(conf)
   if err != nil { return nil, err }
   lu, err := shim.NewLinuxutil(conf)
   if err != nil { return nil, err }

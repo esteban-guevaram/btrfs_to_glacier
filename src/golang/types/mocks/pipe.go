@@ -121,3 +121,11 @@ func NewMockDicardPipe(ctx context.Context) *CollectPipe {
   return pipe
 }
 
+func NewMockCollectPipe(ctx context.Context) *CollectPipe {
+  pipe := &CollectPipe{
+    Pipe:util.NewFileBasedPipe(ctx),
+    Discard: false, }
+  pipe.StartCollectingAsync(ctx)
+  return pipe
+}
+
