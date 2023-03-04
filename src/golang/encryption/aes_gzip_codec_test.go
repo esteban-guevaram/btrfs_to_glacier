@@ -24,10 +24,12 @@ const secret_key_1 = "\xb5\x3b\x53\xcd\x7b\x86\xff\xc1\x54\xb4\x44\x92\x07\x52\x
 const persisted_key_2 = "auMCZBaDihSsq0rN8loA/i4OBdWcxcsLSEeWbmD/mDI="
 const secret_key_2 = "\xe7\xf5\x4b\xe0\x45\x33\xb7\x50\x8c\x72\x49\xaf\x25\x44\x6c\xc8\x95\x1b\x61\x7b\x76\x96\x38\x64\x68\x20\xd0\x89\xab\xa5\xc9\x47"
 const fp_persisted_key_2 = "RWgSa2EIDmUr5FFExM7AgQ=="
+var init_keys []string
 
 func buildTestCodec(t *testing.T) *aesGzipCodec {
-  keys := []string {persisted_key_1, persisted_key_2,}
-  return buildTestCodecChooseEncKey(t, keys)
+  TestOnlyFlush()
+  init_keys = []string {persisted_key_1, persisted_key_2,}
+  return buildTestCodecChooseEncKey(t, init_keys)
 }
 
 func buildTestCodecChooseEncKey(t *testing.T, keys []string) *aesGzipCodec {
@@ -39,32 +41,58 @@ func buildTestCodecChooseEncKey(t *testing.T, keys []string) *aesGzipCodec {
   return codec.(*aesGzipCodec)
 }
 
-func TestKeyCodec(t *testing.T) {
-  codec := buildTestCodec(t)
-  secret := codec.decodeEncryptionKey(types.PersistableKey{persisted_key_1})
-  persisted := codec.encodeEncryptionKey(types.SecretKey{[]byte(secret_key_1)})
-  if bytes.Compare(secret.B, []byte(secret_key_1)) != 0 {
-    t.Errorf("Bad persisted key decoding: %x != %x", secret.B, secret_key_1)
+func TestAesGzipCodecGlobalState_BuildKeyring(t *testing.T) {
+  keys := []string {persisted_key_1, persisted_key_2,}
+  state := NewAesGzipCodecGlobalState()
+  fixed_pw := func() ([]byte, error) { return []byte(dummy_pw), nil }
+  if err := state.DerivatePassphrase(false, fixed_pw); err != nil {
+    t.Fatalf("state.DerivatePassphrase: %v", err)
   }
-  if persisted.S != persisted_key_1 {
-    t.Errorf("Bad secret key encoding: %x != %x", persisted.S, persisted_key_1)
+  uniq_fp := make(map[string]bool)
+  uniq_key := make(map[string]bool)
+  expect_key_count := len(keys)
+
+  for _,k := range keys {
+    dec_key, fp := state.DecodeAndAddToKeyring(types.PersistableKey{k})
+    uniq_fp[fp.S] = true
+    uniq_key[string(dec_key.B)] = true
   }
-  if len(codec.xor_key.B) != len(secret.B) { t.Errorf("Bad xor key") }
+  util.EqualsOrFailTest(t, "Bad uniq_fp", len(uniq_fp), expect_key_count)
+  util.EqualsOrFailTest(t, "Bad uniq_key", len(uniq_key), expect_key_count)
+  util.EqualsOrFailTest(t, "Bad keyring", len(state.Keyring), expect_key_count)
+}
+
+func TestAesGzipCodecGlobalState_BuildKeyring_Idempotent(t *testing.T) {
+  keys := []string {persisted_key_1, persisted_key_2, persisted_key_1, persisted_key_2, persisted_key_2,}
+  state := NewAesGzipCodecGlobalState()
+  fixed_pw := func() ([]byte, error) { return []byte(dummy_pw), nil }
+  if err := state.DerivatePassphrase(false, fixed_pw); err != nil {
+    t.Fatalf("state.DerivatePassphrase: %v", err)
+  }
+  expect_key_count := 2
+
+  for _,k := range keys {
+    state.DecodeAndAddToKeyring(types.PersistableKey{k})
+  }
+  util.EqualsOrFailTest(t, "Bad keyring", len(state.Keyring), expect_key_count)
 }
 
 func TestCodecDefaultKey(t *testing.T) {
   codec := buildTestCodec(t)
   first_persisted := types.PersistableKey{codec.conf.EncryptionKeys[0]}
-  first_secret := codec.decodeEncryptionKey(first_persisted)
-  first_fp := codec.FingerprintKey(first_secret)
+  first_secret := TestOnlyDecodeEncryptionKey(first_persisted)
+  first_fp := FingerprintKey(first_secret)
   if codec.cur_fp.S != first_fp.S { t.Errorf("Wrong default fingerprint, must be first in config.") }
+  if bytes.Compare(first_secret.B, codec.cur_key.B) != 0 {
+    t.Errorf("Bad persisted key decoding: %x != %x", first_secret.B, secret_key_1)
+  }
 }
 
 func TestCreateNewEncryptionKey(t *testing.T) {
   codec := buildTestCodec(t)
   old_fp := codec.CurrentKeyFingerprint()
-  old_key,found := codec.keyring[old_fp]
-  if !found { t.Fatalf("There is no current key ?!") }
+  old_key := codec.cur_key
+  expect_key_count := len(init_keys) + 1
 
   persisted, err := codec.CreateNewEncryptionKey()
   if err != nil { t.Fatalf("Could not create new key: %v", err) }
@@ -72,9 +100,10 @@ func TestCreateNewEncryptionKey(t *testing.T) {
   if old_fp.S == codec.cur_fp.S || len(codec.cur_fp.S) < 1 {
     t.Errorf("Bad new fingerprint")
   }
-  if bytes.Compare(old_key.B, codec.keyring[codec.cur_fp].B) == 0 || len(codec.keyring[codec.cur_fp].B) < 1 {
+  if bytes.Compare(old_key.B, codec.cur_key.B) == 0 || len(codec.cur_key.B) < 1 {
     t.Errorf("Bad new secret key")
   }
+  util.EqualsOrFailTest(t, "Bad key count", TestOnlyKeyCount(), expect_key_count)
 }
 
 func TestReEncryptKeyring(t *testing.T) {
@@ -82,15 +111,16 @@ func TestReEncryptKeyring(t *testing.T) {
   expect_plain := types.SecretString{"chocoloco plain text"}
   codec := buildTestCodec(t)
   obfus := codec.EncryptString(expect_plain)
-  expect_key_count := len(codec.keyring)
+  expect_key_count := len(init_keys)
 
   persisted_keys, err := codec.ReEncryptKeyring(new_pw)
   if err != nil { t.Fatalf("Could not re-encrypt: %v", err) }
   if len(persisted_keys) != expect_key_count { t.Fatalf("Bad number of keys") }
+  util.EqualsOrFailTest(t, "Bad key count", TestOnlyKeyCount(), expect_key_count)
 
   new_conf := util.LoadTestConf()
   for _,k := range persisted_keys {
-    t.Logf("Adding persisted key: %x", k.S)
+    //t.Logf("Adding persisted key: %x", k.S)
     new_conf.EncryptionKeys = append(new_conf.EncryptionKeys, k.S)
     for _,old_k := range codec.conf.EncryptionKeys {
       if old_k == k.S { t.Fatalf("Re-encrypted keys are the same: %v", k.S) }
@@ -98,8 +128,29 @@ func TestReEncryptKeyring(t *testing.T) {
   }
   new_codec, err2 := NewCodecHelper(new_conf, new_pw)
   if err2 != nil { t.Fatalf("Could not create codec: %v", err2) }
-  t.Logf("xor key: %x", codec.xor_key)
 
+  plain, err3 := new_codec.DecryptString(types.CurKeyFp, obfus)
+  if err3 != nil { t.Fatalf("Could not decrypt: %v", err3) }
+  util.EqualsOrFailTest(t, "Bad decryption", plain, expect_plain)
+}
+
+func TestReEncryptKeyring_WithFlush(t *testing.T) {
+  new_pw := func() ([]byte, error) { return []byte("salut_mrmonkey"), nil }
+  expect_plain := types.SecretString{"chocoloco plain text"}
+  codec := buildTestCodec(t)
+  obfus := codec.EncryptString(expect_plain)
+
+  persisted_keys, err := codec.ReEncryptKeyring(new_pw)
+  if err != nil { t.Fatalf("Could not re-encrypt: %v", err) }
+
+  new_conf := util.LoadTestConf()
+  for _,k := range persisted_keys {
+    new_conf.EncryptionKeys = append(new_conf.EncryptionKeys, k.S)
+  }
+
+  TestOnlyFlush()
+  new_codec, err2 := NewCodecHelper(new_conf, new_pw)
+  if err2 != nil { t.Fatalf("Could not create codec: %v", err2) }
   plain, err3 := new_codec.DecryptString(types.CurKeyFp, obfus)
   if err3 != nil { t.Fatalf("Could not decrypt: %v", err3) }
   util.EqualsOrFailTest(t, "Bad decryption", plain, expect_plain)
@@ -109,30 +160,29 @@ func TestSecretToPersistedKey(t *testing.T) {
   codec := buildTestCodec(t)
   persisted, err := codec.CreateNewEncryptionKey()
   if err != nil { t.Fatalf("Could not create new key: %v", err) }
-  secret := codec.keyring[codec.CurrentKeyFingerprint()]
+  secret := codec.cur_key
   t.Logf("secret:%x, persisted:%s", secret.B, persisted.S)
 
-  dec_persisted := codec.decodeEncryptionKey(persisted)
+  dec_persisted := TestOnlyDecodeEncryptionKey(persisted)
   if bytes.Compare(secret.B, dec_persisted.B) != 0 {
     t.Errorf("Bad persisted key decoding: %x != %x", secret.B, dec_persisted.B)
   }
-  persisted_p := codec.encodeEncryptionKey(dec_persisted)
+  persisted_p := TestOnlyEncodeEncryptionKey(dec_persisted)
   if persisted_p.S != persisted.S {
     t.Errorf("Persisted key round trip: %x != %x", persisted_p.S, persisted.S)
   }
-  enc_secret := codec.encodeEncryptionKey(secret)
+  enc_secret := TestOnlyEncodeEncryptionKey(secret)
   if enc_secret.S != persisted.S {
     t.Errorf("Bad secret key encoding: %x != %x", enc_secret.S, persisted.S)
   }
-  secret_p := codec.decodeEncryptionKey(enc_secret)
+  secret_p := TestOnlyDecodeEncryptionKey(enc_secret)
   if bytes.Compare(secret.B, secret_p.B) != 0 {
     t.Errorf("Secret key round trip: %x != %x", secret.B, secret_p.B)
   }
 }
 
 func TestFingerprintKey(t *testing.T) {
-  codec := buildTestCodec(t)
-  fp := codec.FingerprintKey(types.SecretKey{[]byte(secret_key_1)})
+  fp := FingerprintKey(types.SecretKey{[]byte(secret_key_1)})
   t.Logf("persisted:%s, fingerprint:%s", persisted_key_1, fp)
   if fp.S != fp_persisted_key_1 { t.Errorf("Bad fingerprint calculation: %s != %s", fp, fp_persisted_key_1) }
 }
@@ -158,7 +208,7 @@ func TestEncryptString_Fingerprint(t *testing.T) {
   keys := []string {persisted_key_2, persisted_key_1,}
   codec := buildTestCodec(t)
   codec_2 := buildTestCodecChooseEncKey(t, keys)
-  fp := codec.FingerprintKey(types.SecretKey{[]byte(secret_key_2)})
+  fp := FingerprintKey(types.SecretKey{[]byte(secret_key_2)})
   obfus := codec_2.EncryptString(expect_plain)
 
   plain, err := codec.DecryptString(fp, obfus)

@@ -32,7 +32,7 @@ func (self *SysUtilImpl) ReadAsciiFile(
   bytes, err := os.ReadFile(fpath)
   if err != nil { return "", err }
   str := strings.TrimRight(string(bytes), "\n")
-  err = util.IsOnlyAsciiString(str, allow_ctrl)
+  err = util.IsOnlyAsciiString([]byte(str), allow_ctrl)
   if err != nil { err = fmt.Errorf("file:'%s', err:%v", fpath, err) }
   return str, err
 }

@@ -305,9 +305,11 @@ func PbErrorf(format string, pbs ...proto.Message) error {
   return errors.New(PbPrintf(format, pbs...))
 }
 
-func IsOnlyAsciiString(str string, allow_ctrl bool) error {
-  if !utf8.ValidString(str) { return fmt.Errorf("String is not valid unicode") }
-  for idx,codept := range str {
+// Should NOT copy `str` because it may contain sensible pw that will stick until GC.
+func IsOnlyAsciiString(str []byte, allow_ctrl bool) error {
+  if !utf8.Valid(str) { return fmt.Errorf("String is not valid unicode") }
+  for idx,b := range str {
+    codept := rune(b)
     // only ascii non control are allowed
     if codept > unicode.MaxASCII || (!allow_ctrl && unicode.IsControl(codept)) {
       return fmt.Errorf("String is has invalid characters at %d: '0x%x'", idx, codept)

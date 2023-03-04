@@ -28,10 +28,6 @@ type Codec interface {
   // The new key is stored in the keyring so that subsequent encrypts will use that key.
   // Returns a derived key that can be persisted.
   CreateNewEncryptionKey() (PersistableKey, error)
-  // Generates a fingerprint for the key that can safely be stored in a non-secure place.
-  // The key should be impossible to deduce from the fingerprint.
-  // The fingerprint **must** be issue from a `SecretKey` so that it is not dependent on the method used to encrypt the keys.
-  FingerprintKey(key SecretKey) PersistableString
   // Returns the fingerprint of the secret key used to encrypt.
   CurrentKeyFingerprint() PersistableString
   // Encrypts a textual string.
