@@ -16,11 +16,11 @@ import (
 type IsDirFunc func(string) bool
 
 type BtrfsPathJuggler struct {
-  Btrfsutil   types.Btrfsutil
-  Linuxutil   types.Linuxutil
-  Conf        *pb.Config
-  Filesystems []*types.Filesystem
-  IsDir       IsDirFunc
+  Btrfsutil    types.Btrfsutil
+  Linuxutil    types.Linuxutil
+  Conf         *pb.Config
+  KFilesystems []*types.Filesystem
+  IsDir        IsDirFunc
 }
 
 // This implementation considers the filesystems and mounts are constant through
@@ -32,7 +32,7 @@ func NewBtrfsPathJuggler(
     Btrfsutil: btrfsutil,
     Linuxutil: linuxutil,
     Conf: conf,
-    Filesystems: filesys,
+    KFilesystems: filesys,
     IsDir: util.IsDir,
   }
   return juggler, err
@@ -47,7 +47,7 @@ func (self *BtrfsPathJuggler) FindFsAndTighterMountOwningPath(
   var candidate_fs *types.Filesystem
   var candidate_mnt *types.MountEntry
 
-  for _,fs := range self.Filesystems {
+  for _,fs := range self.KFilesystems {
     for _,mnt := range fs.Mounts {
       if !strings.HasPrefix(path, mnt.MountedPath) { continue }
       if len(longer_prefix) > len(mnt.MountedPath) { continue }

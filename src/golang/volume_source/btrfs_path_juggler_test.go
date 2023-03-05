@@ -40,7 +40,7 @@ func buildTestJuggler(fs_list []*types.Filesystem) (*BtrfsPathJuggler, *mocks.Bt
     Btrfsutil: btrfsutil,
     Linuxutil: linuxutil,
     Conf: conf,
-    Filesystems: fs_list,
+    KFilesystems: fs_list,
     IsDir: func(string) bool { return true },
   }
   for _,fs := range fs_list {

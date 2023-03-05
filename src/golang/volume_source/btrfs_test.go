@@ -108,7 +108,7 @@ func buildTestManager() (*btrfsVolumeManager, *mocks.Btrfsutil, *mocks.BtrfsPath
   if _, ok := volmgr.(types.VolumeSource); !ok { util.Fatalf("cannot cast VolumeSource") }
   if _, ok := volmgr.(types.VolumeAdmin); !ok { util.Fatalf("cannot cast VolumeAdmin") }
   mgr := volmgr.(*btrfsVolumeManager)
-  mgr.src_fs_list = []*types.Filesystem{ fs, }
+  mgr.TestOnlySwapSrcFsList([]*types.Filesystem{ fs, })
   return mgr, btrfsutil, juggler
 }
 
@@ -119,14 +119,16 @@ func defaultVolPath(conf *pb.Config) string {
 func TestGetVolume(t *testing.T) {
   volmgr, btrfsutil, _ := buildTestManager()
   expect_subvol := CloneSubvol(btrfsutil.Subvols[0])
-  expect_subvol.OriginSys = proto.Clone(volmgr.sysinfo).(*pb.SystemInfo)
+  expect_subvol.OriginSys = proto.Clone(volmgr.k_sysinfo).(*pb.SystemInfo)
   subvol, err := volmgr.GetVolume(defaultVolPath(volmgr.conf))
   if err != nil { t.Fatalf("%s", err) }
   if !proto.Equal(expect_subvol, subvol) {
     t.Errorf("\n%s\n !=\n %s", expect_subvol, subvol)
   }
   // Just test we are not reusing internal references
-  volmgr.sysinfo.ToolGitCommit = "another_hash"
+  new_sysinfo := proto.Clone(volmgr.k_sysinfo).(*pb.SystemInfo)
+  new_sysinfo.ToolGitCommit = "another_hash"
+  volmgr.TestOnlySwapSysInfo(new_sysinfo)
   util.EqualsOrFailTest(t, "Using internal refs", expect_subvol, subvol)
 }
 
@@ -261,7 +263,7 @@ func TestCreateSnapshot(t *testing.T) {
   for _,snap := range btrfsutil.Snaps {
     var expect pb.SubVolume = *snap
     if snapshot.Uuid == expect.Uuid {
-      expect.OriginSys = volmgr.sysinfo
+      expect.OriginSys = volmgr.k_sysinfo
       util.EqualsOrFailTest(t, "Bad snapshot", snapshot, &expect)
       return
     }

@@ -27,6 +27,7 @@ func ByReceivedUuid(uuid string) func(*pb.SubVolume) bool {
   return func(sv *pb.SubVolume) bool { return sv.ReceivedUuid == uuid }
 }
 
+// Implementations must be thread safe.
 type VolumeManager interface {
   // `path` must be the root of the volume.
   // If `path` does not point to a snapshot the corresponding fields will be empty.
@@ -46,6 +47,7 @@ type VolumeManager interface {
   GetChangesBetweenSnaps(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (*pb.SnapshotChanges, error)
 }
 
+// Implementations must be thread safe.
 type VolumeSource interface {
   VolumeManager
   // Creates a read-only snapshot of `subvol`.
@@ -56,6 +58,7 @@ type VolumeSource interface {
   GetSnapshotStream(ctx context.Context, from *pb.SubVolume, to *pb.SubVolume) (ReadEndIf, error)
 }
 
+// Implementations must be thread safe.
 type VolumeDestination interface {
   VolumeManager
   // Reads subvolume data from the pipe and creates a subvolume using `btrfs receive`.
@@ -65,6 +68,7 @@ type VolumeDestination interface {
   ReceiveSendStream(ctx context.Context, root_path string, src_snap *pb.SubVolume, read_pipe ReadEndIf) (*pb.SubVolume, error)
 }
 
+// Implementations must be thread safe.
 type VolumeAdmin interface {
   VolumeManager
   // Deletes a snapshot.
@@ -77,6 +81,7 @@ type VolumeAdmin interface {
   TrimOldSnapshots(src_subvol *pb.SubVolume, dry_run bool) ([]*pb.SubVolume, error)
 }
 
+// Implementations must be thread safe.
 // Btrfs API is just bad.
 // * Some operations only take as input paths.
 // * VolumeId are unique only within a filesystem.

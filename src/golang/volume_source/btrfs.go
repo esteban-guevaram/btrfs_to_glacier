@@ -15,12 +15,13 @@ import (
   "google.golang.org/protobuf/proto"
 )
 
+// Implementation must be thread safe.
 type btrfsVolumeManager struct {
-  btrfsutil   types.Btrfsutil
-  juggler     types.BtrfsPathJuggler
-  sysinfo     *pb.SystemInfo
-  conf        *pb.Config
-  src_fs_list []*types.Filesystem
+  btrfsutil     types.Btrfsutil
+  juggler       types.BtrfsPathJuggler
+  conf          *pb.Config
+  k_sysinfo     *pb.SystemInfo
+  k_src_fs_list []*types.Filesystem
 }
 
 func get_system_info(linuxutil types.Linuxutil) *pb.SystemInfo {
@@ -40,11 +41,11 @@ func newBtrfsVolumeManager(
     juggler types.BtrfsPathJuggler) (*btrfsVolumeManager, error) {
   fs_list, err := juggler.CheckSourcesAndReturnCorrespondingFs(conf.Sources)
   mgr := btrfsVolumeManager{
-    btrfsutil,
-    juggler,
-    get_system_info(linuxutil),
-    conf,
-    fs_list,
+    btrfsutil: btrfsutil,
+    juggler: juggler,
+    conf: conf,
+    k_sysinfo: get_system_info(linuxutil),
+    k_src_fs_list: fs_list,
   }
   return &mgr, err
 }
@@ -73,6 +74,13 @@ func NewVolumeAdmin(
   return newBtrfsVolumeManager(conf, btrfsutil, linuxutil, juggler)
 }
 
+func (self *btrfsVolumeManager) TestOnlySwapSrcFsList(fs_list []*types.Filesystem) {
+  self.k_src_fs_list = fs_list
+}
+func (self *btrfsVolumeManager) TestOnlySwapSysInfo(sysinfo *pb.SystemInfo) {
+  self.k_sysinfo = sysinfo
+}
+
 func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   var subvol *pb.SubVolume
   var err error
@@ -81,7 +89,7 @@ func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
   if len(subvol.ParentUuid) > 0 && !subvol.ReadOnly {
     return nil, fmt.Errorf("'%s' is a writable snapshot, those are not supported", path)
   }
-  clone := proto.Clone(self.sysinfo).(*pb.SystemInfo)
+  clone := proto.Clone(self.k_sysinfo).(*pb.SystemInfo)
   subvol.OriginSys = clone
   return subvol, nil
 }
@@ -115,7 +123,7 @@ func (self *btrfsVolumeManager) FindSnapHistoryConf(sv *pb.SubVolume) (*pb.Sourc
 
 func (self *btrfsVolumeManager) FindMountedPath(sv *pb.SubVolume) (string, error) {
   if len(sv.MountedPath) > 0 { return sv.MountedPath, nil }
-  _, _, from_path, err := self.juggler.FindTighterMountForSubVolume(self.src_fs_list, sv)
+  _, _, from_path, err := self.juggler.FindTighterMountForSubVolume(self.k_src_fs_list, sv)
   return from_path, err
 }
 

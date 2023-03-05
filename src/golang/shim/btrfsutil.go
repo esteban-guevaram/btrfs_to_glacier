@@ -24,6 +24,8 @@ const NULL_UUID = "00000000000000000000000000000000"
 const BTRFS_FS_TREE_OBJECTID = C.BTRFS_FS_TREE_OBJECTID
 
 // Must be thread-safe.
+// But does nto prevent concurrent write operations on the same subvolumes.
+// It is up to btrfs not to end up in inconsistent state.
 type btrfsUtilImpl struct {
   linuxutil types.Linuxutil
 }
