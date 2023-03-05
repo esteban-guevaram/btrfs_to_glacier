@@ -125,7 +125,8 @@ type BackupContent interface {
   // Data may be filtered by a codec depending on the implementation.
   // Chunk length is determined by configuration.
   // Returns the ids of all chunks uploaded. If some error prevented all pipe content from being uploaded,
-  // then both a non nil error and the chunks that got uploaded willb e returned.
+  // then both a non nil error and the chunks that got uploaded will be returned,
+  // those chunks should not be used (see github.com/candide-guevara/btrfs_to_glacier/issues/2).
   // Takes ownership of `read_pipe` and will close it once done.
   WriteStream(ctx context.Context, offset uint64, read_pipe ReadEndIf) (*pb.SnapshotChunks, error)
 
