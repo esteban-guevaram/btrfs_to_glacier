@@ -15,9 +15,9 @@ import (
 
 type IsDirFunc func(string) bool
 
+// Should NOT require CAP_SYS_ADMIN in order to work.
 type BtrfsPathJuggler struct {
   Btrfsutil    types.Btrfsutil
-  Linuxutil    types.Linuxutil
   Conf         *pb.Config
   KFilesystems []*types.Filesystem
   IsDir        IsDirFunc
@@ -30,12 +30,18 @@ func NewBtrfsPathJuggler(
   filesys, err := linuxutil.ListBtrfsFilesystems()
   juggler := &BtrfsPathJuggler{
     Btrfsutil: btrfsutil,
-    Linuxutil: linuxutil,
     Conf: conf,
     KFilesystems: filesys,
     IsDir: util.IsDir,
   }
   return juggler, err
+}
+
+func (self *BtrfsPathJuggler) TestOnlySwapFilesystems(fs []*types.Filesystem) {
+  self.KFilesystems = fs
+}
+func (self *BtrfsPathJuggler) TestOnlySwapIsDir(f IsDirFunc) {
+  self.IsDir = f
 }
 
 func (self *BtrfsPathJuggler) FindFsAndTighterMountOwningPath(
@@ -77,6 +83,10 @@ func (s *byLen) Less(i, j int) bool { return len(s.Mounts[i].TreePath) > len(s.M
 
 // In the very rare case there is another SubVolume with the same id and tree path on a nested mount.
 func (self *BtrfsPathJuggler) doUuidsDiffer(path string, sv *pb.SubVolume) bool {
+  // IMPORTANT
+  // We assume path is the root of the subvolume.
+  // This enables `BtrfsPathJuggler` to work without CAP_SYS_ADMIN.
+  // `sv_in_path` should NOT be returned (because without CAP_SYS_ADMIN it lacks some info).
   sv_in_path,err := self.Btrfsutil.SubVolumeInfo(path)
   //util.Debugf("path: %s\nsv: %s", util.AsJson(sv_in_path), util.AsJson(sv))
   return err != nil || sv_in_path.Uuid != sv.Uuid

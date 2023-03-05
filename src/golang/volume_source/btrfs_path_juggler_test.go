@@ -36,13 +36,11 @@ func buildTestJuggler(fs_list []*types.Filesystem) (*BtrfsPathJuggler, *mocks.Bt
   conf := util.LoadTestConf()
   btrfsutil := &mocks.Btrfsutil{}
   linuxutil := &mocks.Linuxutil{}
-  juggler := &BtrfsPathJuggler{
-    Btrfsutil: btrfsutil,
-    Linuxutil: linuxutil,
-    Conf: conf,
-    KFilesystems: fs_list,
-    IsDir: func(string) bool { return true },
-  }
+  juggler_if, err := NewBtrfsPathJuggler(conf, btrfsutil, linuxutil)
+  if err != nil { util.Fatalf("NewBtrfsPathJuggler: %v", err) }
+  juggler := juggler_if.(*BtrfsPathJuggler)
+  juggler.TestOnlySwapFilesystems(fs_list)
+  juggler.TestOnlySwapIsDir(func(string) bool { return true })
   for _,fs := range fs_list {
     for _,mnt := range fs.Mounts {
       btrfsutil.Subvols = append(btrfsutil.Subvols, util.DummySubVolumeFromMount(mnt))

@@ -299,19 +299,6 @@ func (self *btrfsUtilImpl) CreateSnapshot(sv_path string, snap_path string) erro
   return self.HelperCreateSnapshot(sv_path, snap_path, flags)
 }
 
-func (self *btrfsUtilImpl) WaitForTransactionId(root_fs string, tid uint64) error {
-  if !fpmod.IsAbs(root_fs) {
-    return fmt.Errorf("'root_fs' needs an absolute path, got: %s", root_fs)
-  }
-  c_rootfs := C.CString(root_fs)
-  stx := C.btrfs_util_wait_sync(c_rootfs, (C.uint64_t)(tid))
-  if stx != C.BTRFS_UTIL_OK {
-    return fmt.Errorf("btrfs_util_wait_sync: %s = %d",
-                           C.GoString(C.btrfs_util_strerror(stx)), stx)
-  }
-  return nil
-}
-
 func (self *btrfsUtilImpl) DeleteSubVolume(subvol string) error {
   if !self.linuxutil.IsCapSysAdmin() {
     return fmt.Errorf("DeleteSubvolume requires CAP_SYS_ADMIN (only for snapshots though)")

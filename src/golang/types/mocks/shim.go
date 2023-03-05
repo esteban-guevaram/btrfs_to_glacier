@@ -242,10 +242,6 @@ func (self *Btrfsutil) DeleteSubVolume(subvol string) error {
   }
   return fmt.Errorf("delete unexisting vol '%s'", subvol)
 }
-func (self *Btrfsutil) WaitForTransactionId(root_fs string, tid uint64) error {
-  if root_fs == "" { return fmt.Errorf("WaitForTransactionId bad args") }
-  return self.Err
-}
 func (self *Btrfsutil) ReceiveSendStream(
     ctx context.Context, to_dir string, read_pipe types.ReadEndIf) error {
   defer read_pipe.Close()
