@@ -210,6 +210,9 @@ func (self *Metadata) ListAllSnapshots(
 func (self *Metadata) SetupMetadata(ctx context.Context) error {
   return ctx.Err()
 }
+func (self *Metadata) TearDownMetadata(ctx context.Context) error {
+  return ctx.Err()
+}
 
 func (self *Metadata) DeleteSnapshotSeqHead(ctx context.Context, uuid string) error {
   _,found := self.Heads[uuid]
@@ -352,6 +355,9 @@ func (self *Storage) ListAllChunks(
 
 func (self *Storage) SetupBackupContent(ctx context.Context) error {
   return util.Coalesce(ctx.Err(), self.ErrInject(self.SetupBackupContent))
+}
+func (self *Storage) TearDownBackupContent(ctx context.Context) error {
+  return util.Coalesce(ctx.Err(), self.ErrInject(self.TearDownBackupContent))
 }
 
 func (self *Storage) DeleteChunks(

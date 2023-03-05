@@ -2,6 +2,7 @@ package local_fs
 
 import (
   "context"
+  "fmt"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -44,5 +45,12 @@ func (self *RoundRobinContent) SetupBackupContent(ctx context.Context) error {
     return err
   }
   return nil
+}
+
+func (self *RoundRobinContent) TearDownBackupContent(ctx context.Context) error {
+  if self.SimpleDirStorage == nil {
+    return fmt.Errorf("TearDownBackupContent: did not call setup before")
+  }
+  return self.UMountAllSinkPartitions(ctx)
 }
 

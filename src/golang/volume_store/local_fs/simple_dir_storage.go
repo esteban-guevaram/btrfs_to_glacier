@@ -181,6 +181,10 @@ func (self *SimpleDirStorage) SetupBackupContent(ctx context.Context) error {
   return nil
 }
 
+func (self *SimpleDirStorage) TearDownBackupContent(ctx context.Context) error {
+  return nil //noop
+}
+
 func (self *SimpleDirStorage) LoadPreviousStateFromDir(ctx context.Context) error {
   fs_dir := os.DirFS(self.ChunkDir())
   entries, err := fs.ReadDir(fs_dir, ".")

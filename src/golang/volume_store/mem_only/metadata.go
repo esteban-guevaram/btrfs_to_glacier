@@ -294,4 +294,7 @@ func (self *Metadata) PersistCurrentMetadataState(ctx context.Context) (string, 
 func (self *Metadata) SetupMetadata(ctx context.Context) error {
   return nil //noop
 }
+func (self *Metadata) TearDownMetadata(ctx context.Context) error {
+  return nil //noop
+}
 

@@ -218,7 +218,10 @@ func (self *BaseStorage) ReadChunksIntoStream(
 }
 
 func (self *Storage) SetupBackupContent(ctx context.Context) error {
-  return nil
+  return nil //noop
+}
+func (self *Storage) TearDownBackupContent(ctx context.Context) error {
+  return nil //noop
 }
 
 func (self *Storage) DeleteChunks(

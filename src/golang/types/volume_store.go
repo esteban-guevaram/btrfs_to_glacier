@@ -102,6 +102,12 @@ type AdminMetadata interface {
   // Calling this method twice is a noop.
   SetupMetadata(ctx context.Context) error
 
+  // Performs the cleanups (depend on implementation) after the backups.
+  // `PersistCurrentMetadataState` should be called BEFORE if something was written to the Metadata.
+  // Calling this method twice is a noop.
+  // Calling this method before setup is an error.
+  TearDownMetadata(ctx context.Context) error
+
   // Deletes all items corresponding to the uuids.
   // Uuids not existing will be ignored.
   // Even if an error is returned, some items may have been deleted.
@@ -150,6 +156,11 @@ type AdminBackupContent interface {
   // Creates the infrastructure (depend on implementation) that will contain the backup content.
   // Calling this method twice is a noop.
   SetupBackupContent(ctx context.Context) error
+
+  // Performs the cleanups (depend on implementation) after the backups.
+  // Calling this method twice is a noop.
+  // Calling this method before setup is an error.
+  TearDownBackupContent(ctx context.Context) error
 
   // Deletes all objects in `chunks`.
   // Objects not found (already deleted?) should be a noop.

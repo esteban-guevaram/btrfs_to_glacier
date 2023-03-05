@@ -2,6 +2,7 @@ package local_fs
 
 import (
   "context"
+  "fmt"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
@@ -42,5 +43,12 @@ func (self *RoundRobinMetadata) SetupMetadata(ctx context.Context) error {
     return err
   }
   return nil
+}
+
+func (self *RoundRobinMetadata) TearDownMetadata(ctx context.Context) error {
+  if self.SimpleDirMetadata == nil {
+    return fmt.Errorf("TearDownMetadata: did not call setup before")
+  }
+  return self.UMountAllSinkPartitions(ctx)
 }
 

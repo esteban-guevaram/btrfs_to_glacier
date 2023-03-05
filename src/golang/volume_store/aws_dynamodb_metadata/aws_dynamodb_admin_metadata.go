@@ -122,6 +122,10 @@ func (self *dynamoMetadata) SetupMetadata(ctx context.Context) error {
   return self.waitForTableCreation(ctx)
 }
 
+func (self *dynamoMetadata) TearDownMetadata(ctx context.Context) error {
+  return nil //noop
+}
+
 func (self *dynamoAdminMetadata) buildDeleteRequest(uuid string, typename string) dyn_types.WriteRequest {
   return dyn_types.WriteRequest{
     DeleteRequest: &dyn_types.DeleteRequest{ Key:self.uuidTypeToKey(uuid, typename), },

@@ -106,6 +106,10 @@ func (self *s3StorageAdmin) SetupBackupContent(ctx context.Context) error {
   return err
 }
 
+func (self *s3StorageAdmin) TearDownBackupContent(ctx context.Context) error {
+  return nil //noop
+}
+
 // Although operations on objects have read-after-write consistency, that does not apply to buckets.
 // Deleting and creating buckets in quick succession and reading objects on that bucket
 // with a **different client object** may return NoSuchBucket errors.
