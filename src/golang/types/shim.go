@@ -60,6 +60,7 @@ type Linuxutil interface {
   // Only works if go binary invoked via `sudo`.
   // Returns a function that can be called to restore user permissions.
   GetRoot() (func(), error)
+  GetRootOrDie() func()
 
   // Mounts the device and checks it got mounted at desired path.
   // If device is already mounted at target, this is a noop.

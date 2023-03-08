@@ -145,3 +145,9 @@ func (self *Linuxutil) GetRoot() (func(), error) {
   return restore_f, nil
 }
 
+func (self *Linuxutil) GetRootOrDie() func() {
+  drop_f, err := self.GetRoot()
+  if err != nil { util.Fatalf("GetRootOrDie: %v", err) }
+  return drop_f
+}
+

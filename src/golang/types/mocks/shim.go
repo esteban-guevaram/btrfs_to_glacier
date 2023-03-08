@@ -35,6 +35,7 @@ type LinuxCounts struct {
 
 func NewLinuxutil() *Linuxutil {
   lu := &Linuxutil{}
+  _  = (types.Linuxutil)(lu)
   lu.ForAllErr(nil)
   return lu
 }
@@ -49,6 +50,10 @@ func (self *Linuxutil) BtrfsProgsVersion() (uint32, uint32) {
 func (self *Linuxutil) ProjectVersion() string { return self.SysInfo.ToolGitCommit }
 func (self *Linuxutil) DropRoot() (func(), error) { return func() {}, self.ErrInject(self.DropRoot) }
 func (self *Linuxutil) GetRoot() (func(), error) { return func() {}, self.ErrInject(self.GetRoot) }
+func (self *Linuxutil) GetRootOrDie() func() {
+  if self.ErrInject(self.GetRootOrDie) != nil { util.Fatalf("mocks.Linuxutil.GetRootOrDie") }
+  return func() {}
+}
 func (self *Linuxutil) ListBtrfsFilesystems() ([]*types.Filesystem, error) {
   return self.Filesystems, self.ErrInject(self.ListBtrfsFilesystems)
 }

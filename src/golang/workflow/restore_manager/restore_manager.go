@@ -27,7 +27,7 @@ type RestoreManager struct {
   Conf        *pb.Config
   DstConf     *pb.Restore
   Meta        types.Metadata
-  Content       types.BackupContent
+  Content     types.BackupContent
   Destination types.VolumeDestination
   BetweenRestoreChecks time.Duration
 }

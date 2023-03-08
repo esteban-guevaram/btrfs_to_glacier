@@ -19,6 +19,7 @@ import (
 type btrfsVolumeManager struct {
   btrfsutil     types.Btrfsutil
   juggler       types.BtrfsPathJuggler
+  linuxutil     types.Linuxutil
   conf          *pb.Config
   k_sysinfo     *pb.SystemInfo
   k_src_fs_list []*types.Filesystem
@@ -43,6 +44,7 @@ func newBtrfsVolumeManager(
   mgr := btrfsVolumeManager{
     btrfsutil: btrfsutil,
     juggler: juggler,
+    linuxutil: linuxutil,
     conf: conf,
     k_sysinfo: get_system_info(linuxutil),
     k_src_fs_list: fs_list,
@@ -82,6 +84,8 @@ func (self *btrfsVolumeManager) TestOnlySwapSysInfo(sysinfo *pb.SystemInfo) {
 }
 
 func (self *btrfsVolumeManager) GetVolume(path string) (*pb.SubVolume, error) {
+  drop_f := self.linuxutil.GetRootOrDie()
+  defer drop_f()
   var subvol *pb.SubVolume
   var err error
   subvol, err = self.btrfsutil.SubVolumeInfo(path)
@@ -128,6 +132,8 @@ func (self *btrfsVolumeManager) FindMountedPath(sv *pb.SubVolume) (string, error
 }
 
 func (self *btrfsVolumeManager) ListVolumes(fs_path string) ([]*pb.SubVolume, error) {
+  drop_f := self.linuxutil.GetRootOrDie()
+  defer drop_f()
   _,mnt,_,err := self.juggler.FindFsAndTighterMountOwningPath(fs_path)
   if err != nil { return nil, err }
   return self.btrfsutil.ListSubVolumesInFs(mnt.MountedPath,
@@ -161,6 +167,8 @@ func (self *btrfsVolumeManager) GetSnapshotSeqForVolume(subvol *pb.SubVolume) ([
   var last_gen uint64
 
   if len(subvol.MountedPath) < 1 { return nil, fmt.Errorf("GetSnapshotSeqForVolume needs MountedPath") }
+  drop_f := self.linuxutil.GetRootOrDie()
+  defer drop_f()
   vols, err = self.btrfsutil.ListSubVolumesInFs(subvol.MountedPath,
                                                 subvol.VolId == shim.BTRFS_FS_TREE_OBJECTID)
   if err != nil { return nil, err }
@@ -193,6 +201,8 @@ func (self *btrfsVolumeManager) GetChangesBetweenSnaps(
   if from_path,err = self.FindMountedPath(from); err != nil { return nil, err }
   if to_path,err   = self.FindMountedPath(to);   err != nil { return nil, err }
 
+  drop_f := self.linuxutil.GetRootOrDie()
+  defer drop_f()
   read_end, err = self.btrfsutil.StartSendStream(ctx, from_path, to_path, true)
   if err != nil { return nil, err }
 
@@ -220,6 +230,8 @@ func (self *btrfsVolumeManager) GetSnapshotStream(
   }
   if to_path,err = self.FindMountedPath(to); err != nil { return nil, err }
 
+  drop_f := self.linuxutil.GetRootOrDie()
+  defer drop_f()
   read_end, err = self.btrfsutil.StartSendStream(ctx, from_path, to_path, false)
   return read_end, err
 }
@@ -239,6 +251,8 @@ func (self *btrfsVolumeManager) CreateSnapshot(subvol *pb.SubVolume) (*pb.SubVol
                            fpmod.Base(subvol.TreePath), ts_str, time.Now().Unix())
   snap_path := fpmod.Join(snap_root, snap_name)
 
+  drop_f := self.linuxutil.GetRootOrDie()
+  defer drop_f()
   err = self.btrfsutil.CreateSnapshot(subvol.MountedPath, snap_path)
   if err != nil { return nil, err }
   snap, err := self.GetVolume(snap_path)
@@ -263,6 +277,8 @@ func (self *btrfsVolumeManager) DeleteSnapshot(subvol *pb.SubVolume) error {
   if !IsReadOnlySnap(re_read_sv) {
     return fmt.Errorf("%v is not readonly", subvol)
   }
+  drop_f := self.linuxutil.GetRootOrDie()
+  defer drop_f()
   err = self.btrfsutil.DeleteSubVolume(del_path)
   if err != nil { return err }
   return nil
@@ -276,6 +292,8 @@ func (self *btrfsVolumeManager) ReceiveSendStream(
   var sv *pb.SubVolume
   defer read_pipe.Close()
 
+  drop_f := self.linuxutil.GetRootOrDie()
+  defer drop_f()
   err = util.Coalesce(read_pipe.GetErr(),
                       self.btrfsutil.ReceiveSendStream(ctx, root_path, read_pipe))
   if err != nil { return nil, err }

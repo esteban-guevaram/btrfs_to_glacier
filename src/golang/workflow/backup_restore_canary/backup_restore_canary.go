@@ -124,6 +124,8 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
   if err != nil { return err }
 
   if len(self.State.Uuid) < 1 {
+    drop_f := self.Lnxutil.GetRootOrDie()
+    defer drop_f()
     self.State.New = true
     err = self.Btrfs.CreateSubvolume(self.State.VolRoot)
     if err != nil { return err }
@@ -253,6 +255,8 @@ func (self *BackupRestoreCanary) AppendSnapshotToValidationChain(
     ctx context.Context) (types.BackupPair, error) {
   result := types.BackupPair{}
   if self.State.TopSrcRestoredSnap == nil { return result, ErrMustRestoreBefore }
+  drop_f := self.Lnxutil.GetRootOrDie()
+  defer drop_f()
   if self.State.New {
     err := self.AppendDataToSubVolume()
     if err != nil { return result, err }

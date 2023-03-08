@@ -27,6 +27,7 @@ const KCanaryUuidFile = "uuids"
 
 // Maintains a small filesystem that can be restored from scratch and validated.
 // Ensures that all stored volumes are still compatible and can be restored.
+// Implementations may request CAP_SYS_ADMIN for some operations.
 type BackupRestoreCanary interface {
   // Creates the canary filesystem.
   // Creates dummy subvolume if there is no data in the Metadata under test.

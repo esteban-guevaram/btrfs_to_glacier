@@ -28,7 +28,7 @@ func ByReceivedUuid(uuid string) func(*pb.SubVolume) bool {
 }
 
 // Implementations must be thread safe.
-// Requires CAP_SYS_ADMIN before calling any method from the interface.
+// Implementations may request CAP_SYS_ADMIN before calling any method from the interface.
 type VolumeManager interface {
   // `path` must be the root of the volume.
   // If `path` does not point to a snapshot the corresponding fields will be empty.
@@ -49,7 +49,7 @@ type VolumeManager interface {
 }
 
 // Implementations must be thread safe.
-// Requires CAP_SYS_ADMIN before calling any method from the interface.
+// Implementations may request CAP_SYS_ADMIN before calling any method from the interface.
 type VolumeSource interface {
   VolumeManager
   // Creates a read-only snapshot of `subvol`.
@@ -61,7 +61,7 @@ type VolumeSource interface {
 }
 
 // Implementations must be thread safe.
-// Requires CAP_SYS_ADMIN before calling any method from the interface.
+// Implementations may request CAP_SYS_ADMIN before calling any method from the interface.
 type VolumeDestination interface {
   VolumeManager
   // Reads subvolume data from the pipe and creates a subvolume using `btrfs receive`.
@@ -72,7 +72,7 @@ type VolumeDestination interface {
 }
 
 // Implementations must be thread safe.
-// Requires CAP_SYS_ADMIN before calling any method from the interface.
+// Implementations may request CAP_SYS_ADMIN before calling any method from the interface.
 type VolumeAdmin interface {
   VolumeManager
   // Deletes a snapshot.
