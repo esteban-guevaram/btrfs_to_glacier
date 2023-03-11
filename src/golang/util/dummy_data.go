@@ -185,6 +185,7 @@ func LoadTestConf() *pb.Config {
   conf := &pb.Config {
     Sources: []*pb.Source{ source, },
     Backups: []*pb.Backup{ backup, },
+    Encryption: &pb.Encryption{},
     Aws: &pb.Aws {
       AccessKeyId: "coucou",
       SecretAccessKey: "coucou",

@@ -21,10 +21,13 @@ import (
 var ErrBadConfig = errors.New("bad_config_for_factory")
 
 func BuildCodec(conf *pb.Config) (types.Codec, error) {
-  if len(conf.EncryptionKeys) == 0 {
+  if conf.Encryption.Type == pb.Encryption_NOOP {
     return new(encryption.NoopCodec), nil
   }
-  return encryption.NewCodec(conf)
+  if conf.Encryption.Type == pb.Encryption_AES {
+    return encryption.NewCodec(conf)
+  }
+  return nil, fmt.Errorf("%w bad encryption type", ErrBadConfig)
 }
 
 func BuildBackupManagerAdmin(

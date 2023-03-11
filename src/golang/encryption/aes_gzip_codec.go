@@ -61,11 +61,11 @@ func NewCodecHelper(conf *pb.Config, pw_prompt func() ([]byte, error)) (types.Co
     block_size: aes.BlockSize,
   }
   if err := globalState.DerivatePassphrase(false, pw_prompt); err != nil { return nil, err }
-  if len(conf.EncryptionKeys) == 0 {
+  if len(conf.Encryption.Keys) == 0 {
     return nil, fmt.Errorf("No encryption keys in the configuration")
   }
 
-  for idx,k := range conf.EncryptionKeys {
+  for idx,k := range conf.Encryption.Keys {
     dec_key, fp := globalState.DecodeAndAddToKeyring(types.PersistableKey{k})
     // Use the first key in the keyring to encrypt.
     if idx == 0 {

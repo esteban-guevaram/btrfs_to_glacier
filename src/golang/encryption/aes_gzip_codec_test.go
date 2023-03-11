@@ -34,7 +34,7 @@ func buildTestCodec(t *testing.T) *aesGzipCodec {
 
 func buildTestCodecChooseEncKey(t *testing.T, keys []string) *aesGzipCodec {
   conf := util.LoadTestConf()
-  conf.EncryptionKeys = keys
+  conf.Encryption.Keys = keys
   fixed_pw := func() ([]byte, error) { return []byte(dummy_pw), nil }
   codec, err := NewCodecHelper(conf, fixed_pw)
   if err != nil { t.Fatalf("Could not create codec: %v", err) }
@@ -79,7 +79,7 @@ func TestAesGzipCodecGlobalState_BuildKeyring_Idempotent(t *testing.T) {
 
 func TestCodecDefaultKey(t *testing.T) {
   codec := buildTestCodec(t)
-  first_persisted := types.PersistableKey{codec.conf.EncryptionKeys[0]}
+  first_persisted := types.PersistableKey{codec.conf.Encryption.Keys[0]}
   first_secret := TestOnlyDecodeEncryptionKey(first_persisted)
   first_fp := FingerprintKey(first_secret)
   if codec.cur_fp.S != first_fp.S { t.Errorf("Wrong default fingerprint, must be first in config.") }
@@ -121,8 +121,8 @@ func TestReEncryptKeyring(t *testing.T) {
   new_conf := util.LoadTestConf()
   for _,k := range persisted_keys {
     //t.Logf("Adding persisted key: %x", k.S)
-    new_conf.EncryptionKeys = append(new_conf.EncryptionKeys, k.S)
-    for _,old_k := range codec.conf.EncryptionKeys {
+    new_conf.Encryption.Keys = append(new_conf.Encryption.Keys, k.S)
+    for _,old_k := range codec.conf.Encryption.Keys {
       if old_k == k.S { t.Fatalf("Re-encrypted keys are the same: %v", k.S) }
     }
   }
@@ -145,7 +145,7 @@ func TestReEncryptKeyring_WithFlush(t *testing.T) {
 
   new_conf := util.LoadTestConf()
   for _,k := range persisted_keys {
-    new_conf.EncryptionKeys = append(new_conf.EncryptionKeys, k.S)
+    new_conf.Encryption.Keys = append(new_conf.Encryption.Keys, k.S)
   }
 
   TestOnlyFlush()

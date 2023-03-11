@@ -110,6 +110,20 @@ message Restore {
   string root_restore_path = 3;
 }
 
+message Encryption {
+  enum EncryptionType {
+    INVALID = 0;
+    NOOP = 1;
+    AES = 2;
+    AES_GZIP = 3;
+  }
+  EncryptionType type = 1;
+  // The first key is used to encrypt new content.
+  // Key length may be imposed by the encryption algorithm.
+  // Keys are stored symmetrically encrypted into the configuration.
+  repeated string keys = 2;
+}
+
 message Config {
   repeated Workflow workflows = 1;
   repeated Tool tools = 2;
@@ -118,11 +132,7 @@ message Config {
   repeated Backup  backups  = 4;
   repeated Restore restores = 5;
 
-  // The first element is used to encrypt new content.
-  // Key length may be imposed by the encryption algorithm.
-  // Keys are stored symmetrically encrypted into the configuration.
-  repeated string encryption_keys = 6;
-
+  Encryption encryption = 6;
   Aws aws = 7;
 }
 
