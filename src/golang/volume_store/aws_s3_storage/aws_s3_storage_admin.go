@@ -127,7 +127,7 @@ func TestOnlySwapConf(storage types.BackupContent, conf *pb.Config) func() {
   if !ok { util.Fatalf("called with the wrong impl: %v", storage) }
   old_conf := s3_impl.Conf
   s3_impl.Conf = conf
-  common_restore := s3_impl.common.TestOnlySwapConf(conf)
+  common_restore := s3_impl.common.TestOnlySwapConf(conf) // lint:OK
   return func() { common_restore(); s3_impl.Conf = old_conf }
 }
 

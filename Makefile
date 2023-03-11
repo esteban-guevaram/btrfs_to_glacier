@@ -58,7 +58,10 @@ shim_integ: all | $(SUBVOL_PATH)
 		--destvol="$(MOUNT_TESTVOL_DST)" \
 		--snap1="$(SNAP1_PATH)" --snap2="$(SNAP2_PATH)"
 
-test: go_unittest cloud_integ shim_integ
+linters:
+	bash etc/check_on_test_code_in_prod.sh "$(MYGOSRC)"
+
+test: go_unittest cloud_integ shim_integ linters
 
 $(SUBVOL_PATH) fs_init &:
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
