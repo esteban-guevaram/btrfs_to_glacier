@@ -33,3 +33,17 @@ func TestOnlyAwsConfFromPlainKey(
   return &cfg, err
 }
 
+// Pre-requisite:
+// File `$HOME/.aws/config` should exist and contain `profile`. Example:
+// [profile some_dude]
+// region = eu-central-1
+// output = json
+// credential_process = bash -c 'gpg --quiet --decrypt ~/.aws/some_dude.gpg'
+func TestOnlyAwsConfFromCredsFile(
+    ctx context.Context, conf *pb.Config, profile string) (*aws.Config, error) {
+  cfg, err :=  config.LoadDefaultConfig(ctx,
+                                        config.WithDefaultRegion(conf.Aws.Region),
+                                        config.WithSharedConfigProfile(profile))
+  return &cfg, err
+}
+

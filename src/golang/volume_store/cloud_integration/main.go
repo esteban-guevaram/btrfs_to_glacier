@@ -19,7 +19,7 @@ func main() {
   util.Infof("cloud_integration run")
 
   ctx := context.Background()
-  conf, aws_conf := LoadAwsTestConfWithFlagOverwrites()
+  conf, aws_conf := LoadAwsConfForExperimentalUser()
   //conf = useUniqueInfrastructureNames(conf)
 
   TestCallerIdentity(ctx, conf, aws_conf)

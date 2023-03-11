@@ -3,7 +3,6 @@ package main
 import (
   "bytes"
   "context"
-  "flag"
   "fmt"
   "io"
   "time"
@@ -19,41 +18,27 @@ import (
   "google.golang.org/protobuf/proto"
 )
 
-var access_flag string
-var secret_flag string
-var session_flag string
-var region_flag string
-var table_flag string
-var store_bucket_flag string
-var meta_bucket_flag string
-
-func init() {
-  flag.StringVar(&access_flag,       "access",       "", "Access Key ID")
-  flag.StringVar(&secret_flag,       "secret",       "", "Secret access key")
-  flag.StringVar(&session_flag,      "session",      "", "Session token for temporal credentials")
-  flag.StringVar(&region_flag,       "region",       "", "Default AWS region")
-  flag.StringVar(&table_flag,        "table",        "", "Dynamodb table name")
-  flag.StringVar(&store_bucket_flag, "store_bucket", "", "S3 storage bucket name")
-  flag.StringVar(&meta_bucket_flag,  "meta_bucket",  "", "S3 metadata bucket name")
-}
-
-func overwriteWithFlags(conf *pb.Config, backup *pb.Backup_Aws) {
-  flag.Parse()
-  if region_flag       != "" { conf.Aws.Region = region_flag }
-  if table_flag        != "" { backup.DynamoDb.MetadataTableName = table_flag }
-  if store_bucket_flag != "" { backup.S3.StorageBucketName = store_bucket_flag }
-  if meta_bucket_flag  != "" { backup.S3.MetadataBucketName = meta_bucket_flag }
-}
-
 func Backup(conf *pb.Config) *pb.Backup {
   return conf.Backups[0]
 }
 
-func LoadAwsTestConfWithFlagOverwrites() (*pb.Config, *aws.Config) {
+// Pre-requisites
+// * `kProfile` exists in .aws/config as explained in `encryption.TestOnlyAwsConfFromCredsFile`
+//   * IAM user must have root permissions on the test buckets and dynamo tables.
+// * `kRegion` is a valid aws region were the test infrastructure is locate.
+func LoadAwsConfForExperimentalUser() (*pb.Config, *aws.Config) {
+  const kProfile = "btrfs_to_glacier_root"
+  const kRegion = "eu-central-1"
+  const kMetaBucket = "s3.integration.test.meta"
+  const kContentBucket = "s3.integration.test.store"
+  const kMetaDynTab = "dynamodb.integration.test"
   conf := util.LoadTestConf()
-  overwriteWithFlags(conf, Backup(conf).Aws)
-  aws_conf, err := encryption.TestOnlyAwsConfFromPlainKey(conf, access_flag, secret_flag, session_flag)
-  if err != nil { util.Fatalf("TestOnlyAwsConfFromPlainKey: %v", err) }
+  conf.Aws.Region = kRegion
+  Backup(conf).Aws.DynamoDb.MetadataTableName = kMetaDynTab
+  Backup(conf).Aws.S3.StorageBucketName = kContentBucket
+  Backup(conf).Aws.S3.MetadataBucketName = kMetaBucket
+  aws_conf, err := encryption.TestOnlyAwsConfFromCredsFile(context.Background(), conf, kProfile)
+  if err != nil { util.Fatalf("TestOnlyAwsConfFromCredsFile: %v", err) }
   return conf, aws_conf
 }
 

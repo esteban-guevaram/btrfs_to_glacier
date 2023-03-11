@@ -18,8 +18,6 @@ GO_PROTOC_INSTALL := $(STAGE_PATH)/gobin/protoc-gen-go
 # Can be problematic for some languages like C++ (see groups.google.com/g/protobuf/c/Qz5Aj7zK03Y)
 GO_PROTO_GEN_SRCS := $(MYGOSRC)/messages/config.pb.go $(MYGOSRC)/messages/messages.pb.go
 MYDLVINIT         := $(STAGE_PATH)/dlv_init
-AWS_TEMP_CREDS    := $(STAGE_PATH)/aws_temp_creds
-AWS_TEMP_CREDS_SH := $(STAGE_PATH)/aws_temp_creds.sh
 PROTOSRC          := src/proto
 CC                := gcc
 CPPFLAGS          := -D_GNU_SOURCE -D__LEVEL_LOG__=4 -D__LEVEL_ASSERT__=1
@@ -46,13 +44,9 @@ clean:
 	fi
 	rm -rf bin/*
 
-cloud_integ: all $(AWS_TEMP_CREDS_SH)
-	source "$(AWS_TEMP_CREDS_SH)"
+cloud_integ: all
 	pushd "$(MYGOSRC)"
-	GOENV="$(GOENV)" go run ./volume_store/cloud_integration \
-		--access="$$ACCESS" --secret="$$SECRET" --session="$$SESSION" \
-		--region="$(AWS_REGION)" --table="$(AWS_DYN_TAB)" \
-		--store_bucket="$(AWS_BUCKET).store" --meta_bucket="$(AWS_BUCKET).meta"
+	GOENV="$(GOENV)" go run ./volume_store/cloud_integration
 
 shim_integ: all | $(SUBVOL_PATH)
 	bin/btrfs_progs_test "$(SUBVOL_PATH)" || exit 1
@@ -138,23 +132,6 @@ $(GO_PROTOC_INSTALL): $(GOENV)
 $(MYGOSRC)/messages/%.pb.go: $(PROTOSRC)/%.proto $(GOENV) | $(GO_PROTOC_INSTALL)
 	export PATH="$(PATH):`GOENV="$(GOENV)" go env GOBIN`"
 	protoc '-I=$(PROTOSRC)' '--go_out=$(MYGOSRC)' "$<"
-
-$(AWS_TEMP_CREDS_SH) $(AWS_TEMP_CREDS) &: | bin
-	aws --profile=btrfs_to_glacier_root sts get-session-token --duration-seconds=54000 \
-	  > "$(AWS_TEMP_CREDS)"
-	gawk '
-	  function unquote(arg) { return gensub(/.*"([^"]+)",?/, "\"\\1\"", "g", arg); }
-		/"AccessKeyId":/     { print("ACCESS=" unquote($$2)); }
-		/"SecretAccessKey":/ { print("SECRET=" unquote($$2)); }
-		/"SessionToken":/    { print("SESSION=" unquote($$2)); }
-		/"Expiration":/      { print("EXP_SECS=`date --date=" unquote($$2) " +%s`"); }
-		END {
-		  print("NOW_SECS=`date +%s`");
-			print("[[ \$$NOW_SECS -le \$$EXP_SECS ]] || echo ERROR expired creds");
-			print("[[ \$$NOW_SECS -le \$$EXP_SECS ]] || exit 1");
-		}
-	' "$(AWS_TEMP_CREDS)" > "$(AWS_TEMP_CREDS_SH)"
-	source "$(AWS_TEMP_CREDS_SH)"
 
 $(call c_lib,linux_utils): LDLIBS := -lcap
 $(call c_lib,linux_utils): bin/linux_utils.o bin/common.o
