@@ -5,6 +5,7 @@ import (
   "fmt"
   "testing"
 
+  "btrfs_to_glacier/encryption"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
@@ -69,7 +70,7 @@ func buildTestStorageWithConf(t *testing.T, conf *pb.Config) (*s3StorageAdmin, *
     HeadAlwaysAccessDenied: false,
   }
   codec := new(mocks.Codec)
-  aws_conf, err := util.NewAwsConfigFromStaticCreds(conf)
+  aws_conf, err := encryption.TestOnlyAwsConfFromPlainKey(conf, "", "", "")
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
   common, err := s3_common.NewS3Common(conf, aws_conf, conf.Backups[0].Name, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }

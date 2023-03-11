@@ -56,9 +56,12 @@ func TestConfigTextMarshal(t *testing.T) {
       KeepOnePeriodDays: 30,
     },
   }
+  aws_cred := &Aws_Credential{
+    Type: Aws_BACKUP_READER,
+    Key: "skljflsdjf",
+  }
   aws := &Aws {
-    AccessKeyId: "coucou",
-    SecretAccessKey: "coucou",
+    Creds: []*Aws_Credential{ aws_cred, },
     Region: "eu-central-1",
   }
   backup := &Backup{

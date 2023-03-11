@@ -11,6 +11,8 @@ import (
 
   "github.com/aws/aws-sdk-go-v2/aws"
   "github.com/aws/aws-sdk-go-v2/service/s3"
+  "github.com/aws/aws-sdk-go-v2/aws/arn"
+  "github.com/aws/aws-sdk-go-v2/service/sts"
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
   "github.com/aws/smithy-go"
 )
@@ -87,7 +89,7 @@ func (self *S3Common) TestOnlySwapConf(conf *pb.Config) func() {
 func (self *S3Common) GetAccountIdOrDie(ctx context.Context) *string {
   if len(self.AccountId) < 1 {
     var err error
-    self.AccountId, err = util.GetAccountId(ctx, self.Aws_conf)
+    self.AccountId, err = GetAccountId(ctx, self.Aws_conf)
     if err != nil { util.Fatalf("Failed to get account id: %v", err) }
   }
   return &self.AccountId
@@ -159,5 +161,20 @@ func (self *S3Common) locationConstraintFromConf() (s3_types.BucketLocationConst
   }
   return invalid, fmt.Errorf("region '%s' does not match any location constraint",
                              self.Conf.Aws.Region)
+}
+
+func GetAccountId(ctx context.Context, aws_conf *aws.Config) (string, error) {
+  var err error
+  var res_name arn.ARN
+  var ident_out *sts.GetCallerIdentityOutput
+
+  client := sts.NewFromConfig(*aws_conf)
+  ident_in := &sts.GetCallerIdentityInput{}
+  ident_out, err = client.GetCallerIdentity(ctx, ident_in)
+  if err != nil { return "", err }
+
+  res_name, err = arn.Parse(*(ident_out.Arn))
+  if err != nil { return "", err }
+  return res_name.AccountID, nil
 }
 

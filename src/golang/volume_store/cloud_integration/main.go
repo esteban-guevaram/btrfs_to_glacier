@@ -8,6 +8,7 @@ import (
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
+  "btrfs_to_glacier/volume_store/aws_s3_common"
 
   "github.com/aws/aws-sdk-go-v2/aws"
 
@@ -18,11 +19,8 @@ func main() {
   util.Infof("cloud_integration run")
 
   ctx := context.Background()
-  conf := LoadAwsTestConfWithFlagOverwrites()
+  conf, aws_conf := LoadAwsTestConfWithFlagOverwrites()
   //conf = useUniqueInfrastructureNames(conf)
-
-  aws_conf, err := util.NewAwsConfigFromStaticCreds(conf)
-  if err != nil { util.Fatalf("%v", err) }
 
   TestCallerIdentity(ctx, conf, aws_conf)
   TestAllS3Storage(ctx, conf, aws_conf)
@@ -35,7 +33,7 @@ func TestCallerIdentity(ctx context.Context, conf *pb.Config, aws_conf *aws.Conf
   var err error
   var id_int int
   var account_id string
-  account_id, err = util.GetAccountId(ctx, aws_conf)
+  account_id, err = aws_s3_common.GetAccountId(ctx, aws_conf)
   if err != nil { util.Fatalf("%v", err) }
   id_int, err = strconv.Atoi(account_id)
   if err != nil || id_int < 1 { util.Fatalf("invalid account id") }

@@ -8,6 +8,7 @@ import (
   "io"
   "time"
 
+  "btrfs_to_glacier/encryption"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/util"
 
@@ -38,9 +39,6 @@ func init() {
 
 func overwriteWithFlags(conf *pb.Config, backup *pb.Backup_Aws) {
   flag.Parse()
-  if access_flag       != "" { conf.Aws.AccessKeyId = access_flag }
-  if secret_flag       != "" { conf.Aws.SecretAccessKey = secret_flag }
-  if session_flag      != "" { conf.Aws.SessionToken = session_flag }
   if region_flag       != "" { conf.Aws.Region = region_flag }
   if table_flag        != "" { backup.DynamoDb.MetadataTableName = table_flag }
   if store_bucket_flag != "" { backup.S3.StorageBucketName = store_bucket_flag }
@@ -51,10 +49,12 @@ func Backup(conf *pb.Config) *pb.Backup {
   return conf.Backups[0]
 }
 
-func LoadAwsTestConfWithFlagOverwrites() *pb.Config {
+func LoadAwsTestConfWithFlagOverwrites() (*pb.Config, *aws.Config) {
   conf := util.LoadTestConf()
   overwriteWithFlags(conf, Backup(conf).Aws)
-  return conf
+  aws_conf, err := encryption.TestOnlyAwsConfFromPlainKey(conf, access_flag, secret_flag, session_flag)
+  if err != nil { util.Fatalf("TestOnlyAwsConfFromPlainKey: %v", err) }
+  return conf, aws_conf
 }
 
 func DynTableName(conf *pb.Config) string {

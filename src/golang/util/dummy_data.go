@@ -182,13 +182,13 @@ func LoadTestConf() *pb.Config {
       },
     },
   }
+  aws_cred := &pb.Aws_Credential{}
   conf := &pb.Config {
     Sources: []*pb.Source{ source, },
     Backups: []*pb.Backup{ backup, },
     Encryption: &pb.Encryption{},
     Aws: &pb.Aws {
-      AccessKeyId: "coucou",
-      SecretAccessKey: "coucou",
+      Creds: []*pb.Aws_Credential{ aws_cred, },
       Region: "eu-central-1", // needs to be valid for unittests
     },
   }

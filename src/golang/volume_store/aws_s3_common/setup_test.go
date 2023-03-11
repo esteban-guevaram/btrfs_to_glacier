@@ -4,6 +4,7 @@ import (
   "context"
   "testing"
 
+  "btrfs_to_glacier/encryption"
   "btrfs_to_glacier/util"
 
   s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -20,7 +21,7 @@ func buildTestAdminsetup(t *testing.T) (*S3Common, *MockS3Client) {
     HeadAlwaysEmpty: false,
     HeadAlwaysAccessDenied: false,
   }
-  aws_conf, err := util.NewAwsConfigFromStaticCreds(conf)
+  aws_conf, err := encryption.TestOnlyAwsConfFromPlainKey(conf, "", "", "")
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
   common, err := NewS3Common(conf, aws_conf, conf.Backups[0].Name, client)
   if err != nil { t.Fatalf("Failed build common setup: %v", err) }

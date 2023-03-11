@@ -3,12 +3,28 @@ package messages;
 option go_package = "./messages";
 
 message Aws {
-  // Use session tokens to get temporal credentials.
+  enum UserType {
+    INVALID = 0;
+    BACKUP_WRITER = 1;
+    BACKUP_READER = 2;
+    BACKUP_ROOT = 3;
+  }
+  // Only use `Credential.key` to get temporal credentials and then discard it.
+  // Example json temporal credentials:
+  // { "Credentials": {
+  //     "AccessKeyId": "XXX", "SecretAccessKey": "YYY", "SessionToken": "ZZZ", "Expiration": "<timestamp>"
+  //   }
+  // }
   // https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_request.html#api_getsessiontoken
-  string access_key_id = 1;
-  string secret_access_key = 2;
-  string session_token = 3;
-  string region = 4;
+  // https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sts
+  message Credential {
+    UserType type = 1;
+    // Encrypted json content of .aws/credentials, example:
+    // { "Version": 1, "AccessKeyId": "XXX", "SecretAccessKey": "YYY" }
+    string key = 2;
+  }
+  string region = 1;
+  repeated Credential creds = 2;
 }
 
 // Additional tools not directly related to backup/restores.

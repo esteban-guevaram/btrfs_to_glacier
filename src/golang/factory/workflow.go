@@ -58,7 +58,7 @@ func BuildBackupManagerAdmin(
 
   if backup.Type == pb.Backup_AWS {
     if backup.Aws == nil { return nil, fmt.Errorf("%w missing aws config", ErrBadConfig) }
-    aws_conf, err := util.NewAwsConfigFromStaticCreds(conf)
+    aws_conf, err := encryption.NewAwsConfigFromTempCreds(conf, pb.Aws_BACKUP_WRITER)
     if err != nil { return nil, err }
     meta, err = aws_meta.NewMetadataAdmin(ctx, conf, aws_conf, backup_name)
     if err != nil { return nil, err }

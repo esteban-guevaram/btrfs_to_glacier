@@ -7,6 +7,7 @@ import (
   "sort"
   "testing"
 
+  "btrfs_to_glacier/encryption"
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
@@ -224,7 +225,7 @@ func buildTestMetadata(t *testing.T) (*dynamoMetadata, *mockDynamoDbClient) {
   conf := util.LoadTestConf()
   client := new(mockDynamoDbClient)
   client.Data = make(map[keyAndtype][]byte)
-  aws_conf, err := util.NewAwsConfigFromStaticCreds(conf)
+  aws_conf, err := encryption.TestOnlyAwsConfFromPlainKey(conf, "", "", "")
   if err != nil { t.Fatalf("Failed aws config: %v", err) }
 
   meta := &dynamoMetadata{
