@@ -2,7 +2,6 @@ package encryption
 
 import (
   "bytes"
-  "compress/gzip"
   "context"
   "fmt"
   "io"
@@ -14,8 +13,6 @@ import (
   "btrfs_to_glacier/util"
 )
 
-// xor_key=`sha256sum <(echo -n "dummy_pw") | cut -f1 -d' ' | sed -r 's/(..)/\\\\x\1/g'`
-const dummy_pw = "chocolat"
 // persisted=`python3 -c "print(b''.join((b'$secret'[i] ^ b'$xor_key'[i]).to_bytes(1,'big') for i in range(32)).hex(), end='')" | xxd -r -p | base64`
 const persisted_key_1 = "OC0aSSg2woV0bUfw0Ew1+ej5fYCzzIPcTnqbtuKXzk8="
 // fp=`sha512sum <(printf 'secret') | head -c 32 | xxd -r -p | base64`
@@ -35,8 +32,7 @@ func buildTestCodec(t *testing.T) *aesGzipCodec {
 func buildTestCodecChooseEncKey(t *testing.T, keys []string) *aesGzipCodec {
   conf := util.LoadTestConf()
   conf.Encryption.Keys = keys
-  fixed_pw := func() ([]byte, error) { return []byte(dummy_pw), nil }
-  codec, err := NewCodecHelper(conf, fixed_pw)
+  codec, err := NewCodecHelper(conf, TestOnlyFixedPw)
   if err != nil { t.Fatalf("Could not create codec: %v", err) }
   return codec.(*aesGzipCodec)
 }
@@ -44,8 +40,7 @@ func buildTestCodecChooseEncKey(t *testing.T, keys []string) *aesGzipCodec {
 func TestAesGzipCodecGlobalState_BuildKeyring(t *testing.T) {
   keys := []string {persisted_key_1, persisted_key_2,}
   state := NewAesGzipCodecGlobalState()
-  fixed_pw := func() ([]byte, error) { return []byte(dummy_pw), nil }
-  if err := state.DerivatePassphrase(false, fixed_pw); err != nil {
+  if err := state.DerivatePassphrase(false, TestOnlyFixedPw); err != nil {
     t.Fatalf("state.DerivatePassphrase: %v", err)
   }
   uniq_fp := make(map[string]bool)
@@ -65,8 +60,7 @@ func TestAesGzipCodecGlobalState_BuildKeyring(t *testing.T) {
 func TestAesGzipCodecGlobalState_BuildKeyring_Idempotent(t *testing.T) {
   keys := []string {persisted_key_1, persisted_key_2, persisted_key_1, persisted_key_2, persisted_key_2,}
   state := NewAesGzipCodecGlobalState()
-  fixed_pw := func() ([]byte, error) { return []byte(dummy_pw), nil }
-  if err := state.DerivatePassphrase(false, fixed_pw); err != nil {
+  if err := state.DerivatePassphrase(false, TestOnlyFixedPw); err != nil {
     t.Fatalf("state.DerivatePassphrase: %v", err)
   }
   expect_key_count := 2
@@ -106,14 +100,61 @@ func TestCreateNewEncryptionKey(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad key count", TestOnlyKeyCount(), expect_key_count)
 }
 
+func QuickEncryptString(
+    t *testing.T, codec types.Codec, plain string) []byte {
+  ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+
+  read_pipe := util.ReadEndFromBytes([]byte(plain))
+  encoded_pipe, err := codec.EncryptStream(ctx, read_pipe)
+  if err != nil { t.Fatalf("Could not encrypt: %v", err) }
+
+  done := make(chan []byte)
+  go func() {
+    defer close(done)
+    data, err := io.ReadAll(encoded_pipe)
+    if err != nil { t.Errorf("ReadAll: %v", err) }
+    done <- data
+  }()
+
+  select {
+    case data := <-done: return data
+    case <-ctx.Done(): t.Fatalf("QuickEncryptString timeout")
+  }
+  return nil
+}
+
+func QuickDecryptString(
+    t *testing.T, codec types.Codec, obfus []byte) string {
+  ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
+  defer cancel()
+
+  read_pipe := util.ReadEndFromBytes(obfus)
+  encoded_pipe, err := codec.DecryptStream(ctx, types.CurKeyFp, read_pipe)
+  if err != nil { t.Fatalf("Could not decrypt: %v", err) }
+
+  done := make(chan []byte)
+  go func() {
+    defer close(done)
+    data, err := io.ReadAll(encoded_pipe)
+    if err != nil { t.Errorf("ReadAll: %v", err) }
+    done <- data
+  }()
+
+  select {
+    case data := <-done: return string(data)
+    case <-ctx.Done(): t.Fatalf("QuickDecryptString timeout")
+  }
+  return ""
+}
+
 func TestReEncryptKeyring(t *testing.T) {
-  new_pw := func() ([]byte, error) { return []byte("salut_mrmonkey"), nil }
-  expect_plain := types.SecretString{"chocoloco plain text"}
+  expect_plain := "chocoloco plain text"
   codec := buildTestCodec(t)
-  obfus := codec.EncryptString(expect_plain)
+  obfus := QuickEncryptString(t, codec, expect_plain)
   expect_key_count := len(init_keys)
 
-  persisted_keys, err := codec.ReEncryptKeyring(new_pw)
+  persisted_keys, err := codec.ReEncryptKeyring(TestOnlyAnotherPw)
   if err != nil { t.Fatalf("Could not re-encrypt: %v", err) }
   if len(persisted_keys) != expect_key_count { t.Fatalf("Bad number of keys") }
   util.EqualsOrFailTest(t, "Bad key count", TestOnlyKeyCount(), expect_key_count)
@@ -126,21 +167,19 @@ func TestReEncryptKeyring(t *testing.T) {
       if old_k == k.S { t.Fatalf("Re-encrypted keys are the same: %v", k.S) }
     }
   }
-  new_codec, err2 := NewCodecHelper(new_conf, new_pw)
+  new_codec, err2 := NewCodecHelper(new_conf, TestOnlyAnotherPw)
   if err2 != nil { t.Fatalf("Could not create codec: %v", err2) }
 
-  plain, err3 := new_codec.DecryptString(types.CurKeyFp, obfus)
-  if err3 != nil { t.Fatalf("Could not decrypt: %v", err3) }
+  plain := QuickDecryptString(t, new_codec, obfus)
   util.EqualsOrFailTest(t, "Bad decryption", plain, expect_plain)
 }
 
 func TestReEncryptKeyring_WithFlush(t *testing.T) {
-  new_pw := func() ([]byte, error) { return []byte("salut_mrmonkey"), nil }
-  expect_plain := types.SecretString{"chocoloco plain text"}
+  expect_plain := "chocoloco plain text"
   codec := buildTestCodec(t)
-  obfus := codec.EncryptString(expect_plain)
+  obfus := QuickEncryptString(t, codec, expect_plain)
 
-  persisted_keys, err := codec.ReEncryptKeyring(new_pw)
+  persisted_keys, err := codec.ReEncryptKeyring(TestOnlyAnotherPw)
   if err != nil { t.Fatalf("Could not re-encrypt: %v", err) }
 
   new_conf := util.LoadTestConf()
@@ -149,10 +188,10 @@ func TestReEncryptKeyring_WithFlush(t *testing.T) {
   }
 
   TestOnlyFlush()
-  new_codec, err2 := NewCodecHelper(new_conf, new_pw)
+  new_codec, err2 := NewCodecHelper(new_conf, TestOnlyAnotherPw)
   if err2 != nil { t.Fatalf("Could not create codec: %v", err2) }
-  plain, err3 := new_codec.DecryptString(types.CurKeyFp, obfus)
-  if err3 != nil { t.Fatalf("Could not decrypt: %v", err3) }
+
+  plain := QuickDecryptString(t, new_codec, obfus)
   util.EqualsOrFailTest(t, "Bad decryption", plain, expect_plain)
 }
 
@@ -187,37 +226,6 @@ func TestFingerprintKey(t *testing.T) {
   if fp.S != fp_persisted_key_1 { t.Errorf("Bad fingerprint calculation: %s != %s", fp, fp_persisted_key_1) }
 }
 
-func TestEncryptString(t *testing.T) {
-  expect_plain := types.SecretString{"chocoloco plain text"}
-  codec := buildTestCodec(t)
-  obfus := codec.EncryptString(expect_plain)
-  obfus_2 := codec.EncryptString(expect_plain)
-  if obfus.S  == obfus_2.S {
-    t.Errorf("Encrypt of the same string should not produce the same obfuscated bytes")
-  }
-
-  plain, err := codec.DecryptString(types.CurKeyFp, obfus)
-  if err != nil { t.Fatalf("Could not decrypt: %v", err) }
-
-  t.Logf("obfuscated:%x, plain:%s", obfus, plain)
-  util.EqualsOrFailTest(t, "Bad decryption", plain, expect_plain)
-}
-
-func TestEncryptString_Fingerprint(t *testing.T) {
-  expect_plain := types.SecretString{"chocoloco plain text"}
-  keys := []string {persisted_key_2, persisted_key_1,}
-  codec := buildTestCodec(t)
-  codec_2 := buildTestCodecChooseEncKey(t, keys)
-  fp := FingerprintKey(types.SecretKey{[]byte(secret_key_2)})
-  obfus := codec_2.EncryptString(expect_plain)
-
-  plain, err := codec.DecryptString(fp, obfus)
-  if err != nil { t.Fatalf("Could not decrypt: %v", err) }
-
-  t.Logf("obfuscated:%x, plain:%s", obfus, plain)
-  util.EqualsOrFailTest(t, "Bad decryption", plain, expect_plain)
-}
-
 type source_t struct { io.ReadCloser ; closed bool }
 func (self *source_t) Close() error { self.closed = true; return nil }
 func (self *source_t) GetErr() error { return nil }
@@ -242,7 +250,7 @@ func TestEncryptStream_ClosesStreams(t *testing.T) {
   if !read_pipe.closed { t.Errorf("source not closed") }
 }
 
-type decrypt_f = func(types.Codec, context.Context, types.PersistableString, types.ReadEndIf) (types.ReadEndIf, error)
+type decrypt_f = func(types.Codec, context.Context, types.ReadEndIf) (types.ReadEndIf, error)
 func testEncryptDecryptStream_Helper(
     t *testing.T, read_pipe types.ReadEndIf, decrypt_lambda decrypt_f) []byte {
   codec := buildTestCodec(t)
@@ -253,7 +261,7 @@ func testEncryptDecryptStream_Helper(
   var encoded_pipe, decoded_pipe types.ReadEndIf
   encoded_pipe, err = codec.EncryptStream(ctx, read_pipe)
   if err != nil { t.Fatalf("Could not encrypt: %v", err) }
-  decoded_pipe, err = decrypt_lambda(codec, ctx, types.CurKeyFp, encoded_pipe)
+  decoded_pipe, err = decrypt_lambda(codec, ctx, encoded_pipe)
   if err != nil { t.Fatalf("Could not decrypt: %v", err) }
 
   done := make(chan []byte)
@@ -277,8 +285,22 @@ func TestEncryptStream(t *testing.T) {
   expect_msg := []byte("this is some plain text data")
   read_pipe := mocks.NewPreloadedPipe(expect_msg).ReadEnd()
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
-    return codec.DecryptStream(ctx, key_fp, input)
+      codec types.Codec, ctx context.Context, input types.ReadEndIf) (types.ReadEndIf, error) {
+    return codec.DecryptStream(ctx, types.CurKeyFp, input)
+  }
+  data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
+  util.EqualsOrFailTest(t, "Bad encryption", data, expect_msg)
+}
+
+func TestEncryptStream_NonCurrentKey(t *testing.T) {
+  expect_msg := []byte("this is some plain text data")
+  read_pipe := mocks.NewPreloadedPipe(expect_msg).ReadEnd()
+  decrypt_lambda := func(
+      codec types.Codec, ctx context.Context, input types.ReadEndIf) (types.ReadEndIf, error) {
+    dec_fp := codec.CurrentKeyFingerprint()
+    _, err := codec.CreateNewEncryptionKey()
+    if err != nil { t.Fatalf("Could not create new key: %v", err) }
+    return codec.DecryptStream(ctx, dec_fp, input)
   }
   data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
   util.EqualsOrFailTest(t, "Bad encryption", data, expect_msg)
@@ -288,11 +310,11 @@ func TestEncryptStreamInto_SmallMsg(t *testing.T) {
   expect_msg := []byte("this is some plain text data")
   read_pipe := mocks.NewPreloadedPipe(expect_msg).ReadEnd()
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
+      codec types.Codec, ctx context.Context, input types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
     go func() {
       defer pipe.WriteEnd().Close()
-      err := codec.DecryptStreamLeaveSinkOpen(ctx, key_fp, input, pipe.WriteEnd())
+      err := codec.DecryptStreamLeaveSinkOpen(ctx, types.CurKeyFp, input, pipe.WriteEnd())
       if err != nil { util.Fatalf("codec.DecryptStreamLeaveSinkOpen: %v", err) }
     }()
     return pipe.ReadEnd(), nil
@@ -304,8 +326,8 @@ func TestEncryptStreamInto_SmallMsg(t *testing.T) {
 func TestEncryptStream_MoreData(t *testing.T) {
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, 32)
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
-    return codec.DecryptStream(ctx, key_fp, input)
+      codec types.Codec, ctx context.Context, input types.ReadEndIf) (types.ReadEndIf, error) {
+    return codec.DecryptStream(ctx, types.CurKeyFp, input)
   }
   data := testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
   util.EqualsOrFailTest(t, "Bad encryption len", len(data), 4096*32)
@@ -314,11 +336,11 @@ func TestEncryptStream_MoreData(t *testing.T) {
 func TestEncryptStreamInto_MoreData(t *testing.T) {
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 4096, 32)
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
+      codec types.Codec, ctx context.Context, input types.ReadEndIf) (types.ReadEndIf, error) {
     pipe := util.NewInMemPipe(ctx)
     go func() {
       defer pipe.WriteEnd().Close()
-      err := codec.DecryptStreamLeaveSinkOpen(ctx, key_fp, input, pipe.WriteEnd())
+      err := codec.DecryptStreamLeaveSinkOpen(ctx, types.CurKeyFp, input, pipe.WriteEnd())
       if err != nil { util.Fatalf("codec.DecryptStreamLeaveSinkOpen: %v", err) }
     }()
     return pipe.ReadEnd(), nil
@@ -331,9 +353,9 @@ func TestDecryptStreamLeaveSinkOpen_OutputRemainsOpen(t *testing.T) {
   read_pipe := util.ProduceRandomTextIntoPipe(context.TODO(), 32, 1)
   pipe := util.NewFileBasedPipe(context.TODO()) // we use a file to avoid blocking on the last write
   decrypt_lambda := func(
-      codec types.Codec, ctx context.Context, key_fp types.PersistableString, input types.ReadEndIf) (types.ReadEndIf, error) {
+      codec types.Codec, ctx context.Context, input types.ReadEndIf) (types.ReadEndIf, error) {
     reader := util.NewLimitedReadEnd(pipe.ReadEnd(), 32) 
-    codec.DecryptStreamLeaveSinkOpen(ctx, key_fp, input, pipe.WriteEnd())
+    codec.DecryptStreamLeaveSinkOpen(ctx, types.CurKeyFp, input, pipe.WriteEnd())
     return reader, nil
   }
   testEncryptDecryptStream_Helper(t, read_pipe, decrypt_lambda)
@@ -463,23 +485,6 @@ func TestDecryptStreamLeaveSinkOpen_TimeoutReadAfterClose(t *testing.T) {
     return pipe.ReadEnd(), nil
   }
   testStream_TimeoutReadAfterClose_Helper(t, stream_f)
-}
-
-func TestCompression(t *testing.T) {
-  msg := []byte("original message to compress")
-  src_buf := bytes.NewBuffer(msg)
-
-  comp_buf := new(bytes.Buffer)
-  comp_writer := gzip.NewWriter(comp_buf)
-  io.Copy(comp_writer, src_buf)
-  comp_writer.Close()
-
-  decomp_buf := new(bytes.Buffer)
-  decomp_reader,err := gzip.NewReader(comp_buf)
-  if err != nil { t.Fatalf("gzip.NewReader: %v", err) }
-  io.Copy(decomp_buf, decomp_reader)
-
-  util.EqualsOrFailTest(t, "Bad decompression", msg, decomp_buf.Bytes())
 }
 
 func HelperEncryptStream_ErrPropagation(t *testing.T, err_injector func(types.Pipe)) {

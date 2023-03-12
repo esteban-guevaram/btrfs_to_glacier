@@ -137,6 +137,7 @@ message Encryption {
   // The first key is used to encrypt new content.
   // Key length may be imposed by the encryption algorithm.
   // Keys are stored symmetrically encrypted into the configuration.
+  // The encryption keys will be stored encrypted in the configuration and they will go to github.
   repeated string keys = 2;
 }
 

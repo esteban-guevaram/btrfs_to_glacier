@@ -5,21 +5,15 @@ import (
   "crypto/aes"
   "crypto/cipher"
   "crypto/rand"
-  "crypto/sha256"
   "crypto/sha512"
   "encoding/base64"
   "fmt"
   "io"
-  "reflect"
   "sync"
-  "syscall"
-  "unsafe"
 
   pb "btrfs_to_glacier/messages"
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/util"
-
-  "golang.org/x/crypto/ssh/terminal"
 )
 
 // Keeps key material in global state to ask for passwords just once.
@@ -52,10 +46,11 @@ type aesGzipCodec struct {
 }
 
 func NewCodec(conf *pb.Config) (types.Codec, error) {
-  return NewCodecHelper(conf, requestPassphrase)
+  pw_prompt := BuildPwPromt("AesCodec input password to decrypt keyring: ")
+  return NewCodecHelper(conf, pw_prompt)
 }
 
-func NewCodecHelper(conf *pb.Config, pw_prompt func() ([]byte, error)) (types.Codec, error) {
+func NewCodecHelper(conf *pb.Config, pw_prompt types.PwPromptF) (types.Codec, error) {
   codec := &aesGzipCodec{
     conf: conf,
     block_size: aes.BlockSize,
@@ -76,31 +71,15 @@ func NewCodecHelper(conf *pb.Config, pw_prompt func() ([]byte, error)) (types.Co
   return codec, nil
 }
 
-func requestPassphrase() ([]byte, error) {
-  fmt.Print("Enter passphrase to decrypt encryption keys: ")
-  // Should NOT copy `byte_pass` because it may contain sensible pw that will stick until GC.
-  byte_pass, err := terminal.ReadPassword(int(syscall.Stdin))
-  if err != nil { return nil, err }
-  if len(byte_pass) < 12 { return nil, fmt.Errorf("Password is too short") }
-
-  err = util.IsOnlyAsciiString(byte_pass, false)
-  return byte_pass, err
-}
-
 func (self *AesGzipCodecGlobalState) DerivatePassphrase(
-    overwrite bool, pw_prompt func() ([]byte, error)) error {
+    overwrite bool, pw_prompt types.PwPromptF) error {
   self.Mutex.Lock()
   defer self.Mutex.Unlock()
   if !overwrite && len(self.XorKey.B) != 0 { return nil }
 
-  passphrase, err := pw_prompt()
+  hash_pw, err := pw_prompt()
   if err != nil { return err }
-  raw_key := sha256.Sum256(passphrase)
-  self.XorKey = types.SecretKey{raw_key[:]}
-
-  // remove password from memory, not sure how reliable this is...
-  for idx,_ := range passphrase { passphrase[idx] = 0 }
-  for idx,_ := range passphrase { passphrase[idx] = byte(idx) }
+  self.XorKey = hash_pw
   return nil
 }
 
@@ -136,7 +115,9 @@ func (self *AesGzipCodecGlobalState) decodeEncryptionKey_MustHoldMutex(
 
   enc_bytes, err := base64.StdEncoding.DecodeString(enc_key.S)
   if err != nil { util.Fatalf("Bad key base64 encoding: %v", err) }
-  if len(enc_bytes) != len(self.XorKey.B) { util.Fatalf("Bad key length: %v", enc_key) }
+  if len(enc_bytes) != len(self.XorKey.B) {
+    util.Fatalf("Bad key length: %d/%d", len(enc_key.S), len(self.XorKey.B))
+  }
   raw_key := make([]byte, len(enc_bytes))
   for idx,b := range enc_bytes {
     raw_key[idx] = b ^ self.XorKey.B[idx]
@@ -247,83 +228,28 @@ func (self *aesGzipCodec) CurrentKeyFingerprint() types.PersistableString {
 }
 
 func (self *aesGzipCodec) ReEncryptKeyring(
-    pw_prompt func() ([]byte, error)) ([]types.PersistableKey, error) {
+    pw_prompt types.PwPromptF) ([]types.PersistableKey, error) {
   if err := globalState.DerivatePassphrase(true, pw_prompt); err != nil { return nil, err }
   return globalState.EncodeAllInKeyring(self.CurrentKeyFingerprint())
 }
 
-func NoCopyByteSliceToString(bytes []byte) string {
-	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&bytes))
-	return *(*string)(unsafe.Pointer(&reflect.StringHeader{
-		Data: hdr.Data,
-		Len:  hdr.Len,
-	}))
-}
-
-func NoCopyStringToByteSlice(str string) []byte {
-	hdr := *(*reflect.StringHeader)(unsafe.Pointer(&str))
-	return *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-		Data: hdr.Data,
-		Len:  hdr.Len,
-		Cap:  hdr.Len,
-	}))
-}
-
-func (self *aesGzipCodec) getStreamEncrypter() cipher.Stream {
-  iv := make([]byte, self.block_size)
-  if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-    util.Fatalf("IV failed; %v", err)
-  }
-  block, err := aes.NewCipher(self.cur_key.B)
-  if err != nil { util.Fatalf("aes.NewCipher: %v", err) }
-  return cipher.NewCFBEncrypter(block, iv)
-}
-
 func (self *aesGzipCodec) getStreamDecrypter(key_fp types.PersistableString) (cipher.Stream, error) {
-  var block cipher.Block
-  var err error
+  var stream cipher.Stream
   if len(key_fp.S) == 0 || key_fp.S == self.cur_fp.S {
-    block, err = aes.NewCipher(self.cur_key.B)
+    stream = AesStreamDecrypter(self.cur_key)
   } else {
     dec_key, err := globalState.Get(key_fp)
     if err != nil { return nil, err }
-    block, err = aes.NewCipher(dec_key.B)
+    stream = AesStreamDecrypter(dec_key)
   }
-  if err != nil { return nil, err }
-  null_iv := make([]byte, self.block_size)
-  return cipher.NewCFBDecrypter(block, null_iv), nil
-}
-
-func (self *aesGzipCodec) EncryptString(clear types.SecretString) types.PersistableString {
-  null_first_block := make([]byte, self.block_size)
-  padded_obfus := make([]byte, len(clear.S) + self.block_size)
-  stream := self.getStreamEncrypter()
-  stream.XORKeyStream(padded_obfus, null_first_block)
-  stream.XORKeyStream(padded_obfus[self.block_size:], NoCopyStringToByteSlice(clear.S))
-  return types.PersistableString{base64.StdEncoding.EncodeToString(padded_obfus)}
-}
-
-func (self *aesGzipCodec) DecryptString(key_fp types.PersistableString, obfus types.PersistableString) (types.SecretString, error) {
-  null_str := types.SecretString{""}
-  obfus_bytes, err_dec := base64.StdEncoding.DecodeString(obfus.S)
-  if err_dec != nil { return null_str, err_dec }
-
-  padded_plain := make([]byte, len(obfus_bytes))
-  stream, err := self.getStreamDecrypter(key_fp)
-  if err != nil { return null_str, err }
-  if len(obfus_bytes) < self.block_size {
-    return null_str, fmt.Errorf("Obfuscated string is too short, expecting some larger than 1 block")
-  }
-  stream.XORKeyStream(padded_plain, obfus_bytes)
-  plain := NoCopyByteSliceToString(padded_plain[self.block_size:])
-  return types.SecretString{plain}, nil
+  return stream, nil
 }
 
 func (self *aesGzipCodec) EncryptStream(
     ctx context.Context, input types.ReadEndIf) (types.ReadEndIf, error) {
   pipe := util.NewInMemPipe(ctx)
   defer func() { util.OnlyCloseWriteEndWhenError(pipe, input.GetErr()) }()
-  stream := self.getStreamEncrypter()
+  stream := AesStreamEncrypter(self.cur_key)
   block_buffer := make([]byte, 128 * self.block_size)
 
   go func() {
