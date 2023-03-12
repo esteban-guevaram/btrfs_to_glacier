@@ -1,0 +1,79 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObjectVersionTagging",
+                "s3:CreateBucket",
+                "s3:GetObjectAcl",
+                "s3:GetBucketObjectLockConfiguration",
+                "s3:PutLifecycleConfiguration",
+                "s3:GetObjectVersionAcl",
+                "s3:PutBucketAcl",
+                "s3:DeleteObject",
+                "s3:GetBucketPolicyStatus",
+                "s3:GetObjectRetention",
+                "s3:GetObjectAttributes",
+                "s3:PutObjectLegalHold",
+                "s3:GetObjectLegalHold",
+                "s3:PutBucketCORS",
+                "s3:DeleteBucketPolicy",
+                "s3:ListMultipartUploadParts",
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:PutBucketNotification",
+                "s3:PutBucketLogging",
+                "s3:PutObjectVersionAcl",
+                "s3:PutBucketObjectLockConfiguration",
+                "s3:GetLifecycleConfiguration",
+                "s3:DeleteObjectVersion",
+                "s3:GetBucketLogging",
+                "s3:ListBucketVersions",
+                "s3:RestoreObject",
+                "s3:ListBucket",
+                "s3:GetObjectVersionAttributes",
+                "s3:GetBucketPolicy",
+                "s3:PutEncryptionConfiguration",
+                "s3:GetEncryptionConfiguration",
+                "s3:AbortMultipartUpload",
+                "s3:GetObjectTagging",
+                "s3:GetBucketOwnershipControls",
+                "s3:DeleteBucket",
+                "s3:PutBucketVersioning",
+                "s3:PutObjectAcl",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:ListBucketMultipartUploads",
+                "s3:PutBucketPublicAccessBlock",
+                "s3:PutIntelligentTieringConfiguration",
+                "s3:PutBucketOwnershipControls",
+                "s3:GetBucketVersioning",
+                "s3:GetBucketAcl",
+                "s3:BypassGovernanceRetention",
+                "s3:PutInventoryConfiguration",
+                "s3:ObjectOwnerOverrideToBucketOwner",
+                "s3:PutObjectRetention",
+                "s3:GetBucketCORS",
+                "s3:PutBucketPolicy",
+                "s3:GetBucketLocation",
+                "s3:GetObjectVersion"
+            ],
+            "Resource": [
+                "arn:aws:s3:::s3.integration.test.store/*",
+                "arn:aws:s3:::s3.integration.test.meta/*",
+                "arn:aws:s3:::s3.integration.test.meta",
+                "arn:aws:s3:::s3.integration.test.store"
+            ]
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListAllMyBuckets",
+                "s3:ListJobs"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

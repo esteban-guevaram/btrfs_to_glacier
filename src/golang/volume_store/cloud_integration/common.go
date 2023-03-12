@@ -27,7 +27,7 @@ func Backup(conf *pb.Config) *pb.Backup {
 //   * IAM user must have root permissions on the test buckets and dynamo tables.
 // * `kRegion` is a valid aws region were the test infrastructure is locate.
 func LoadAwsConfForExperimentalUser() (*pb.Config, *aws.Config) {
-  const kProfile = "btrfs_to_glacier_root"
+  const kProfile = "btrfs_experimental"
   const kRegion = "eu-central-1"
   const kMetaBucket = "s3.integration.test.meta"
   const kContentBucket = "s3.integration.test.store"
