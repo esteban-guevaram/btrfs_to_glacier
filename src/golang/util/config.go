@@ -8,6 +8,7 @@ import (
 )
 
 var ErrNotFoundByName = errors.New("not_found_by_name")
+var ErrNotFoundByType = errors.New("not_found_by_type")
 
 func Load() (*pb.Config, error) {
   conf := &pb.Config{}
@@ -40,6 +41,13 @@ func BackupPartitionByUuid(conf *pb.Config, name string) (*pb.Backup_Partition, 
     }
   }
   return nil, fmt.Errorf("%w %s", ErrNotFoundByName, name)
+}
+
+func AwsCredPerUserType(conf *pb.Config, utype pb.Aws_UserType) (*pb.Aws_Credential, error) {
+  for _,b := range conf.Aws.Creds {
+    if b.Type == utype { return b, nil }
+  }
+  return nil, fmt.Errorf("%w %s", ErrNotFoundByType, utype.String())
 }
 
 func Validate(conf *pb.Config) error {
