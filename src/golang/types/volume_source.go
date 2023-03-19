@@ -74,7 +74,9 @@ type VolumeDestination interface {
 // Implementations must be thread safe.
 // Implementations may request CAP_SYS_ADMIN before calling any method from the interface.
 type VolumeAdmin interface {
-  VolumeManager
+  // Diamond dependency
+  VolumeSource
+  VolumeDestination
   // Deletes a snapshot.
   // Deleting the same snapshot a second time is an error.
   // Returns an error if attempting to delete a write snapshot or subvolume.

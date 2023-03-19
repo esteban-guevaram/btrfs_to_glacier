@@ -33,7 +33,8 @@ type RestoreManager struct {
 }
 
 func NewRestoreManager(
-    conf *pb.Config, dst_name string, meta types.Metadata, content types.BackupContent, vol_dst types.VolumeDestination) (types.RestoreManager, error) {
+    conf *pb.Config, dst_name string,
+    meta types.Metadata, content types.BackupContent, vol_dst types.VolumeDestination) (types.RestoreManager, error) {
   mgr := &RestoreManager{
     Conf: conf,
     Meta: meta,
@@ -42,17 +43,8 @@ func NewRestoreManager(
     BetweenRestoreChecks: BetweenRestoreChecks,
   }
   var err error
-  mgr.DstConf, err = mgr.GetDestination(dst_name)
+  mgr.DstConf, err = util.RestoreByName(conf, dst_name)
   return mgr, err
-}
-
-func (self *RestoreManager) GetDestination(dst_name string) (*pb.Restore, error) {
-  for _, dst := range self.Conf.Restores {
-    if dst.Name == dst_name && dst.Type == pb.Restore_BTRFS {
-      return dst, nil
-    }
-  }
-  return nil, fmt.Errorf("Destination '%s' is not in configuration", dst_name)
 }
 
 func (self *RestoreManager) ReadHeadAndSequenceMap(

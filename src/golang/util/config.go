@@ -18,6 +18,13 @@ func Load() (*pb.Config, error) {
   return conf, err
 }
 
+func RestoreByName(conf *pb.Config, name string) (*pb.Restore, error) {
+  for _,r := range conf.Restores {
+    if r.Name == name { return r, nil }
+  }
+  return nil, fmt.Errorf("%w %s", ErrNotFoundByName, name)
+}
+
 func BackupByName(conf *pb.Config, name string) (*pb.Backup, error) {
   for _,b := range conf.Backups {
     if b.Name == name { return b, nil }
