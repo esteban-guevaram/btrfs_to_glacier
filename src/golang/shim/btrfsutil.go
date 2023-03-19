@@ -230,7 +230,8 @@ func (self *btrfsUtilImpl) ReadAndProcessSendStream(dump types.ReadEndIf) (*type
   return ops, util.Coalesce(dump.GetErr(), err)
 }
 
-func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to string, no_data bool) (types.ReadEndIf, error) {
+func (self *btrfsUtilImpl) StartSendStream(
+    ctx context.Context, from string, to string, no_data bool) (types.ReadEndIf, error) {
   if !self.linuxutil.IsCapSysAdmin() {
     return nil, fmt.Errorf("StartSendStream requires CAP_SYS_ADMIN")
   }
@@ -243,7 +244,10 @@ func (self *btrfsUtilImpl) StartSendStream(ctx context.Context, from string, to 
 
   args := make([]string, 0, 16)
   args = append(args, "btrfs")
-  args = append(args, "send")
+  // `--proto=0` uses the latest version protocol (depends on running linux and btrfs-progs versions).
+  // Note: option `--compressed-data` is useless since it applies only if the btrfs filesystem
+  // uses transparent compression of files. It does not influence whether btrfs-send will compress the stream.
+  args = append(args, "send", "--proto=0")
   if no_data {
     args = append(args, "--no-data")
   }

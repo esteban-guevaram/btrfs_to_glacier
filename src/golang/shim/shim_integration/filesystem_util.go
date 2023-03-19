@@ -60,10 +60,10 @@ func (self *TestFilesystemUtil) TestListBlockDevMounts() {
   for _,mnt := range mnt_list {
     dev := mnt.Device
     if dev == nil || len(mnt.MountedPath) < 1 {
-      util.Fatalf("malformed mount: %v", mnt)
+      util.Fatalf("malformed mount: %#v", mnt)
     }
     if len(dev.Name) < 1 || len(dev.FsUuid) < 1 {
-      util.Fatalf("malformed block device: %v", dev)
+      util.Fatalf("malformed block device: %#v", dev)
     }
 
     found_mnt_1 = found_mnt_1 || mnt.MountedPath == self.mnt_path_1
