@@ -23,10 +23,17 @@ type StsClientIf interface {
 }
 type StsClientBuilderF = func(aws.Config) StsClientIf
 
+type JsonPermCred struct {
+  Version int
+  AccessKeyId string
+  SecretAccessKey string
+}
+
 type SessionTokenKeyring struct {
   Mutex   *sync.Mutex
   Keyring map[pb.Aws_UserType]aws.Credentials
   PwPrompt         func(pb.Aws_UserType) types.PwPromptF
+  InputPrompt      func(string) (types.SecretString, error)
   StsClientBuilder StsClientBuilderF
   Duration         time.Duration
   RefreshThreshold time.Duration
@@ -41,15 +48,17 @@ func NewSessionTokenKeyring() *SessionTokenKeyring {
   client_builder := func(cfg aws.Config) StsClientIf {
     return sts.NewFromConfig(cfg)
   }
-  return NewSessionTokenKeyringHelper(client_builder, pw_prompt)
+  return NewSessionTokenKeyringHelper(client_builder, pw_prompt, GetSecretMaterialVerbatim)
 }
 
 func NewSessionTokenKeyringHelper(
-    client_builder StsClientBuilderF, pw_prompt func(pb.Aws_UserType) types.PwPromptF) *SessionTokenKeyring {
+    client_builder StsClientBuilderF, pw_prompt func(pb.Aws_UserType) types.PwPromptF,
+    input_prompt func(string) (types.SecretString, error)) *SessionTokenKeyring {
   return &SessionTokenKeyring{
     Mutex: new(sync.Mutex),
     Keyring: make(map[pb.Aws_UserType]aws.Credentials),
     PwPrompt: pw_prompt,
+    InputPrompt: input_prompt,
     StsClientBuilder: client_builder,
     Duration: 12*time.Hour,
     RefreshThreshold: 1*time.Hour,
@@ -73,11 +82,6 @@ func permAwsCredFromConf(
   perm_cred, err := AesDecryptString(pw, types.PersistableString{cred.Key})
   if err != nil { return aws.Credentials{}, err }
 
-  type JsonPermCred struct {
-    Version int
-    AccessKeyId string
-    SecretAccessKey string
-  }
   json_prem_cred := JsonPermCred{}
   err = json.Unmarshal(NoCopyStringToByteSlice(perm_cred.S), &json_prem_cred)
 
@@ -127,6 +131,29 @@ func (self *SessionTokenKeyring) GetSessionTokenFor(
   return aws_temp_cred, nil
 }
 
+func (self *SessionTokenKeyring) EncryptAwsCreds(utype pb.Aws_UserType) (*pb.Aws_Credential, error) {
+  access_key, err := self.InputPrompt("Enter IAM user AccessKeyId: ")
+  if err != nil { return nil, err }
+  secret_key, err := self.InputPrompt("Enter IAM user SecretAccessKey: ")
+  if err != nil { return nil, err }
+
+  json_creds := JsonPermCred{
+    Version:1,
+    AccessKeyId: access_key.S,
+    SecretAccessKey: secret_key.S,
+  }
+  byte_creds, err := json.Marshal(&json_creds)
+  if err != nil { return nil, err }
+
+  pw, err := self.PwPrompt(utype)()
+  if err != nil { return nil, err }
+  encrypt_creds := &pb.Aws_Credential{
+    Type: utype,
+    Key: AesEncryptString(pw, types.SecretString{string(byte_creds)}).S,
+  }
+  return encrypt_creds, nil
+}
+
 func NewAwsConfigFromTempCreds(
     ctx context.Context, conf *pb.Config, utype pb.Aws_UserType) (*aws.Config, error) {
   cred, err := util.AwsCredPerUserType(conf, utype)
@@ -139,6 +166,11 @@ func NewAwsConfigFromTempCreds(
     config.WithDefaultRegion(conf.Aws.Region),
   )
   return &cfg, err
+}
+
+// You need to first go the IAM console, revoke the old key and create a new one.
+func EncryptAwsCreds(utype pb.Aws_UserType) (*pb.Aws_Credential, error) {
+  return globalKeyring.EncryptAwsCreds(utype)
 }
 
 func TestOnlyAwsConfFromPlainKey(

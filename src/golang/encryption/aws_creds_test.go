@@ -63,12 +63,15 @@ func (self *StsClientMock) ExpectCreds() *aws.Credentials {
   }
 }
 
-func NewSessionTokenKeyring_ForTest() (*SessionTokenKeyring, *StsClientMock) {
+func NewSessionTokenKeyring_ForTest(fixed_input string) (*SessionTokenKeyring, *StsClientMock) {
   sts_client := NewStsClientMock()
   client_builder := func(cfg aws.Config) StsClientIf {
     return sts_client
   }
-  return NewSessionTokenKeyringHelper(client_builder, FixedAwsPwPrompt), sts_client
+  input_prompt := func(string) (types.SecretString, error) {
+    return types.SecretString{fixed_input}, nil
+  }
+  return NewSessionTokenKeyringHelper(client_builder, FixedAwsPwPrompt, input_prompt), sts_client
 }
 
 func LoadTestConfWithKeys(access_key string, secret_key string) *pb.Config {
@@ -113,7 +116,7 @@ func TestGetSessionTokenFor_NoCachedCreds(t *testing.T) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   conf := LoadTestConf()
-  keyring, sts_client := NewSessionTokenKeyring_ForTest()
+  keyring, sts_client := NewSessionTokenKeyring_ForTest("")
   aws_creds, err := keyring.GetSessionTokenFor(ctx, conf, conf.Aws.Creds[0])
   if err != nil { t.Fatalf("GetSessionTokenFor: %v", err) }
   util.EqualsOrFailTest(t, "Bad sts calls", len(sts_client.Calls), 1)
@@ -124,7 +127,7 @@ func TestGetSessionTokenFor_ReUseFreshCreds(t *testing.T) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   conf := LoadTestConf()
-  keyring, sts_client := NewSessionTokenKeyring_ForTest()
+  keyring, sts_client := NewSessionTokenKeyring_ForTest("")
   _, err := keyring.GetSessionTokenFor(ctx, conf, conf.Aws.Creds[0])
   if err != nil { t.Fatalf("GetSessionTokenFor: %v", err) }
   _, err = keyring.GetSessionTokenFor(ctx, conf, conf.Aws.Creds[0])
@@ -136,7 +139,7 @@ func TestGetSessionTokenFor_RefreshCredWhenOld(t *testing.T) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   conf := LoadTestConf()
-  keyring, sts_client := NewSessionTokenKeyring_ForTest()
+  keyring, sts_client := NewSessionTokenKeyring_ForTest("")
   sts_client.Expiration = time.Now().Add(time.Second)
   _, err := keyring.GetSessionTokenFor(ctx, conf, conf.Aws.Creds[0])
   if err != nil { t.Fatalf("GetSessionTokenFor: %v", err) }
@@ -149,7 +152,7 @@ func TestNewAwsConfigFromTempCreds(t *testing.T) {
   ctx,cancel := context.WithTimeout(context.Background(), util.TestTimeout)
   defer cancel()
   conf := LoadTestConf()
-  keyring, sts_client := NewSessionTokenKeyring_ForTest()
+  keyring, sts_client := NewSessionTokenKeyring_ForTest("")
   globalKeyring = *keyring
   aws_conf, err := NewAwsConfigFromTempCreds(ctx, conf, pb.Aws_BACKUP_WRITER)
   if err != nil { t.Fatalf("NewAwsConfigFromTempCreds: %v", err) }
@@ -157,5 +160,20 @@ func TestNewAwsConfigFromTempCreds(t *testing.T) {
   if err != nil { t.Fatalf("aws_conf.Credentials.Retrieve: %v", err) }
   util.EqualsOrFailTest(t, "Bad temp creds",
                         aws_creds.SessionToken, sts_client.ExpectCreds().SessionToken)
+}
+
+func TestEncryptAwsCreds(t *testing.T) {
+  const fixed_input = "some_input"
+  keyring, _ := NewSessionTokenKeyring_ForTest(fixed_input)
+  encrypt_creds, err := keyring.EncryptAwsCreds(pb.Aws_BACKUP_READER)
+  if err != nil { t.Fatalf("EncryptAwsCreds: %v", err) }
+
+  plain_creds, err := permAwsCredFromConf(TestOnlyFixedPw, encrypt_creds)
+  if err != nil { t.Fatalf("permAwsCredFromConf: %v", err) }
+  expect_creds := aws.Credentials{
+    AccessKeyID: fixed_input,
+    SecretAccessKey: fixed_input,
+  }
+  util.EqualsOrFailTest(t, "Bad encrypted creds", plain_creds, expect_creds)
 }
 

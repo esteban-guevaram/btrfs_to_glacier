@@ -39,6 +39,17 @@ func BuildPwPromt(mes string) types.PwPromptF {
   return prompt
 }
 
+func GetSecretMaterialVerbatim(mes string) (types.SecretString, error) {
+  null_str := types.SecretString{""}
+  fmt.Print(mes)
+  byte_in, err := terminal.ReadPassword(int(syscall.Stdin))
+  if err != nil { return null_str, err }
+  if len(byte_in) == 0 { return null_str, fmt.Errorf("Got no input") }
+
+  err = util.IsOnlyAsciiString(byte_in, false)
+  return types.SecretString{string(byte_in)}, err
+}
+
 func TestOnlyFixedPw() (types.SecretKey, error) {
   // xor_key=`sha256sum <(echo -n "chocolat") | cut -f1 -d' ' | sed -r 's/(..)/\\\\x\1/g'`
   const dummy_pw = "chocolat"
