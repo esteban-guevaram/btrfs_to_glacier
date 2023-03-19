@@ -25,6 +25,14 @@ const KCanaryDelDir = "deleted"
 const KCanaryNewDir = "new"
 const KCanaryUuidFile = "uuids"
 
+// Convenient way to access the configuration objects referenced in a configuration.
+type ParsedWorkflow struct {
+  Wf      *pb.Workflow
+  Source  *pb.Source
+  Backup  *pb.Backup
+  Restore *pb.Restore
+}
+
 // Maintains a small filesystem that can be restored from scratch and validated.
 // Ensures that all stored volumes are still compatible and can be restored.
 // Implementations may request CAP_SYS_ADMIN for some operations.
@@ -86,6 +94,7 @@ type BackupManagerAdmin interface {
 }
 
 // Handles volume restores to a particular destination.
+// Implementations do not create the restore location if it does not exist.
 type RestoreManager interface {
   // Reads all snapshot heads and their current sequence from Metadata.
   ReadHeadAndSequenceMap(ctx context.Context) (HeadAndSequenceMap, error)

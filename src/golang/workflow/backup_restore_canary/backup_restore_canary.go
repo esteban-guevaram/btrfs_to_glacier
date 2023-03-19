@@ -13,15 +13,13 @@ import (
   "btrfs_to_glacier/util"
 
   "github.com/google/uuid"
-  "google.golang.org/protobuf/proto"
 )
 
 const (
   LoopDevSizeMb = 32
-  FakeSource = "FakeSource"
-  FakeDestination = "FakeDestination"
 )
 
+var ErrBadCanaryWfConfig = errors.New("workflow_config_incompatible_with_canary")
 var ErrCannotCallTwice = errors.New("validate_cannot_be_called_twice")
 var ErrMustRestoreBefore = errors.New("before_add_snap_need_restore")
 var ErrCannotCallOnEmptyChain = errors.New("cannot_call_this_method_on_empty_restore_chain")
@@ -29,23 +27,18 @@ var ErrValidateUuidFile = errors.New("validate_error_uuid_file")
 var ErrValidateNewDir = errors.New("validate_error_new_dir")
 var ErrValidateDelDir = errors.New("validate_error_del_dir")
 
-// Used to lazy initialize specific object to the fake configs created for the fake filesystem loop device.
 type MgrFactoryIf interface {
   NewBackupManager(ctx context.Context,
-    conf *pb.Config) (types.BackupManagerAdmin, error)
+    conf *pb.Config, backup_name string) (types.BackupManagerAdmin, error)
   NewRestoreManager(ctx context.Context,
     conf *pb.Config, dst_name string) (types.RestoreManager, error)
 }
 
 // Fields that may change value during the execution.
 type State struct {
-  FakeConf            *pb.Config
   Fs                  *types.Filesystem
   New                 bool
   Uuid                string
-  VolRoot             string
-  SnapRoot            string
-  RestoreRoot         string
   TopDstRestoredPath  string
   TopSrcRestoredSnap  *pb.SubVolume
   RestoredSrcSnaps    []*pb.SubVolume // does not contain TopSrcRestoredSnap
@@ -56,21 +49,39 @@ type State struct {
 // Note: this type cannot be abstracted away from btrfs.
 // It needs to perform some operations that are not available in types.VolumeManager.
 type BackupRestoreCanary struct {
-  Conf     *pb.Config
-  Btrfs    types.Btrfsutil
-  Lnxutil  types.Linuxutil
-  Factory  MgrFactoryIf
-  State    *State
+  Conf       *pb.Config
+  Btrfs      types.Btrfsutil
+  Lnxutil    types.Linuxutil
+  Factory    MgrFactoryIf
+  ParsedWf   types.ParsedWorkflow
+  State      *State
 }
 
 func NewBackupRestoreCanary(
-    conf *pb.Config, btrfs types.Btrfsutil, lnxutil types.Linuxutil, factory MgrFactoryIf) (types.BackupRestoreCanary, error) {
+    conf *pb.Config, wf_name string,
+    btrfs types.Btrfsutil, lnxutil types.Linuxutil, factory MgrFactoryIf) (types.BackupRestoreCanary, error) {
+  parsed_wf, err := util.WorkflowByName(conf, wf_name)
+  if err != nil { return nil, err }
+  if len(parsed_wf.Source.Paths) != 1 {
+    return nil, fmt.Errorf("%w: only 1 source supported", ErrBadCanaryWfConfig)
+  }
+
   canary := &BackupRestoreCanary{
     Conf: conf,
     Btrfs: btrfs,
     Lnxutil: lnxutil,
     Factory: factory,
+    ParsedWf: parsed_wf,
     State: nil,
+  }
+
+  snap_root := fpmod.Dir(canary.SnapRoot())
+  if canary.FsRoot() != snap_root {
+    return nil, fmt.Errorf("%w: vol and snap do not share root", ErrBadCanaryWfConfig)
+  }
+  restore_root := fpmod.Dir(canary.RestoreRoot())
+  if canary.FsRoot() != restore_root {
+    return nil, fmt.Errorf("%w: vol and restore do not share root", ErrBadCanaryWfConfig)
   }
   return canary, nil
 }
@@ -95,29 +106,23 @@ func (self *BackupRestoreCanary) Setup(ctx context.Context) error {
   if err != nil { return err }
   self.State.Fs = fs
 
-  target_mnt, err := os.MkdirTemp("", "canary-root-fs-mount-")
+  mnt, err := self.Lnxutil.Mount(ctx, fs.Uuid, self.FsRoot())
   if err != nil { return err }
-  mnt, err := self.Lnxutil.Mount(ctx, fs.Uuid, target_mnt)
-  if err != nil { return err }
-
-  //util.Debugf("Mounted filesystem '%s' root subvol (id:%d) in '%s'",
-  //            fs.Uuid, mnt.BtrfsVolId, target_mnt)
   fs.Mounts = append(fs.Mounts, mnt)
+
+  err = self.SetupPathsInNewFs()
+  if err != nil { return err }
 
   err = self.PrepareState(ctx)
   return err
 }
 
 func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
-  err := self.SetupPathsInNewFs()
+  var err error
+  self.State.BackupMgr, err = self.Factory.NewBackupManager(ctx, self.Conf, self.ParsedWf.Backup.Name)
   if err != nil { return err }
 
-  self.State.FakeConf = self.BuildFakeConf()
-
-  self.State.BackupMgr, err = self.Factory.NewBackupManager(ctx, self.State.FakeConf)
-  if err != nil { return err }
-
-  self.State.RestoreMgr, err = self.Factory.NewRestoreManager(ctx, self.State.FakeConf, FakeDestination)
+  self.State.RestoreMgr, err = self.Factory.NewRestoreManager(ctx, self.Conf, self.ParsedWf.Restore.Name)
   if err != nil { return err }
 
   self.State.Uuid, err = self.DetermineVolUuid(ctx)
@@ -127,9 +132,9 @@ func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
     drop_f := self.Lnxutil.GetRootOrDie()
     defer drop_f()
     self.State.New = true
-    err = self.Btrfs.CreateSubvolume(self.State.VolRoot)
+    err = self.Btrfs.CreateSubvolume(self.VolRoot())
     if err != nil { return err }
-    sv, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
+    sv, err := self.Btrfs.SubVolumeInfo(self.VolRoot())
     if err != nil { return err }
     err = self.CreateFirstValidationChainItem()
     if err != nil { return err }
@@ -153,31 +158,6 @@ func (self *BackupRestoreCanary) DetermineVolUuid(ctx context.Context) (string, 
   return "", nil
 }
 
-func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
-  fake_conf := proto.Clone(self.Conf).(*pb.Config)
-  fake_conf.Workflows = nil
-  fake_conf.Tools = nil
-  fake_conf.Backups = nil
-
-  volsnap := &pb.Source_VolSnapPathPair{
-    VolPath: self.State.VolRoot,
-    SnapPath: self.State.SnapRoot,
-  }
-  source := &pb.Source{
-    Type: pb.Source_BTRFS,
-    Name: FakeSource,
-    Paths: []*pb.Source_VolSnapPathPair{volsnap,},
-  }
-  fake_conf.Sources = []*pb.Source{source,}
-  restore := &pb.Restore{
-    Type: pb.Restore_BTRFS,
-    Name: FakeDestination,
-    RootRestorePath: self.State.RestoreRoot,
-  }
-  fake_conf.Restores = []*pb.Restore{restore,}
-  return fake_conf
-}
-
 // Structure of filesystem to validate:
 // * restores/       # restored snapshots will go here
 // * subvol/         # writable clone of most recent snapshot, used to continue the snap sequence to validate.
@@ -192,26 +172,32 @@ func (self *BackupRestoreCanary) BuildFakeConf() *pb.Config {
 //                   # content is hash(backup_sv.Uuid, backup_sv.Data.Chunks.Uuid)
 //                   # no files for the first snapshot
 func (self *BackupRestoreCanary) SetupPathsInNewFs() error {
-  root_vol := self.State.Fs.Mounts[0].MountedPath
-  self.State.VolRoot = fpmod.Join(root_vol, "subvol")
-  if util.Exists(self.State.VolRoot) { return fmt.Errorf("Filesystem is not new: %s", root_vol) }
-
-  self.State.RestoreRoot = fpmod.Join(root_vol, "restores")
-  if err := os.Mkdir(self.State.RestoreRoot, 0775); err != nil { return err }
-
-  self.State.SnapRoot = fpmod.Join(root_vol, "snapshots")
-  if err := os.Mkdir(self.State.SnapRoot, 0775); err != nil { return err }
+  if util.Exists(self.VolRoot()) { return fmt.Errorf("Filesystem is not new: %s", self.VolRoot()) }
+  if err := os.Mkdir(self.RestoreRoot(), 0775); err != nil { return err }
+  if err := os.Mkdir(self.SnapRoot(), 0775); err != nil { return err }
   return nil
 }
 
+func (self *BackupRestoreCanary) VolRoot() string {
+  return self.ParsedWf.Source.Paths[0].VolPath
+}
+func (self *BackupRestoreCanary) FsRoot() string {
+  return fpmod.Dir(self.VolRoot())
+}
+func (self *BackupRestoreCanary) SnapRoot() string {
+  return self.ParsedWf.Source.Paths[0].SnapPath
+}
+func (self *BackupRestoreCanary) RestoreRoot() string {
+  return self.ParsedWf.Restore.RootRestorePath
+}
 func (self *BackupRestoreCanary) DelDir() string {
-  return fpmod.Join(self.State.VolRoot, types.KCanaryDelDir)
+  return fpmod.Join(self.VolRoot(), types.KCanaryDelDir)
 }
 func (self *BackupRestoreCanary) NewDir() string {
-  return fpmod.Join(self.State.VolRoot, types.KCanaryNewDir)
+  return fpmod.Join(self.VolRoot(), types.KCanaryNewDir)
 }
 func (self *BackupRestoreCanary) UuidFile() string {
-  return fpmod.Join(self.State.VolRoot, types.KCanaryUuidFile)
+  return fpmod.Join(self.VolRoot(), types.KCanaryUuidFile)
 }
 func (self *BackupRestoreCanary) RestoredDelDir() string {
   return fpmod.Join(self.State.TopDstRestoredPath, types.KCanaryDelDir)
@@ -260,7 +246,7 @@ func (self *BackupRestoreCanary) AppendSnapshotToValidationChain(
   if self.State.New {
     err := self.AppendDataToSubVolume()
     if err != nil { return result, err }
-    sv, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
+    sv, err := self.Btrfs.SubVolumeInfo(self.VolRoot())
     if err != nil { return result, err }
     bkp_pair, err := self.State.BackupMgr.BackupAllToCurrentSequences(ctx, []*pb.SubVolume{sv,})
     if err != nil { return result, err }
@@ -271,11 +257,11 @@ func (self *BackupRestoreCanary) AppendSnapshotToValidationChain(
   }
 
   // Create the clone only once in case of multiple appends
-  clone, err := self.Btrfs.SubVolumeInfo(self.State.VolRoot)
+  clone, err := self.Btrfs.SubVolumeInfo(self.VolRoot())
   if err != nil {
-    err := self.Btrfs.CreateClone(self.State.TopSrcRestoredSnap.MountedPath, self.State.VolRoot)
+    err := self.Btrfs.CreateClone(self.State.TopSrcRestoredSnap.MountedPath, self.VolRoot())
     if err != nil { return result, err }
-    result.Sv, err = self.Btrfs.SubVolumeInfo(self.State.VolRoot)
+    result.Sv, err = self.Btrfs.SubVolumeInfo(self.VolRoot())
     if err != nil { return result, err }
   }
   /*else*/ if err == nil { result.Sv = clone }

@@ -29,9 +29,9 @@ type S3MetadataAdmin struct {
   rule_name_suffix      string
 }
 
-func NewMetadataAdmin(ctx context.Context,
+func NewMetadataAdmin(
     conf *pb.Config, aws_conf *aws.Config, backup_name string) (types.AdminMetadata, error) {
-  metadata, err := NewMetadata(ctx, conf, aws_conf, backup_name)
+  metadata, err := NewMetadata(conf, aws_conf, backup_name)
   if err != nil { return nil, err }
 
   admin := &S3MetadataAdmin{

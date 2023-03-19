@@ -13,6 +13,8 @@ import (
   "btrfs_to_glacier/types"
   "btrfs_to_glacier/types/mocks"
   "btrfs_to_glacier/util"
+
+  "github.com/google/uuid"
 )
 
 var ErrPopulateRestoreFail = errors.New("populate_restore_failed")
@@ -27,7 +29,7 @@ type Mocks struct {
 }
 
 func (self *Mocks) NewBackupManager(ctx context.Context,
-    conf *pb.Config) (types.BackupManagerAdmin, error) {
+    conf *pb.Config, backup_name string) (types.BackupManagerAdmin, error) {
   self.BackupMgr.InitFromConfSource(conf.Sources[0])
   if self.InitBackup != nil {
     err := self.InitBackup(self.BackupMgr)
@@ -65,6 +67,42 @@ func (self *Mocks) SetCloneCallbackToFail(t *testing.T) {
   }
 }
 
+func LoadCanaryTestConf() *pb.Config {
+  nonce := uuid.NewString()
+  source := &pb.Source{
+    Type: pb.Source_BTRFS,
+    Name: nonce,
+    Paths: []*pb.Source_VolSnapPathPair{
+      &pb.Source_VolSnapPathPair{
+        VolPath: fmt.Sprintf("/tmp/canary-%s/subvol", nonce),
+        SnapPath: fmt.Sprintf("/tmp/canary-%s/snaps", nonce),
+      },
+    },
+  }
+  backup := &pb.Backup{
+    Type: pb.Backup_AWS,
+    Name: uuid.NewString(),
+  }
+  restore := &pb.Restore{
+    Type: pb.Restore_BTRFS,
+    Name: uuid.NewString(),
+    RootRestorePath: fmt.Sprintf("/tmp/canary-%s/restores", nonce), 
+  }
+  workflow := &pb.Workflow{
+    Name: "wf_name",
+    Source: source.Name,
+    Backup: backup.Name,
+    Restore: restore.Name,
+  }
+  conf := &pb.Config {
+    Sources: []*pb.Source{ source, },
+    Backups: []*pb.Backup{ backup, },
+    Restores: []*pb.Restore{ restore, },
+    Workflows: []*pb.Workflow{ workflow, },
+  }
+  return conf
+}
+
 func buildBackupRestoreCanary(hist_len int) (*BackupRestoreCanary, *Mocks) {
   bkp := mocks.NewBackupManager()
   mock := &Mocks{
@@ -82,8 +120,9 @@ func buildBackupRestoreCanary(hist_len int) (*BackupRestoreCanary, *Mocks) {
     }
     return nil 
   }
-  conf := util.LoadTestConf()
-  canary,err := NewBackupRestoreCanary(conf, mock.Btrfs, mock.Lnxutil, mock)
+  conf := LoadCanaryTestConf()
+  canary,err := NewBackupRestoreCanary(conf, conf.Workflows[0].Name,
+                                       mock.Btrfs, mock.Lnxutil, mock)
   if err != nil { util.Fatalf("NewBackupRestoreCanary: %v", err) }
   return canary.(*BackupRestoreCanary), mock
 }
@@ -105,12 +144,6 @@ func TestBackupRestoreCanary_Setup_OK(t *testing.T) {
   util.EqualsOrFailTest(t, "Bad fs state", mock.Lnxutil.ObjCounts(),
                                            expect_linux_counts)
   util.EqualsOrFailTest(t, "State is not new", canary.State.New, false)
-  expect_volroot := canary.State.FakeConf.Sources[0].Paths[0].VolPath
-  expect_snaproot := canary.State.FakeConf.Sources[0].Paths[0].SnapPath
-  expect_dstroot := canary.State.FakeConf.Restores[0].RootRestorePath
-  util.EqualsOrFailTest(t, "State bad volroot", canary.State.VolRoot, expect_volroot)
-  util.EqualsOrFailTest(t, "State bad snaproot", canary.State.SnapRoot, expect_snaproot)
-  util.EqualsOrFailTest(t, "State bad dstroot", canary.State.RestoreRoot, expect_dstroot)
   util.EqualsOrFailTest(t, "BackupMgr should not be called",
                         len(mock.BackupMgr.SeqForUuid(canary.State.Uuid)), hist_len)
   util.EqualsOrFailTest(t, "RestoreMgr should not be called",

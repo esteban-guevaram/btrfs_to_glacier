@@ -45,7 +45,7 @@ type S3Metadata struct {
   Key        string
 }
 
-func NewMetadata(ctx context.Context,
+func NewMetadata(
     conf *pb.Config, aws_conf *aws.Config, backup_name string) (types.Metadata, error) {
   client := s3.NewFromConfig(*aws_conf)
   common, err := s3_common.NewS3Common(conf, aws_conf, backup_name, client)

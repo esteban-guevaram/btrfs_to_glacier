@@ -5,6 +5,7 @@ import (
   "fmt"
 
   pb "btrfs_to_glacier/messages"
+  "btrfs_to_glacier/types"
 )
 
 var ErrNotFoundByName = errors.New("not_found_by_name")
@@ -48,6 +49,31 @@ func AwsCredPerUserType(conf *pb.Config, utype pb.Aws_UserType) (*pb.Aws_Credent
     if b.Type == utype { return b, nil }
   }
   return nil, fmt.Errorf("%w %s", ErrNotFoundByType, utype.String())
+}
+
+func WorkflowByName(conf *pb.Config, name string) (types.ParsedWorkflow, error) {
+  parsed := types.ParsedWorkflow{}
+  for _,w := range conf.Workflows {
+    if w.Name == name { parsed.Wf = w ; continue }
+  }
+  if parsed.Wf == nil { return parsed, fmt.Errorf("%w %s", ErrNotFoundByName, name) }
+
+  for _,s := range conf.Sources {
+    if s.Name == parsed.Wf.Source { parsed.Source = s ; continue }
+  }
+  if parsed.Source == nil { return parsed, fmt.Errorf("%w %s", ErrNotFoundByName, parsed.Wf.Source) }
+
+  for _,b := range conf.Backups {
+    if b.Name == parsed.Wf.Backup { parsed.Backup = b ; continue }
+  }
+  if parsed.Backup == nil { return parsed, fmt.Errorf("%w %s", ErrNotFoundByName, parsed.Wf.Backup) }
+
+  for _,r := range conf.Restores {
+    if r.Name == parsed.Wf.Restore { parsed.Restore = r ; continue }
+  }
+  if parsed.Restore == nil { return parsed, fmt.Errorf("%w %s", ErrNotFoundByName, parsed.Wf.Restore) }
+
+  return parsed, nil
 }
 
 func Validate(conf *pb.Config) error {
