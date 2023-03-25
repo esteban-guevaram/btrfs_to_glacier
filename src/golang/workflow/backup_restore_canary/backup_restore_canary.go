@@ -27,13 +27,6 @@ var ErrValidateUuidFile = errors.New("validate_error_uuid_file")
 var ErrValidateNewDir = errors.New("validate_error_new_dir")
 var ErrValidateDelDir = errors.New("validate_error_del_dir")
 
-type MgrFactoryIf interface {
-  NewBackupManager(ctx context.Context,
-    conf *pb.Config, backup_name string) (types.BackupManagerAdmin, error)
-  NewRestoreManager(ctx context.Context,
-    conf *pb.Config, dst_name string) (types.RestoreManager, error)
-}
-
 // Fields that may change value during the execution.
 type State struct {
   Fs                  *types.Filesystem
@@ -43,6 +36,7 @@ type State struct {
   TopSrcRestoredSnap  *pb.SubVolume
   RestoredSrcSnaps    []*pb.SubVolume // does not contain TopSrcRestoredSnap
   BackupMgr           types.BackupManagerAdmin
+  TearDownBackup      func(context.Context) error
   RestoreMgr          types.RestoreManager
 }
 
@@ -52,14 +46,16 @@ type BackupRestoreCanary struct {
   Conf       *pb.Config
   Btrfs      types.Btrfsutil
   Lnxutil    types.Linuxutil
-  Factory    MgrFactoryIf
+  // We use a factory to defer creation of backup and restore objects
+  // since we need to create the filesystem first.
+  Factory    types.Factory
   ParsedWf   types.ParsedWorkflow
   State      *State
 }
 
 func NewBackupRestoreCanary(
     conf *pb.Config, wf_name string,
-    btrfs types.Btrfsutil, lnxutil types.Linuxutil, factory MgrFactoryIf) (types.BackupRestoreCanary, error) {
+    btrfs types.Btrfsutil, lnxutil types.Linuxutil, factory types.Factory) (types.BackupRestoreCanary, error) {
   parsed_wf, err := util.WorkflowByName(conf, wf_name)
   if err != nil { return nil, err }
   if len(parsed_wf.Source.Paths) != 1 {
@@ -113,18 +109,29 @@ func (self *BackupRestoreCanary) Setup(ctx context.Context) error {
   err = self.SetupPathsInNewFs()
   if err != nil { return err }
 
+  backup_builder, err := self.Factory.BuildBackupManager(ctx, self.ParsedWf.Backup.Name)
+  if err == nil {
+    self.State.BackupMgr, err = backup_builder.Create(ctx)
+    self.State.TearDownBackup = backup_builder.TearDown
+    if err != nil { return err}
+  } else {
+    return err
+  }
+
+  restore_builder, err := self.Factory.BuildRestoreManager(ctx, self.ParsedWf.Restore.Name)
+  if err == nil {
+    self.State.RestoreMgr, err = restore_builder(ctx)
+    if err != nil { return err}
+  } else {
+    return err
+  }
+
   err = self.PrepareState(ctx)
   return err
 }
 
 func (self *BackupRestoreCanary) PrepareState(ctx context.Context) error {
   var err error
-  self.State.BackupMgr, err = self.Factory.NewBackupManager(ctx, self.Conf, self.ParsedWf.Backup.Name)
-  if err != nil { return err }
-
-  self.State.RestoreMgr, err = self.Factory.NewRestoreManager(ctx, self.Conf, self.ParsedWf.Restore.Name)
-  if err != nil { return err }
-
   self.State.Uuid, err = self.DetermineVolUuid(ctx)
   if err != nil { return err }
 
@@ -223,12 +230,15 @@ func (self *BackupRestoreCanary) TearDown(ctx context.Context) error {
     util.Infof("Teardown before calling setup is a noop")
     return nil
   }
-  var umount_err, deldev_err error
+  var backup_err, umount_err, deldev_err error
+  if self.State.TearDownBackup != nil {
+    backup_err = self.State.TearDownBackup(ctx)
+  }
   if len(self.State.Fs.Mounts) > 0 {
     umount_err = self.Lnxutil.UMount(ctx, self.State.Fs.Uuid)
   }
   deldev_err = self.Lnxutil.DeleteLoopDevice(ctx, self.State.Fs.Devices[0])
-  return util.Coalesce(umount_err, deldev_err)
+  return util.Coalesce(backup_err, umount_err, deldev_err)
 }
 
 // btrfs subvolume snap restores/asubvol.snap.2 clones/asubvol.clone.2

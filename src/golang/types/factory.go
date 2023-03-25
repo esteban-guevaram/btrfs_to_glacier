@@ -5,13 +5,11 @@ import (
 )
 
 type DeferBackupManager struct {
-  Create   func() (BackupManagerAdmin, error)
-  TearDown func() error
+  Create   func(context.Context) (BackupManagerAdmin, error)
+  TearDown func(context.Context) error
 }
 
-type DeferRestoreManager struct {
-  Create   func() (RestoreManager, error)
-}
+type DeferRestoreManager = func(context.Context) (RestoreManager, error)
 
 type Factory interface {
   BuildBackupManager(context.Context, string) (DeferBackupManager, error)

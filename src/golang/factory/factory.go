@@ -22,11 +22,10 @@ import (
 var ErrBadConfig = errors.New("bad_config_for_factory")
 
 type Factory struct {
-  Conf      *pb.Config
-  Lu        types.Linuxutil
-  Btrfsutil types.Btrfsutil
-  Juggler   types.BtrfsPathJuggler
-  VolAdmin  types.VolumeAdmin
+  Conf          *pb.Config
+  Lu            types.Linuxutil
+  Btrfsutil     types.Btrfsutil
+  LazyVolAdmin  types.VolumeAdmin
 }
 
 func NewFactory(conf *pb.Config) (*Factory, error) {
@@ -36,12 +35,16 @@ func NewFactory(conf *pb.Config) (*Factory, error) {
   if err != nil { return nil, err }
   factory.Btrfsutil, err = shim.NewBtrfsutil(conf, factory.Lu)
   if err != nil { return nil, err }
-  factory.Juggler, err = volume_source.NewBtrfsPathJuggler(
-    conf, factory.Btrfsutil, factory.Lu)
-  if err != nil { return nil, err }
-  factory.VolAdmin, err = volume_source.NewVolumeAdmin(
-    conf, factory.Btrfsutil, factory.Lu, factory.Juggler)
   return factory, err
+}
+
+// Defer creation since BtrfsPathJuggler requires a mounted btrfs filesystem.
+func (self Factory) volAdmin() (types.VolumeAdmin, error) {
+  if self.LazyVolAdmin != nil { return self.LazyVolAdmin, nil }
+  juggler, err := volume_source.NewBtrfsPathJuggler(self.Conf, self.Btrfsutil, self.Lu)
+  if err != nil { return nil, err }
+  self.LazyVolAdmin, err = volume_source.NewVolumeAdmin(self.Conf, self.Btrfsutil, self.Lu, juggler)
+  return self.LazyVolAdmin, err
 }
 
 func (self Factory) BuildCodec() (types.Codec, error) {
@@ -64,6 +67,7 @@ func (self *Factory) BuildBackupObjects(
 
   if backup.Type == pb.Backup_AWS {
     if backup.Aws == nil { return nil, nil, fmt.Errorf("%w missing aws config", ErrBadConfig) }
+    // This is the only part of the building process where we need to wait :/
     aws_conf, err := encryption.NewAwsConfigFromTempCreds(ctx, self.Conf, pb.Aws_BACKUP_WRITER)
     if err != nil { return nil, nil, err }
     meta, err = aws_meta.NewMetadataAdmin(self.Conf, aws_conf, backup.Name)
@@ -107,32 +111,35 @@ func (self *Factory) BuildBackupManager(
   if err != nil { return res, err }
   meta, content, err := self.BuildBackupObjects(ctx, wf.Backup)
   if err != nil { return res, err }
+  vol_admin, err := self.volAdmin()
+  if err != nil { return res, err }
 
-  res.Create = func() (types.BackupManagerAdmin, error) {
-    if err := meta.SetupMetadata(ctx); err != nil { return nil, err }
-    if err := content.SetupBackupContent(ctx); err != nil { return nil, err }
-    mgr, err := backup_manager.NewBackupManagerAdmin(self.Conf, meta, content, self.VolAdmin)
+  res.Create = func(caller_ctx context.Context) (types.BackupManagerAdmin, error) {
+    if err := meta.SetupMetadata(caller_ctx); err != nil { return nil, err }
+    if err := content.SetupBackupContent(caller_ctx); err != nil { return nil, err }
+    mgr, err := backup_manager.NewBackupManagerAdmin(self.Conf, meta, content, vol_admin)
     return mgr, err
   }
-  res.TearDown = func() error {
-    if err := meta.TearDownMetadata(ctx); err != nil { return err }
-    return content.TearDownBackupContent(ctx)
+  res.TearDown = func(caller_ctx context.Context) error {
+    if err := meta.TearDownMetadata(caller_ctx); err != nil { return err }
+    return content.TearDownBackupContent(caller_ctx)
   }
   return res, nil
 }
 
 func (self *Factory) BuildRestoreManager(
     ctx context.Context, wf_name string) (types.DeferRestoreManager, error) {
-  res := types.DeferRestoreManager{}
   wf, err := self.GetWorkflow(wf_name) 
-  if err != nil { return res, err }
+  if err != nil { return nil, err }
   meta, content, err := self.BuildBackupObjects(ctx, wf.Backup)
-  if err != nil { return res, err }
+  if err != nil { return nil, err }
+  vol_admin, err := self.volAdmin()
+  if err != nil { return nil, err }
 
-  res.Create = func() (types.RestoreManager, error) {
-    if err := meta.SetupMetadata(ctx); err != nil { return nil, err }
-    if err := content.SetupBackupContent(ctx); err != nil { return nil, err }
-    mgr, err := restore_manager.NewRestoreManager(self.Conf, wf.Restore.Name, meta, content, self.VolAdmin)
+  res := func(caller_ctx context.Context) (types.RestoreManager, error) {
+    if err := meta.SetupMetadata(caller_ctx); err != nil { return nil, err }
+    if err := content.SetupBackupContent(caller_ctx); err != nil { return nil, err }
+    mgr, err := restore_manager.NewRestoreManager(self.Conf, wf.Restore.Name, meta, content, vol_admin)
     return mgr, err
   }
   return res, nil
