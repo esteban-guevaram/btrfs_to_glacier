@@ -63,10 +63,13 @@ linters:
 
 test: go_unittest cloud_integ shim_integ linters
 
-$(SUBVOL_PATH) fs_init &:
+$(SUBVOL_PATH):
+	echo "$(SUBVOL_PATH)"
 	[[ `id -u` == "0" ]] && echo never run this as root && exit 1
 	bash etc/setup_test_drive.sh -r -f -p \
 	  -e "$(EXT4_PREFIX)" -l "$(FS_PREFIX)" -s "$(SUBVOL_NAME)"
+
+fs_init: $(SUBVOL_PATH)
 
 go_code: c_code $(GOENV) $(go_files) $(GO_PROTO_GEN_SRCS)
 	pushd "$(MYGOSRC)"
