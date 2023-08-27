@@ -81,6 +81,15 @@ type BackupManager interface {
 
 type BackupManagerAdmin interface {
   BackupManager
+  // Creates the infrastructure (depend on implementation) that will contain the backup.
+  // Calling this method twice is a noop.
+  Setup(ctx context.Context) error
+
+  // Performs the cleanups (depend on implementation) after the backups.
+  // Calling this method twice is a noop.
+  // Calling this method before setup is an error.
+  TearDown(ctx context.Context) error
+
   // Used to append to a sequence a snapshot which is not related to the original subvolume.
   // Takes a snapshot from `sv` and appends it to the current sequence for SnapshotSeqHead `dst_uuid`.
   // This method expects a SnapshotSequence for `dst_uuid` in the metadata, otherwise it will return an error.
@@ -106,3 +115,14 @@ type RestoreManager interface {
   RestoreCurrentSequence(ctx context.Context, vol_uuid string) ([]RestorePair, error)
 }
 
+type RestoreManagerAdmin interface {
+  RestoreManager
+  // Creates the infrastructure (depend on implementation) that will contain the restore.
+  // Calling this method twice is a noop.
+  Setup(ctx context.Context) error
+
+  // Performs the cleanups (depend on implementation) after the restores.
+  // Calling this method twice is a noop.
+  // Calling this method before setup is an error.
+  TearDown(ctx context.Context) error
+}

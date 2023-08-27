@@ -64,7 +64,7 @@ func buildRestoreManager(head_cnt int) (*RestoreManager, *Mocks) {
     Store: store,
     Destination: dest,
   }
-  mgr, err := NewRestoreManager(conf, conf.Restores[0].Name, meta, store, dest)
+  mgr, err := NewRestoreManagerAdmin(conf, conf.Restores[0].Name, meta, store, dest)
   if err != nil { util.Fatalf("NewRestoreManager: %v", err) }
   real_mgr := mgr.(*RestoreManager)
   real_mgr.BetweenRestoreChecks = util.SmallTimeout

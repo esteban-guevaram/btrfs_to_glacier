@@ -20,12 +20,23 @@ type BackupManager struct {
   SrcVols     map[string]*pb.SubVolume
   PairsByCall [][]types.BackupPair
   ClonePairs  []types.BackupPair
+  SetupCalled bool
+  TearCalled  bool
 }
 
 func NewBackupManager() *BackupManager {
   mgr := &BackupManager{ SrcVols:make(map[string]*pb.SubVolume), }
   _  = (types.BackupManager)(mgr)
   return mgr
+}
+
+func (self *BackupManager) Setup(ctx context.Context) error {
+  self.SetupCalled = true
+  return self.ErrInject(self.Setup)
+}
+func (self *BackupManager) TearDown(ctx context.Context) error {
+  self.TearCalled = true
+  return self.ErrInject(self.TearDown)
 }
 
 func (self *BackupManager) InitFromConfSource(src *pb.Source) {
@@ -132,6 +143,8 @@ type RestoreManager struct {
   PopulateRestore  PopulateRestoreF
   RestoreCallVols  []string        // add vol_uuid for each call to RestoreCurrentSequence
   RestoredSnaps    []*pb.SubVolume // all volumes restored so far
+  SetupCalled      bool
+  TearCalled       bool
 }
 type RestoreCounts struct {
   RestoreCallVols, RestoredSnaps int
@@ -145,6 +158,15 @@ func NewDir(sv *pb.SubVolume) string {
 }
 func UuidFile(sv *pb.SubVolume) string {
   return fpmod.Join(sv.MountedPath, types.KCanaryUuidFile)
+}
+
+func (self *RestoreManager) Setup(ctx context.Context) error {
+  self.SetupCalled = true
+  return self.ErrInject(self.Setup)
+}
+func (self *RestoreManager) TearDown(ctx context.Context) error {
+  self.TearCalled = true
+  return self.ErrInject(self.TearDown)
 }
 
 func PopulateRestoreCorrect(orig *pb.SubVolume, pairs []types.RestorePair) error {

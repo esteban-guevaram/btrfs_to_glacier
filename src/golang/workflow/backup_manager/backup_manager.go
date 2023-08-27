@@ -24,14 +24,15 @@ var ErrCloneShouldHaveNoChild = errors.New("unrelated_clone_must_not_have_previo
 // Meta and Content must already been setup
 type BackupManager struct {
   Conf     *pb.Config
-  Meta     types.Metadata
-  Content  types.BackupContent
+  Meta     types.AdminMetadata
+  Content  types.AdminBackupContent
   Source   types.VolumeSource
   MinInterval time.Duration
 }
 
 func NewBackupManagerAdmin(conf *pb.Config,
-    meta types.Metadata, content types.BackupContent, vol_src types.VolumeSource) (types.BackupManagerAdmin, error) {
+    meta types.AdminMetadata, content types.AdminBackupContent,
+    vol_src types.VolumeSource) (types.BackupManagerAdmin, error) {
   mgr := &BackupManager{
     Conf: conf,
     Meta: meta,
@@ -42,9 +43,16 @@ func NewBackupManagerAdmin(conf *pb.Config,
   return mgr, nil
 }
 
-func NewBackupManager(conf *pb.Config,
-    meta types.Metadata, content types.BackupContent, vol_src types.VolumeSource) (types.BackupManager, error) {
-  return NewBackupManagerAdmin(conf, meta, content, vol_src)
+func (self *BackupManager) Setup(ctx context.Context) error {
+  if err := self.Meta.SetupMetadata(ctx); err != nil { return err }
+  if err := self.Content.SetupBackupContent(ctx); err != nil { return err }
+  return nil
+}
+
+func (self *BackupManager) TearDown(ctx context.Context) error {
+  if err := self.Meta.TearDownMetadata(ctx); err != nil { return err }
+  if err := self.Content.TearDownBackupContent(ctx); err != nil { return err }
+  return nil
 }
 
 // Does NOT write anything to self.Meta: writes should be ordered chunk -> snap -> seq -> head

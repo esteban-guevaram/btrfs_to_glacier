@@ -131,7 +131,7 @@ func buildBackupManagerEmpty(path_count int) (*BackupManager, *Mocks) {
     Store: store,
     Source: source,
   }
-  mgr, err := NewBackupManager(conf, meta, store, source)
+  mgr, err := NewBackupManagerAdmin(conf, meta, store, source)
   if err != nil { util.Fatalf("BuildBackupManager: %v", err) }
   return mgr.(*BackupManager), mocks
 }
@@ -147,7 +147,7 @@ func buildBackupManager(
     Source: source,
   }
   mocks.AddSvAndSnapsFromMetaInSrc()
-  mgr, err := NewBackupManager(conf, meta, store, source)
+  mgr, err := NewBackupManagerAdmin(conf, meta, store, source)
   if err != nil { util.Fatalf("BuildBackupManager: %v", err) }
   return mgr.(*BackupManager), mocks
 }

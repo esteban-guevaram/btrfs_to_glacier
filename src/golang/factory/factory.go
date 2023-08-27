@@ -17,6 +17,7 @@ import (
   "btrfs_to_glacier/volume_store/mem_only"
   "btrfs_to_glacier/workflow/backup_manager"
   "btrfs_to_glacier/workflow/restore_manager"
+  "btrfs_to_glacier/workflow/backup_restore_canary"
 )
 
 var ErrBadConfig = errors.New("bad_config_for_factory")
@@ -104,31 +105,8 @@ func (self *Factory) GetWorkflow(wf_name string) (types.ParsedWorkflow, error) {
   return parsed_wf, nil
 }
 
-func (self *Factory) BuildBackupManager(
-    ctx context.Context, wf_name string) (types.DeferBackupManager, error) {
-  res := types.DeferBackupManager{}
-  wf, err := self.GetWorkflow(wf_name) 
-  if err != nil { return res, err }
-  meta, content, err := self.BuildBackupObjects(ctx, wf.Backup)
-  if err != nil { return res, err }
-  vol_admin, err := self.volAdmin()
-  if err != nil { return res, err }
-
-  res.Create = func(caller_ctx context.Context) (types.BackupManagerAdmin, error) {
-    if err := meta.SetupMetadata(caller_ctx); err != nil { return nil, err }
-    if err := content.SetupBackupContent(caller_ctx); err != nil { return nil, err }
-    mgr, err := backup_manager.NewBackupManagerAdmin(self.Conf, meta, content, vol_admin)
-    return mgr, err
-  }
-  res.TearDown = func(caller_ctx context.Context) error {
-    if err := meta.TearDownMetadata(caller_ctx); err != nil { return err }
-    return content.TearDownBackupContent(caller_ctx)
-  }
-  return res, nil
-}
-
-func (self *Factory) BuildRestoreManager(
-    ctx context.Context, wf_name string) (types.DeferRestoreManager, error) {
+func (self *Factory) BuildBackupManagerAdmin(
+    ctx context.Context, wf_name string) (types.BackupManagerAdmin, error) {
   wf, err := self.GetWorkflow(wf_name) 
   if err != nil { return nil, err }
   meta, content, err := self.BuildBackupObjects(ctx, wf.Backup)
@@ -136,16 +114,26 @@ func (self *Factory) BuildRestoreManager(
   vol_admin, err := self.volAdmin()
   if err != nil { return nil, err }
 
-  res := func(caller_ctx context.Context) (types.RestoreManager, error) {
-    if err := meta.SetupMetadata(caller_ctx); err != nil { return nil, err }
-    if err := content.SetupBackupContent(caller_ctx); err != nil { return nil, err }
-    mgr, err := restore_manager.NewRestoreManager(self.Conf, wf.Restore.Name, meta, content, vol_admin)
-    return mgr, err
-  }
-  return res, nil
+  mgr, err := backup_manager.NewBackupManagerAdmin(self.Conf, meta, content, vol_admin)
+  return mgr, err
 }
 
-func BuildBackupRestoreCanary(conf *pb.Config) (types.BackupRestoreCanary, error) {
-  return nil, nil
+func (self *Factory) BuildRestoreManagerAdmin(
+    ctx context.Context, wf_name string) (types.RestoreManagerAdmin, error) {
+  wf, err := self.GetWorkflow(wf_name) 
+  if err != nil { return nil, err }
+  meta, content, err := self.BuildBackupObjects(ctx, wf.Backup)
+  if err != nil { return nil, err }
+  vol_admin, err := self.volAdmin()
+  if err != nil { return nil, err }
+
+  mgr, err := restore_manager.NewRestoreManagerAdmin(self.Conf, wf.Restore.Name, meta, content, vol_admin)
+  return mgr, err
+}
+
+func (self *Factory) BuildBackupRestoreCanary(
+    ctx context.Context, wf_name string) (types.BackupRestoreCanary, error) {
+  return backup_restore_canary.NewBackupRestoreCanary(
+    self.Conf, wf_name, self.Btrfsutil, self.Lu, self)
 }
 

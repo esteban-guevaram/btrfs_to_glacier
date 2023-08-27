@@ -27,39 +27,33 @@ type Mocks struct {
   BackupMgr   *mocks.BackupManager
   RestoreMgr  *mocks.RestoreManager
   InitBackup  func(*mocks.BackupManager) error
-  BackupDestroyed bool
 }
 
-func (self *Mocks) BuildBackupManager(ctx context.Context,
-    backup_name string) (types.DeferBackupManager, error) {
-  res := types.DeferBackupManager{}
-  parsed_wf, err := util.WorkflowByName(self.Conf, self.Conf.Workflows[0].Name)
-  if err != nil { return res, err }
-
-  res.Create = func(context.Context) (types.BackupManagerAdmin, error) {
-    self.BackupMgr.InitFromConfSource(parsed_wf.Source)
-    if self.InitBackup != nil {
-      err := self.InitBackup(self.BackupMgr)
-      if err != nil { return nil, err }
-    }
-    return self.BackupMgr, nil
-  }
-  res.TearDown = func(context.Context) error {
-    self.BackupDestroyed = true
-    return nil
-  }
-  return res, nil
-}
-
-func (self *Mocks) BuildRestoreManager(ctx context.Context,
-    dst_name string) (types.DeferRestoreManager, error) {
+func (self *Mocks) BuildBackupManagerAdmin(ctx context.Context,
+    backup_name string) (types.BackupManagerAdmin, error) {
   parsed_wf, err := util.WorkflowByName(self.Conf, self.Conf.Workflows[0].Name)
   if err != nil { return nil, err }
-  builder := func(context.Context) (types.RestoreManager, error) {
-    self.RestoreMgr.InitFromConfRestore(parsed_wf.Restore)
-    return self.RestoreMgr, nil
+
+  self.BackupMgr.InitFromConfSource(parsed_wf.Source)
+  if self.InitBackup != nil {
+    err := self.InitBackup(self.BackupMgr)
+    if err != nil { return nil, err }
   }
-  return builder, nil
+  return self.BackupMgr, nil
+}
+
+func (self *Mocks) BuildRestoreManagerAdmin(ctx context.Context,
+    dst_name string) (types.RestoreManagerAdmin, error) {
+  parsed_wf, err := util.WorkflowByName(self.Conf, self.Conf.Workflows[0].Name)
+  self.RestoreMgr.InitFromConfRestore(parsed_wf.Restore)
+  return self.RestoreMgr, err
+}
+
+func (self *Mocks) BuildBackupRestoreCanary(
+    ctx context.Context, wf_name string) (types.BackupRestoreCanary, error) {
+  util.Fatalf(`Mocks should only need to implement creation of Restore and Backup managers
+               for the purposes of this test file`)
+  return nil, nil
 }
 
 // Populates new clones with the copy from `rest_sv`.
@@ -167,6 +161,8 @@ func TestBackupRestoreCanary_Setup_OK(t *testing.T) {
                         len(mock.BackupMgr.SeqForUuid(canary.State.Uuid)), hist_len)
   util.EqualsOrFailTest(t, "RestoreMgr should not be called",
                         mock.RestoreMgr.ObjCounts(), expect_restore_counts)
+  util.EqualsOrFailTest(t, "BackupMgr setup should be called",
+                        mock.BackupMgr.SetupCalled, true)
 }
 
 func TestBackupRestoreCanary_Setup_Noop(t *testing.T) {
@@ -238,7 +234,7 @@ func TestBackupRestoreCanary_TearDown_OK(t *testing.T) {
 
   util.EqualsOrFailTest(t, "Bad fs state", mock.Lnxutil.ObjCounts(),
                                            expect_linux_counts)
-  util.EqualsOrFailTest(t, "Backup not destroyed", mock.BackupDestroyed, true)
+  util.EqualsOrFailTest(t, "Backup not destroyed", mock.BackupMgr.TearCalled, true)
 }
 
 func TestBackupRestoreCanary_TearDown_Partial(t *testing.T) {
@@ -258,7 +254,7 @@ func TestBackupRestoreCanary_TearDown_Partial(t *testing.T) {
   expect_linux_counts = mock.Lnxutil.ObjCounts().Increment(0,0,0,-1)
   err = canary.TearDown(ctx)
   if err != nil { t.Fatalf("TearDown: %v", err) }
-  util.EqualsOrFailTest(t, "Backup destroyed", mock.BackupDestroyed, false)
+  util.EqualsOrFailTest(t, "Backup destroyed", mock.BackupMgr.TearCalled, false)
   util.EqualsOrFailTest(t, "Bad fs state", mock.Lnxutil.ObjCounts(),
                                            expect_linux_counts)
 }

@@ -26,15 +26,16 @@ var ErrUnavailableChunks = errors.New("could_not_restore_missing_chunks")
 type RestoreManager struct {
   Conf        *pb.Config
   DstConf     *pb.Restore
-  Meta        types.Metadata
-  Content     types.BackupContent
+  Meta        types.AdminMetadata
+  Content     types.AdminBackupContent
   Destination types.VolumeDestination
   BetweenRestoreChecks time.Duration
 }
 
-func NewRestoreManager(
+func NewRestoreManagerAdmin(
     conf *pb.Config, dst_name string,
-    meta types.Metadata, content types.BackupContent, vol_dst types.VolumeDestination) (types.RestoreManager, error) {
+    meta types.AdminMetadata, content types.AdminBackupContent,
+    vol_dst types.VolumeDestination) (types.RestoreManagerAdmin, error) {
   mgr := &RestoreManager{
     Conf: conf,
     Meta: meta,
@@ -45,6 +46,18 @@ func NewRestoreManager(
   var err error
   mgr.DstConf, err = util.RestoreByName(conf, dst_name)
   return mgr, err
+}
+
+func (self *RestoreManager) Setup(ctx context.Context) error {
+  if err := self.Meta.SetupMetadata(ctx); err != nil { return err }
+  if err := self.Content.SetupBackupContent(ctx); err != nil { return err }
+  return nil
+}
+
+func (self *RestoreManager) TearDown(ctx context.Context) error {
+  if err := self.Meta.TearDownMetadata(ctx); err != nil { return err }
+  if err := self.Content.TearDownBackupContent(ctx); err != nil { return err }
+  return nil
 }
 
 func (self *RestoreManager) ReadHeadAndSequenceMap(

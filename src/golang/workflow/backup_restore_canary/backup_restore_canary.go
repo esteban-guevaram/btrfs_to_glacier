@@ -36,8 +36,7 @@ type State struct {
   TopSrcRestoredSnap  *pb.SubVolume
   RestoredSrcSnaps    []*pb.SubVolume // does not contain TopSrcRestoredSnap
   BackupMgr           types.BackupManagerAdmin
-  TearDownBackup      func(context.Context) error
-  RestoreMgr          types.RestoreManager
+  RestoreMgr          types.RestoreManagerAdmin
 }
 
 // Note: this type cannot be abstracted away from btrfs.
@@ -109,22 +108,13 @@ func (self *BackupRestoreCanary) Setup(ctx context.Context) error {
   err = self.SetupPathsInNewFs()
   if err != nil { return err }
 
-  backup_builder, err := self.Factory.BuildBackupManager(ctx, self.ParsedWf.Backup.Name)
-  if err == nil {
-    self.State.BackupMgr, err = backup_builder.Create(ctx)
-    self.State.TearDownBackup = backup_builder.TearDown
-    if err != nil { return err}
-  } else {
-    return err
-  }
+  self.State.BackupMgr, err = self.Factory.BuildBackupManagerAdmin(ctx, self.ParsedWf.Backup.Name)
+  if err != nil { return err}
+  err = self.State.BackupMgr.Setup(ctx)
+  if err != nil { return err}
 
-  restore_builder, err := self.Factory.BuildRestoreManager(ctx, self.ParsedWf.Restore.Name)
-  if err == nil {
-    self.State.RestoreMgr, err = restore_builder(ctx)
-    if err != nil { return err}
-  } else {
-    return err
-  }
+  self.State.RestoreMgr, err = self.Factory.BuildRestoreManagerAdmin(ctx, self.ParsedWf.Restore.Name)
+  if err != nil { return err}
 
   err = self.PrepareState(ctx)
   return err
@@ -231,8 +221,8 @@ func (self *BackupRestoreCanary) TearDown(ctx context.Context) error {
     return nil
   }
   var backup_err, umount_err, deldev_err error
-  if self.State.TearDownBackup != nil {
-    backup_err = self.State.TearDownBackup(ctx)
+  if self.State.BackupMgr != nil {
+    backup_err = self.State.BackupMgr.TearDown(ctx)
   }
   if len(self.State.Fs.Mounts) > 0 {
     umount_err = self.Lnxutil.UMount(ctx, self.State.Fs.Uuid)
